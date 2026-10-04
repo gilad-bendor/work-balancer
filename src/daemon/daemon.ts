@@ -42,7 +42,7 @@ export interface TrackerDeps {
   clock: Clock;
   log: Logger;
   policy: PolicyLoader;
-  /** Last heartbeat time of the previous daemon run, if known (for gap detection). */
+  /** This daemon's start (coverage holes that began before it are `daemon-down`/`quit` gaps). */
   startedAt: number;
 }
 
@@ -57,7 +57,7 @@ export interface DaemonOptions {
   env: RuntimeEnv;
   clock: Clock;
   log: Logger;
-  createTracker?: (deps: TrackerDeps) => Tracker;
+  createTracker?: (deps: TrackerDeps) => Tracker | Promise<Tracker>;
   tickMs?: number;
   /** Called after a /bridge/shutdown request was answered (main.ts exits the process). */
   onShutdownRequest?: () => void;
@@ -178,7 +178,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
 
   store.append({ type: 'daemon.started', pid: process.pid, version: DAEMON_VERSION, env: env.name, reason: 'start' });
   await policy.refresh();
-  tracker = opts.createTracker?.({ store, clock, log, policy, startedAt }) ?? null;
+  tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt })) ?? null;
   log.info('daemon started', { env: env.name, port, pid: process.pid, dataDir: env.dataDir });
 
   const tick = async (): Promise<void> => {

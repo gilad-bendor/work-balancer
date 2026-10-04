@@ -10,10 +10,10 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1, M2, M3 **done** (2026-10-04): live daemon supervised by Hammerspoon, placeholder menubar `⏱`. |
-| **Next** | **M4 — `interactive` provider, `work` digest, live menubar** (§3) → observe mode. Enforcement comes later, in M10. |
+| **Phase** | M1–M4 **done** (2026-10-04): **observe mode is live** — tracking into `data/`, menubar `⏱ worked / limit` with colours. No enforcement, no dialogs. |
+| **Next** | **M5 — `prompt-history` provider** (§3; its investigation is a ⟂ tbd candidate). Then M6 (policy engine) → … → M10 (enforcement). Also: watch the first real lock/unlock and sleep/wake records in `data/` (not yet observed live). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes: `~/.hammerspoon/work-balancer.lua` symlinked + `require("work-balancer")`; Lua supervises the live daemon (port 47621, `var/live/`, writes `data/`); menubar `⏱` (no tracking yet). `hs -c 'return WorkBalancer.health()'`. The owner allows Copilot to change and reload Hammerspoon **freely, without asking** (D-26). |
+| **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.3.0 + daemon 0.3.0 since 2026-10-04 17:08): Lua samples input/app/lock/sleep, supervises the live daemon (port 47621, `var/live/`), which writes `data/YYYY-MM/YYYY-MM-DD.jsonl` and drives the menubar. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`. The owner allows Copilot to change and reload Hammerspoon **freely, without asking** (D-26). |
 | **Active tbd files** | None (see §5). |
 
 ---
@@ -284,17 +284,31 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   Hammerspoon for ~67 s (hs.task stdout pipe held by a background subshell — `.github/hammerspoon.md` H-6). Killed the
   subshell; fixed the command; verified spawn/restart since.
 
-### M4 — `interactive` provider, `work` digest, aggregates, live menubar · `todo`
-- [ ] Lua sensors: `hs.host.idleTime()` per heartbeat; app focus intervals via `hs.application.watcher` (exact
+### M4 — `interactive` provider, `work` digest, aggregates, live menubar · `done`
+- [x] Lua sensors: `hs.host.idleTime()` per heartbeat (implemented: sampled every **1 s**, batched per heartbeat — F-HS-6); app focus intervals via `hs.application.watcher` (exact
       durations, bundle id + name); `hs.caffeinate.watcher` (sleep/wake/lock/unlock/display) pushed immediately.
-- [ ] `interactive` minute records (R-INFO-2), every monitored minute; `monitor.gap` detection (heartbeat silence
+- [x] `interactive` minute records (R-INFO-2), every monitored minute; `monitor.gap` detection (heartbeat silence
       > 30 s without a sleep event).
-- [ ] `work` digest (R-INFO-3, R-INFO-5) — computed on demand, designed to accept prompt instants (M5) and inactivity
+- [x] `work` digest (R-INFO-3, R-INFO-5) — computed on demand, designed to accept prompt instants (M5) and inactivity
       credits (M9) as additional inputs — + time-range aggregates (R-INFO-6): today, week, current stretch.
-- [ ] Menubar: `worked / limit` text + colour (R-UI-MENU-1), no enforcement yet.
+- [x] Menubar: `worked / limit` text + colour (R-UI-MENU-1), no enforcement yet.
 - **AC:** interval-arithmetic unit tests (R-INFO-3: overlapping grace windows, lock cut-off, minute projection,
   sleep across minute boundaries, 04:00 split); **observe mode is live** (tracking + menubar only) on the owner's
   machine (with his consent from M1).
+- **AC verified (2026-10-04):** `scripts/check` 86/86. `src/providers/work/work.test.ts` (one instant = 5 min;
+  overlapping grace windows not double counted; run `[a,b]` → `b + grace`; breaks/longest stretch; lock cut-off without
+  resumption on unlock; credits count while locked; per-minute projection at second precision; sleep across minute
+  boundaries; 04:00 split 03:58 → 2 min + 3 min; clipped to *now*; current stretch). `src/core/intervals.test.ts`.
+  `src/providers/interactive/interactive.test.ts` (every monitored minute; runs joined ≤ 2 s; apps ≥ 5 s top 3,
+  locked time excluded; lock persisted with event time; idempotent re-send; late samples re-emit; sleep batch does
+  not fake a wake; fully asleep minutes skipped; `locked` flag repairs a missed unlock; restart reload of runs/locks/
+  topApps without rewriting unchanged minutes). `src/daemon/tracker.test.ts` (menubar `⏱ 1:00 / 9:00` green +
+  tooltip; Saturday grey/Friday none; Sun–Wed 40:16 from disk ⇒ Thursday `/ 3:44`; `hs-down` gap recorded, sleep not,
+  split at 04:00; restart ⇒ `daemon-down` gap). `src/policy/observe.test.ts` (limits + colours).
+  **Live:** `scripts/restart-daemon` + `scripts/reload-hammerspoon` → daemon 0.3.0 adopted; after 2.5 min the menubar
+  read `⏱ 0:02 / 9:00` (green), `data/2026-10/2026-10-04.jsonl` had `interactive` minutes with input runs + top apps,
+  `/api/status` aggregates consistent (worked 165 s, 4 monitored minutes, 0 unmonitored), daemon 0.0 % CPU / 68 MB,
+  console clean, no `monitor.gap` across a Hammerspoon reload. Not yet observed live: lock/unlock, sleep/wake records.
 
 ### M5 — `prompt-history` provider · `todo`
 - [ ] ⟂ Investigation (record results in `.github/copilot-history-formats.md`): both stores (F-COP-1..5), how to tell
@@ -417,6 +431,9 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-24 | 2026-10-04 | The daemon is spawned **detached** through an `hs.task` shell (`/bin/sh -c '… &'`), supervised via `daemon.json` + `/health` (not the task exit callback). Still `hs.task`, so D-6 holds. | Verified: direct `hs.task` children are killed by `hs.reload()`; detached grandchildren survive → adoption works (`.github/hammerspoon.md` H-3). |
 | D-25 | 2026-10-04 | `reload-hammerspoon` sets a `_WB_RELOAD_PENDING` global before reloading; health polling treats it as "reloading". | The old Lua state may answer `ok` in the 0.2 s before the reload — never a false success. |
 | D-26 | 2026-10-04 | Copilot sessions may **change and reload Hammerspoon freely, without asking** (still: only our own `work-balancer.lua` + the one `require` line; never other modules; no reload loops; never show test UI / enforcement on the live instance without consent). | Owner, at the M1 live install. |
+| D-28 | 2026-10-04 | Coverage = Lua's sample spans (`since` → `sentAt` per heartbeat), not the daemon's uptime. A daemon outage while Lua runs loses nothing (Lua's outbox re-delivers; ingest is idempotent) and is **not** a gap; `monitor.gap` only for holes in Lua coverage (> 30 s, minus sleep). | Honest gaps; restarts are free. |
+| D-29 | 2026-10-04 | `interactive` stores input as **runs** (instants ≤ 2 s apart joined); minute records omit zero/empty fields; fully asleep minutes are not written. Daemon crash ⇒ up to ~70 s of unflushed minutes may be lost (recorded as a `daemon-down` gap). | Exact busy union with compact files (≈ 1 short line per awake minute). |
+| D-30 | 2026-10-04 | `work` digest = pluggable `WorkSource`s (activity runs, blocked, credited) and is clipped to *now*; M4's menubar limit/colour lives in `src/policy/observe.ts` (`effectiveLimit`, `statusColour`) for M6 to build on. All user-facing strings in `src/ui/strings.ts`. | M5/M9 plug in without touching `work`; one place to review tone. |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -435,6 +452,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | Q-8 | Synthetic input from `copilot-retry-watcher` likely resets HID idle time → phantom busy minutes. Filter? | **Accept for now (rare); revisit if visible in data.** | open |
 | Q-9 | Auto-commit `data/` daily? | **No; owner commits manually.** | open |
 | Q-10 | Fixed port `47621` acceptable? | **Yes; dev = `47622`; both overridable via env.** | open |
+| Q-11 | The Mac rarely sleeps (copilot-retry-watcher holds the display awake during chats), so `interactive` writes ≈ 1 line per minute even while locked (≈ 100–250 KB/day in `data/`). Acceptable, or skip fully-locked idle minutes? | **Keep (spec: every monitored minute).** | open |
+| Q-12 | Menubar colours: green `(0.20,0.66,0.33)`, orange `(0.93,0.55,0.05)`, red `(0.86,0.22,0.18)`, grey; title `⏱ h:mm / h:mm`. Owner's visual check pending. | **As implemented.** | open |
 
 ---
 
@@ -480,6 +499,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
   holding the pipe freezes all of Hammerspoon (H-6). Background only simple commands with all fds redirected.
 - **F-HS-10** `hs.json.decode`: JSON `null` → `nil`; `hs.json.encode({})` → `[]`; integers (epoch ms) encode exactly.
   `hs.styledtext.defaultFonts.menuBar` = `.AppleSystemUIFont` 13 pt. Hyper hotkeys show as `✧` in `getHotkeys()`.
+- **F-HS-11** Live sensors (2026-10-04): continuous typing yields one input instant per second; the owner's Playwright
+  browser shows up as app `com.google.chrome.for.testing` ("Google Chrome for Testing") when it takes the foreground.
 - **F-HS-8** `hs.reload()` **kills direct `hs.task` children**; a grandchild backgrounded by an `hs.task` shell survives
   (→ D-24). Details and method: [hammerspoon.md](./hammerspoon.md) §1.
 
@@ -509,4 +530,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | Date | Session / tmp-folder | Summary | tbd files |
 |---|---|---|---|
 | 2026-10-04 | Design session (ran from `~/gits/GILAD-PRIVATE-BRANCH`; no tmp-folder in this repo) | Problem analysis with the owner; requirements, policy, architecture; created `copilot-instructions.md` and this ledger; independent design review applied (D-17…D-23). | — |
-| 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4. M1 done: scaffolding, run-node/run-daemon/check, reload-hammerspoon (tbd-01), Lua stub, first live install (consented); Hammerspoon + Node facts verified (F-HS-6..8, F-ENV-5..6). | tbd-01 |
+| 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4, all done; **observe mode live**. M1 scaffolding + reload-hammerspoon (tbd-01) + live install; M2 core/store/config; M3 daemon/bridge/supervisor (incident: hs.task pipe freeze, H-6); M4 interactive/work/menubar. Facts F-HS-6..11, F-ENV-5..6; decisions D-24..D-30. | tbd-01 |

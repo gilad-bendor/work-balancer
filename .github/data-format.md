@@ -30,11 +30,11 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 
 | `type` | Fields | Status | Notes |
 |---|---|---|---|
-| `daemon.started` | `pid`, `version`, `env`, `reason` | written (M3) | |
+| `daemon.started` | `pid`, `version`, `env`, `reason` | written (M3) | Written before `config.loaded` of the same start. |
 | `daemon.stopped` | `pid`, `reason` | written (M3) | Missing after a crash — gaps are derived instead. |
-| `monitor.gap` | `from`, `to`, `cause` (`daemon-down` · `quit` · `hs-down` · `stall`) | written (M4) | Unmonitored time, written when detected. |
+| `monitor.gap` | `from`, `to`, `cause` (`daemon-down` · `quit` · `hs-down` · `stall`) | written (M4) | Unmonitored time, written when detected: a hole > 30 s in Lua's sample coverage, minus sleep. `daemon-down`/`quit` = the hole began before this daemon started (samples were lost, e.g. a crash before minutes were flushed); `hs-down` = Lua was not sampling. A daemon outage while Lua runs is **not** a gap: Lua's outbox re-delivers the samples. Split per day. `stall` is reserved. |
 | `minute` | `provider`, `minute` (MinuteKey = epoch ms floored to 60 000), `data` | written (M4: `interactive`) | Raw providers only (`work` is never persisted). **Last record per `(provider, minute)` in file order wins.** |
-| `system` | `event` (`sleep` · `wake` · `lock` · `unlock` · `display-sleep` · `display-wake`) | written (M4) | From Lua watchers. |
+| `system` | `event` (`sleep` · `wake` · `lock` · `unlock` · `display-sleep` · `display-wake`) | written (M4) | From Lua's `hs.caffeinate.watcher`; `ts` = event time. The daemon may also write a **synthetic** `lock`/`unlock` (heartbeat's `locked` flag disagrees with the timeline) or `wake` (a heartbeat arrives while the timeline says asleep), at the receiving time. Lock/unlock and sleep/wake pairs give the intervals that cut busy time. |
 | `inactivity.detected` | `gapId`, `lastInputAt` | planned (M9) | |
 | `inactivity.resolved` | `gapId`, `from`, `to`, `choice` (`back` · `whole` · `some` · `expired`), `creditedMinutes` | planned (M9) | Later resolution of the same gap replaces earlier. |
 | `policy.transition` | `from`, `to`, `workedMin`, `limitMin`, `weekMin` | planned (M6/M10) | Level changes only. |
@@ -54,11 +54,17 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 
 | Field | Meaning |
 |---|---|
-| `inputs` | Input runs inside this minute: `[[fromOffsetMs, toOffsetMs], …]`, offsets relative to `minute`. A run merges observed input instants ≤ 5 s apart (exact for the busy union because the grace window ≫ 5 s). A single instant is `[x, x]`. Input instants come from `hs.host.idleTime()` sampled every second (±1 s). |
-| `activeSeconds` | Number of distinct seconds in the minute with observed input (0–60). |
-| `lastInputAt` | Epoch ms of the last input in this minute, or `null`. |
+| `inputs` | Input runs inside this minute: `[[fromOffsetMs, toOffsetMs], …]` (closed), offsets relative to `minute`. A run joins observed input instants ≤ 2 s apart (exact for the busy union because the grace window ≫ 2 s); a single instant is `[x, x]`; a run crossing the minute end is split (`…, 59999]` / `[0, …`). Instants come from `hs.host.idleTime()` (whole seconds) sampled every second ⇒ ±1 s. |
+| `activeSeconds` | Distinct whole seconds of the minute touched by an input run (0–60). |
+| `lastInputAt` | Epoch ms of the end of the last input run in this minute (`minute + 59999` if the run continues into the next minute). |
 | `topApps` | ≤ 3 apps by foreground time in this minute, each ≥ 5 s: `[{ "id": bundleId, "name": appName, "s": seconds }]`. |
-| `lockedSeconds`, `asleepSeconds` | Seconds of this minute with the screen locked / the Mac asleep. |
+| `lockedSeconds`, `asleepSeconds` | Seconds of this minute with the screen locked / the Mac asleep. Locked/asleep time is not counted as app time. |
+
+On disk, zero / empty / `null` fields are **omitted** (a fully locked minute is `"data":{"lockedSeconds":60}`); readers
+default them. A minute is written ~70 s after it ends (and the partial current minute on a graceful stop); a later
+record for the same minute (late samples, a restart) replaces it. Fully asleep minutes are not written. App
+`topApps` of a minute loaded from disk are kept when re-emitting (raw app intervals are not persisted; per app the
+larger second count wins).
 
 **`prompt-history`** (M5) — planned.
 

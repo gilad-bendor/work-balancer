@@ -44,3 +44,24 @@ second live daemon exits; dev isolation by stat snapshot).
 
 **Incident:** first live spawn froze Hammerspoon ~67 s (H-6). Root cause found with `sample`; fixed and documented.
 Not done on live on purpose: triggering `panic()` (would write a fake record into `data/`).
+
+## M4 checkpoint
+
+**Done:** Lua sensors (1 s idle sampler, app watcher, caffeinate watcher, `locked`/`since` per heartbeat, outbox caps),
+`src/core/intervals.ts`, `src/providers/interactive/` (runs, apps, lock/sleep timeline, coverage, minute writer with
+re-emission), `src/providers/work/` (pluggable sources, busy clipped to now, day cache, range aggregates, current
+stretch), `src/policy/observe.ts`, `src/ui/strings.ts`, real `src/daemon/tracker.ts` (gaps, menubar, `/api/status`),
+`scripts/restart-daemon`, docs (data-format §3.1, hammerspoon §2, README).
+
+**Verified:** `scripts/check` 86/86 (see ledger M4 AC). Live: menubar `⏱ 0:02 / 9:00` green after 2.5 min; minute
+records with input runs + top apps; status aggregates consistent; 0 % CPU; no gap across a reload.
+
+**Remaining / watch:** first live lock/unlock + sleep/wake records; owner's visual check of the menubar (Q-12).
+
+## Summary
+
+- **What works:** observe mode on the live Mac — tracking into `data/`, menubar `⏱ worked / limit` with colours,
+  supervisor with restart + adoption, dev instance, panic latch/hotkey, hot-reloaded policy.
+- **Surprises:** runner opened tbd-01 in the wrong VS Code window (owner fixed the runner); `hs.task` pipe freeze
+  (H-6) — ~67 s Hammerspoon freeze during M3, root-caused with `sample`, fixed, documented.
+- **Next:** M5 `prompt-history` (investigation is a good ⟂ tbd), then M6 policy evaluator.

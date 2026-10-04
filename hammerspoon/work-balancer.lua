@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.2.0"
+local VERSION = "0.3.0"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -13,6 +13,8 @@ local SPAWN_GRACE = 8          -- seconds to let a freshly spawned daemon come u
 local BACKOFF_MAX = 60
 local LIVE_PORT_DEFAULT = 47621
 local PANIC_HOLD = 1.5         -- seconds to hold the panic hotkey
+local MAX_OUTBOX = 50000       -- per sample kind; oldest dropped beyond this (≈ 14 h of continuous input)
+local BATCH = 5000             -- max samples per kind in one heartbeat
 
 if WorkBalancer and WorkBalancer._unload then pcall(WorkBalancer._unload) end
 
@@ -54,8 +56,12 @@ local S = {
   timers = {},
   hotkeys = {},
   previews = {},
-  outbox = { inputs = {}, apps = {}, system = {} }, -- sensor samples not yet acknowledged (filled from M4)
-  sensors = {},
+  outbox = { inputs = {}, apps = {}, system = {} }, -- sensor samples not yet acknowledged by the daemon
+  loadedAt = nil,       -- coverage starts here for the first heartbeat …
+  ackedSentAt = nil,    -- … and at the last acknowledged heartbeat's sentAt afterwards
+  lastInputAt = nil,
+  app = nil,            -- current foreground app { id, name, from }
+  sensors = { watchers = {} },
 }
 
 -- ───────────────────────────── daemon.json & spawning ─────────────────────────────
@@ -129,12 +135,15 @@ end
 
 local function buildHeartbeat()
   local o = S.outbox
-  local counts = { inputs = #o.inputs, apps = #o.apps, system = #o.system }
+  -- At most BATCH per kind: after a long daemon outage the outbox drains over several beats (body limit 1 MB).
+  local counts = { inputs = math.min(#o.inputs, BATCH), apps = math.min(#o.apps, BATCH), system = math.min(#o.system, BATCH) }
+  local sentAt = nowMs()
   local samples = {
     inputs = { table.unpack(o.inputs, 1, counts.inputs) },
     apps = { table.unpack(o.apps, 1, counts.apps) },
     system = { table.unpack(o.system, 1, counts.system) },
     locked = S.sensors.isLocked and S.sensors.isLocked() or false,
+    since = S.ackedSentAt or S.loadedAt or sentAt,
   }
   if S.sensors.openAppInterval then
     local open = S.sensors.openAppInterval()
@@ -144,12 +153,12 @@ local function buildHeartbeat()
     protocol = PROTOCOL,
     loadId = S.loadId,
     seq = S.seq,
-    sentAt = nowMs(),
+    sentAt = sentAt,
     samples = samples,
     ui = { windows = {}, dimmed = false, latches = M.latches, panicBy = S.panicBy },
     acks = {},
   }
-  return hs.json.encode(body), counts
+  return hs.json.encode(body), counts, sentAt
 end
 
 local function dropSent(counts)
@@ -200,7 +209,7 @@ local function finish(gen)
   if gen ~= S.gen then return false end
   S.inflight = false
   if S.watchdog then S.watchdog:stop(); S.watchdog = nil end
-  if S.pushPending then
+  if S.pushPending or #S.outbox.inputs > BATCH or #S.outbox.apps > BATCH or #S.outbox.system > BATCH then
     S.pushPending = false
     S.timers.push = hs.timer.doAfter(0.1, function() sendHeartbeat() end)
   end
@@ -216,7 +225,7 @@ sendHeartbeat = function()
   S.seq = S.seq + 1
   S.gen = S.gen + 1
   local gen = S.gen
-  local body, counts = buildHeartbeat()
+  local body, counts, sentAt = buildHeartbeat()
   S.inflight = true
   S.watchdog = hs.timer.doAfter(HEARTBEAT_TIMEOUT, function()
     if gen == S.gen and S.inflight then
@@ -233,6 +242,7 @@ sendHeartbeat = function()
       local ok, reply = pcall(hs.json.decode, resp)
       if ok and type(reply) == "table" then
         dropSent(counts)
+        S.ackedSentAt = sentAt
         onSuccess(reply, info)
       else
         onFailure("bad reply")
@@ -252,6 +262,72 @@ end
 
 --- Sends a heartbeat now (sensors call this on sleep/wake/lock/unlock).
 function M.pushNow() sendHeartbeat() end
+
+-- ───────────────────────────── sensors ─────────────────────────────
+
+local function pushSample(kind, item)
+  local list = S.outbox[kind]
+  list[#list + 1] = item
+  if #list > MAX_OUTBOX then table.remove(list, 1) end
+end
+
+-- Input instants. hs.host.idleTime() is whole seconds (H-1): sample every second; a new instant only when the
+-- derived last-input time moved forward (jitter < 0.5 s is the same input).
+local function sampleIdle()
+  local t = nowMs() - hs.host.idleTime() * 1000
+  if not S.lastInputAt or t > S.lastInputAt + 500 then
+    S.lastInputAt = t
+    pushSample("inputs", t)
+  end
+end
+
+local function appIdentity(app, fallbackName)
+  local name = (app and app:name()) or fallbackName or "?"
+  return (app and app:bundleID()) or name, name
+end
+
+local function switchApp(id, name)
+  local t = nowMs()
+  if S.app then
+    if S.app.id == id then return end
+    pushSample("apps", { id = S.app.id, name = S.app.name, from = S.app.from, to = t })
+  end
+  S.app = { id = id, name = name, from = t }
+end
+
+S.sensors.openAppInterval = function()
+  if not S.app then return nil end
+  return { id = S.app.id, name = S.app.name, from = S.app.from, to = nowMs() }
+end
+
+S.sensors.isLocked = function()
+  local p = hs.caffeinate.sessionProperties()
+  return (p and p.CGSSessionScreenIsLocked == true) or false
+end
+
+local CAFF = hs.caffeinate.watcher
+local SYSTEM_EVENTS = {
+  [CAFF.systemWillSleep] = "sleep", [CAFF.systemDidWake] = "wake",
+  [CAFF.screensDidLock] = "lock", [CAFF.screensDidUnlock] = "unlock",
+  [CAFF.screensDidSleep] = "display-sleep", [CAFF.screensDidWake] = "display-wake",
+}
+
+local function startSensors()
+  S.loadedAt = nowMs()
+  S.timers.idle = hs.timer.doEvery(1, sampleIdle)
+  sampleIdle()
+  local front = hs.application.frontmostApplication()
+  if front then switchApp(appIdentity(front)) end
+  S.sensors.watchers.apps = hs.application.watcher.new(function(name, event, app)
+    if event == hs.application.watcher.activated then switchApp(appIdentity(app, name)) end
+  end):start()
+  S.sensors.watchers.caffeinate = CAFF.new(function(e)
+    local ev = SYSTEM_EVENTS[e]
+    if not ev then return end
+    pushSample("system", { event = ev, at = nowMs() })
+    sendHeartbeat() -- now, not in 5 s (before sleeping, and right after waking/unlocking)
+  end):start()
+end
 
 -- ───────────────────────────── escape hatch ─────────────────────────────
 
@@ -369,6 +445,7 @@ if not REPO then
   log("ERROR: cannot locate the repo from %s", selfPath)
 else
   downMenubar("connecting")
+  startSensors()
   S.timers.heartbeat = hs.timer.doEvery(HEARTBEAT_EVERY, function() sendHeartbeat() end)
   S.timers.first = hs.timer.doAfter(0.2, function() sendHeartbeat() end)
 end

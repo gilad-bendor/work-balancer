@@ -43,6 +43,13 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 - **Latches:** `panic` (hotkey: hold ⌃⌥⌘⇧Esc 1.5 s, or `WorkBalancer.panic()`; cleared by the 04:00 day-key change
   in a reply or `WorkBalancer.resume()`), `quit` (`WorkBalancer.quit()`: shutdown request, menubar removed, no
   respawn until the next module load).
+- **Sensors (M4):** a 1 s timer samples `hs.host.idleTime()` → an input instant `now − idle` whenever it moves
+  forward by > 0.5 s; `hs.application.watcher` (activated) closes the previous app interval `{id = bundleID, name,
+  from, to}` (the still-open interval is added to every heartbeat); `hs.caffeinate.watcher` → `system` samples
+  (`sleep`/`wake`/`lock`/`unlock`/`display-sleep`/`display-wake`) and an immediate heartbeat. Each heartbeat also
+  carries `locked` (`sessionProperties().CGSSessionScreenIsLocked`) and `since` (coverage start: load time, then the
+  last acknowledged `sentAt`). Outbox ≤ 50 000 per kind; ≤ 5 000 per heartbeat (drains faster when backlogged).
+- **Code changes in `src/`** need `scripts/restart-daemon` (the supervisor adopts the running daemon across reloads).
 - **Dev preview:** `WorkBalancer.preview(url)` opens a normal, closable `DEV PREVIEW — <url>` webview; it refuses the
   live port and non-local URLs.
 

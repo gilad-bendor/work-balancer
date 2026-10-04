@@ -1,0 +1,24 @@
+#!/bin/bash
+# Restart the live daemon so it runs the current src/ (Hammerspoon adopts a running daemon across reloads, so code
+# changes need this). Graceful SIGTERM (flushes minutes); the Lua supervisor respawns it within ~10 s.
+#   scripts/restart-daemon [--env dev]   (dev: only stops it — start it again yourself)
+set -euo pipefail
+repo="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+env_name="live"
+[[ "${1:-}" == "--env" ]] && env_name="${2:?--env needs live|dev}"
+info="$repo/var/$env_name/daemon.json"
+if [[ ! -f "$info" ]]; then echo "no $info — daemon not running"; exit 1; fi
+pid="$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$info")"
+port="$(sed -n 's/.*"port": *\([0-9]*\).*/\1/p' "$info")"
+echo "stopping $env_name daemon pid $pid"
+kill -TERM "$pid"
+for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+[[ "$env_name" == "dev" ]] && exit 0
+for _ in $(seq 1 30); do
+  sleep 1
+  if health="$(curl -s --max-time 1 "http://127.0.0.1:$port/health")" && [[ "$health" == *'"ok":true'* && "$health" != *"\"pid\":$pid"* ]]; then
+    echo "respawned: $health"; exit 0
+  fi
+done
+echo "the supervisor did not respawn the daemon within 30 s — check: hs -c 'return WorkBalancer.health()'" >&2
+exit 1

@@ -14,10 +14,20 @@ and [.github/ledger.md](.github/ledger.md).
    `require("work-balancer")` line to `~/.hammerspoon/init.lua` (backing it up first), reloads Hammerspoon and
    checks health. Safe to re-run.
 
+## What it does today (observe mode)
+
+The menubar shows today's worked time against today's limit, e.g. `⏱ 5:12 / 9:00`, green → orange (75 %) → red
+(limit); grey on Shabbat; hover for the week total and the current stretch. Nothing is enforced yet. Activity is
+recorded per minute in `data/YYYY-MM/YYYY-MM-DD.jsonl` (format: [.github/data-format.md](.github/data-format.md));
+the policy lives in [config/policy.ts](config/policy.ts) and is hot-reloaded.
+
 ## Everyday commands
 
 - `scripts/check` — typecheck + all tests.
-- `hs -c 'return WorkBalancer.health()'` — is the Hammerspoon side alive?
+- `hs -c 'return WorkBalancer.health()'` — is the Hammerspoon side alive (and the daemon up)?
+- `curl "http://127.0.0.1:47621/api/status?token=$(jq -r .token var/live/daemon.json)"` — today/week numbers as JSON.
+- `scripts/restart-daemon` — after changing `src/` (Hammerspoon keeps adopting the running daemon otherwise).
+- `scripts/reload-hammerspoon` — after changing `hammerspoon/work-balancer.lua`.
 - `hs -c 'WorkBalancer.panic()'` — escape hatch: tear down every overlay until the next 04:00 (`WorkBalancer.resume()` undoes it).
 
 ## Dev instance (browser-only, safe beside the live one)

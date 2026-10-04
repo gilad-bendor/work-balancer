@@ -25,6 +25,8 @@ export interface SensorSamples {
   system: SystemSample[];
   /** Screen currently locked (from hs.caffeinate.sessionProperties) — robust against missed lock/unlock events. */
   locked: boolean;
+  /** Start of the span these samples cover (Lua load time, or the last acknowledged heartbeat's sentAt). */
+  since: number | null;
 }
 
 export interface Heartbeat {
@@ -82,6 +84,7 @@ export function parseHeartbeat(body: unknown): Heartbeat {
         (e): e is SystemSample => isObj(e) && (SYSTEM_EVENTS as readonly unknown[]).includes(e.event) && isNum(e.at),
       ),
       locked: s.locked === true,
+      since: isNum(s.since) ? s.since : null,
     },
     ui: {
       windows: arr(ui.windows).filter((w): w is string => typeof w === 'string'),
@@ -101,5 +104,6 @@ export function shiftSamples(s: SensorSamples, offsetMs: number): SensorSamples 
     apps: s.apps.map((a) => ({ ...a, from: a.from + offsetMs, to: a.to + offsetMs })),
     system: s.system.map((e) => ({ ...e, at: e.at + offsetMs })),
     locked: s.locked,
+    since: s.since === null ? null : s.since + offsetMs,
   };
 }

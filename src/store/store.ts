@@ -33,6 +33,8 @@ interface CacheEntry {
 export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }): Store {
   const { dataDir, clock, log } = opts;
   const cache = new Map<string, CacheEntry>();
+  /** Files this process has seen end with '\n' — single writer, so they stay that way until a write fails. */
+  const terminated = new Set<string>();
   let writeError: string | null = null;
 
   const filePath = (day: DayKey): string => join(dataDir, day.slice(0, 7), `${day}.jsonl`);
@@ -44,9 +46,12 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
     try {
       mkdirSync(dirname(path), { recursive: true });
       const line = JSON.stringify(record) + '\n';
-      appendFileSync(path, endsWithoutNewline(path) ? '\n' + line : line);
+      const repair = !terminated.has(path) && endsWithoutNewline(path);
+      appendFileSync(path, repair ? '\n' + line : line);
+      terminated.add(path);
       writeError = null;
     } catch (e) {
+      terminated.delete(path);
       writeError = `cannot write ${path}: ${(e as Error).message}`;
       log.error('store append failed', { path, error: e as Error });
     }
