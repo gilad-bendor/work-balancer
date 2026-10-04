@@ -59,7 +59,8 @@ export interface InteractiveProvider extends PerMinuteInfoProvider<InteractiveMi
   flushMinutes(now: number, opts?: { all?: boolean }): number;
   /** End of the latest covered span (persisted or live), or null when nothing is known. */
   coverageEnd(): number | null;
-  asleep(from: number, to: number): Interval[];
+  /** Locked ∪ asleep inside [from, to). */
+  blocked(from: number, to: number): Interval[];
   /** Forget raw state before `t` (keeps memory bounded; the week's data stays). */
   prune(t: number): void;
   workSource: WorkSource;
@@ -186,7 +187,14 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
   }
 
   const covered = (m: MinuteKey): boolean => overlap(coverage, m, m + MINUTE_MS) > 0;
+  const blockedIn = (from: number, to: number): Interval[] => {
+    const { locked, asleep } = timelines();
+    return normalize([...clip(locked, from, to), ...clip(asleep, from, to)]);
+  };
   const fullyAsleep = (m: MinuteKey): boolean => overlap(timelines().asleep, m, m + MINUTE_MS) >= MINUTE_MS;
+  // This provider's choice of which minutes are worth a record (D-31): none for a minute without input that was
+  // entirely locked/asleep — the lock/sleep `system` records already describe it.
+  const skippable = (m: MinuteKey, rec: InteractiveMinute): boolean => !rec.inputs.length && overlap(blockedIn(m, m + MINUTE_MS), m, m + MINUTE_MS) >= MINUTE_MS;
 
   const provider: InteractiveProvider = {
     name: PROVIDER,
@@ -251,6 +259,7 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
         if (!covered(m) || fullyAsleep(m)) continue;
         const rec = compute(m);
         const prev = written.get(m);
+        if (!prev && skippable(m, rec)) continue;
         if (prev && JSON.stringify(encodeMinute(prev)) === JSON.stringify(encodeMinute(rec))) continue;
         store.append({ type: 'minute', provider: PROVIDER, minute: m, data: encodeMinute(rec) });
         written.set(m, rec);
@@ -264,7 +273,7 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
 
     coverageEnd: () => (coverage.length ? coverage[coverage.length - 1]![1] : null),
 
-    asleep: (from, to) => clip(timelines().asleep, from, to),
+    blocked: (from, to) => blockedIn(from, to),
 
     prune(t) {
       padded = padded.filter(([, pb]) => pb > t);
@@ -286,19 +295,27 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     getMinuteInfo(m) {
       if (!covered(m) || fullyAsleep(m)) return written.get(m) ?? null;
       const settled = m + MINUTE_MS <= Math.min(dirtyFrom, opts.now() - FINALIZE_AFTER_MS);
-      return (settled ? written.get(m) : undefined) ?? compute(m);
+      const prev = written.get(m);
+      if (settled && prev) return prev;
+      const rec = compute(m);
+      return !prev && skippable(m, rec) ? null : rec;
     },
 
     getRangeInfo(start, end) {
       const r: InteractiveRange = { monitoredMinutes: 0, activeSeconds: 0, firstInputAt: null, lastInputAt: null, topApps: [], lockedSeconds: 0, asleepSeconds: 0 };
       const appTotals = new Map<string, TopApp>();
+      // Locked/asleep totals come from the timeline: fully locked idle minutes have no record (D-31).
+      const hi = Math.min(end, opts.now());
+      if (hi > start) {
+        const { locked, asleep } = timelines();
+        r.lockedSeconds = Math.round(overlap(locked, start, hi) / 1000);
+        r.asleepSeconds = Math.round(overlap(asleep, start, hi) / 1000);
+      }
       for (let m = start; m < end; m += MINUTE_MS) {
         const info = provider.getMinuteInfo(m);
         if (!info) continue;
         r.monitoredMinutes++;
         r.activeSeconds += info.activeSeconds;
-        r.lockedSeconds += info.lockedSeconds;
-        r.asleepSeconds += info.asleepSeconds;
         if (info.inputs.length) {
           const first = m + info.inputs[0]![0];
           if (r.firstInputAt === null || first < r.firstInputAt) r.firstInputAt = first;
@@ -310,7 +327,7 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
           appTotals.set(a.id, t);
         }
       }
-      if (!r.monitoredMinutes) return null;
+      if (!r.monitoredMinutes && !r.lockedSeconds && !r.asleepSeconds) return null;
       r.topApps = [...appTotals.values()].sort((x, y) => y.s - x.s).slice(0, 5);
       return r;
     },
@@ -318,10 +335,7 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     workSource: {
       name: PROVIDER,
       activity: (from, to) => runs(from, to),
-      blocked: (from, to) => {
-        const { locked, asleep } = timelines();
-        return normalize([...clip(locked, from, to), ...clip(asleep, from, to)]);
-      },
+      blocked: (from, to) => blockedIn(from, to),
       version: () => version,
     },
   };

@@ -101,3 +101,15 @@ test('daemon restart: the hole since the last persisted minute is a daemon-down 
   const gaps = s.store.readDay('2026-10-04').filter((r) => r.type === 'monitor.gap');
   assert.deepEqual(gaps.map((g) => [g.from, g.to, g.cause]), [[T + MIN, T + 30 * MIN, 'daemon-down']]);
 });
+
+test('Q-11: a restart after a long lock is not a gap (skipped locked minutes are explained by the lock)', async (t) => {
+  const T = local(2026, 10, 4, 12, 0);
+  const s = await setup(T + 60 * MIN, (store) => {
+    store.append({ type: 'minute', provider: 'interactive', minute: T, data: { inputs: [[0, 0]] } });
+    store.append({ type: 'system', ts: T + 30 * 1000, event: 'lock' });
+    store.append({ type: 'daemon.started', pid: 1, version: 'x', env: 'test', reason: 'start' });
+  });
+  t.after(s.cleanup);
+  s.tracker.ingest(s.samples({ since: T + 60 * MIN, locked: true }), T + 60 * MIN + 5 * S);
+  assert.deepEqual(s.store.readDay('2026-10-04').filter((r) => r.type === 'monitor.gap'), []);
+});

@@ -194,7 +194,7 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
       uses it; **never rely on `node` in PATH** (F-ENV-1).
 - [x] `scripts/run-daemon` → `run-node src/main.ts` (env passthrough: `WB_ENV`, `WB_PORT`, `WB_FAKE_NOW`).
 - [x] `scripts/check` → typecheck + `node --test` (via run-node / its npm).
-- [x] ⟂ `scripts/reload-hammerspoon` — spec (done by tbd-01; `scripts/_reload-hammerspoon.ts` + 36 tests):
+- [x] ⟂ `scripts/reload-hammerspoon` — spec (done by tbd-01; logic + 36 tests now in `src/hammerspoon/reload-hammerspoon{,.test}.ts`):
   - Resolve repo root from the script's own location (works via symlinks / any cwd).
   - Ensure `~/.hammerspoon/` exists. Ensure `~/.hammerspoon/work-balancer.lua` is a symlink to
     `<repo>/hammerspoon/work-balancer.lua`: create if missing; fix if it is a symlink pointing elsewhere (print old
@@ -222,7 +222,7 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
 - **AC:** `scripts/check` green; scratch-dir tests cover the cases above; after the approved live install, a second
   run makes no changes, `init.lua` diff shows only the one added line, and the owner's other modules still load
   (console clean).
-- **AC verified (2026-10-04):** `scripts/check` → typecheck clean, 36/36 tests (`scripts/reload-hammerspoon.test.ts`:
+- **AC verified (2026-10-04):** `scripts/check` → typecheck clean, 36/36 tests (`src/hammerspoon/reload-hammerspoon.test.ts`:
   missing dir, missing/duplicate/`'`-quoted/whitespace/`;` lines, no trailing newline, wrong symlink, regular-file
   conflict, backup only on change, idempotency, spawned CLI via `--hammerspoon-dir` from `/` and via a symlink).
   Live: owner consented; `scripts/reload-hammerspoon` → created symlink, backup `init.lua.bak.1791121428512`, appended
@@ -434,6 +434,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-28 | 2026-10-04 | Coverage = Lua's sample spans (`since` → `sentAt` per heartbeat), not the daemon's uptime. A daemon outage while Lua runs loses nothing (Lua's outbox re-delivers; ingest is idempotent) and is **not** a gap; `monitor.gap` only for holes in Lua coverage (> 30 s, minus sleep). | Honest gaps; restarts are free. |
 | D-29 | 2026-10-04 | `interactive` stores input as **runs** (instants ≤ 2 s apart joined); minute records omit zero/empty fields; fully asleep minutes are not written. Daemon crash ⇒ up to ~70 s of unflushed minutes may be lost (recorded as a `daemon-down` gap). | Exact busy union with compact files (≈ 1 short line per awake minute). |
 | D-30 | 2026-10-04 | `work` digest = pluggable `WorkSource`s (activity runs, blocked, credited) and is clipped to *now*; M4's menubar limit/colour lives in `src/policy/observe.ts` (`effectiveLimit`, `statusColour`) for M6 to build on. All user-facing strings in `src/ui/strings.ts`. | M5/M9 plug in without touching `work`; one place to review tone. |
+| D-31 | 2026-10-04 | Each raw provider decides which minutes deserve a record. `interactive` writes none for a minute **without input that was entirely locked/asleep** (supersedes the "fully asleep" part of D-29 and the "every monitored minute" wording of §2/M4). Locked/asleep totals come from the `system` timeline; locked/asleep time is never a `monitor.gap`. | Owner (Q-11): less data, no information lost. |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -452,8 +453,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | Q-8 | Synthetic input from `copilot-retry-watcher` likely resets HID idle time → phantom busy minutes. Filter? | **Accept for now (rare); revisit if visible in data.** | open |
 | Q-9 | Auto-commit `data/` daily? | **No; owner commits manually.** | open |
 | Q-10 | Fixed port `47621` acceptable? | **Yes; dev = `47622`; both overridable via env.** | open |
-| Q-11 | The Mac rarely sleeps (copilot-retry-watcher holds the display awake during chats), so `interactive` writes ≈ 1 line per minute even while locked (≈ 100–250 KB/day in `data/`). Acceptable, or skip fully-locked idle minutes? | **Keep (spec: every monitored minute).** | open |
-| Q-12 | Menubar colours: green `(0.20,0.66,0.33)`, orange `(0.93,0.55,0.05)`, red `(0.86,0.22,0.18)`, grey; title `⏱ h:mm / h:mm`. Owner's visual check pending. | **As implemented.** | open |
+| Q-11 | The Mac rarely sleeps (copilot-retry-watcher holds the display awake during chats), so `interactive` writes ≈ 1 line per minute even while locked (≈ 100–250 KB/day in `data/`). Acceptable, or skip fully-locked idle minutes? | Owner: *"The specific info provider decides. In our case — yes, skip."* | **closed → D-31** |
+| Q-12 | Menubar colours: green `(0.20,0.66,0.33)`, orange `(0.93,0.55,0.05)`, red `(0.86,0.22,0.18)`, grey; title `⏱ h:mm / h:mm`. Owner's visual check pending. | **As implemented.** Owner noticed clicks show no menu; asked about an interim menu → **no, keep menus in M8 as planned** (2026-10-04). | open (colours) |
 
 ---
 
@@ -531,3 +532,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 |---|---|---|---|
 | 2026-10-04 | Design session (ran from `~/gits/GILAD-PRIVATE-BRANCH`; no tmp-folder in this repo) | Problem analysis with the owner; requirements, policy, architecture; created `copilot-instructions.md` and this ledger; independent design review applied (D-17…D-23). | — |
 | 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4, all done; **observe mode live**. M1 scaffolding + reload-hammerspoon (tbd-01) + live install; M2 core/store/config; M3 daemon/bridge/supervisor (incident: hs.task pipe freeze, H-6); M4 interactive/work/menubar. Facts F-HS-6..11, F-ENV-5..6; decisions D-24..D-30. | tbd-01 |
+| 2026-10-04 | (same tmp-folder, follow-up) | Q-11 → D-31 (skip idle fully-locked/asleep minutes; locked time never a gap); moved reload-hammerspoon logic + tests to `src/hammerspoon/` (owner's TODO); Q-12: no interim menu. 88 tests. | — |

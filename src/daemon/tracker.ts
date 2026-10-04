@@ -42,7 +42,8 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   let lastPruneDay: DayKey = today0;
 
   function recordGap(from: number, to: number, cause: GapCause): void {
-    const unexplained = subtract([[from, to]], interactive.asleep(from, to)).filter(([a, b]) => b - a > GAP_MIN_MS);
+    // Locked or asleep time is not a monitoring gap (nothing to monitor; and idle locked minutes have no records).
+    const unexplained = subtract([[from, to]], interactive.blocked(from, to)).filter(([a, b]) => b - a > GAP_MIN_MS);
     for (const [a, b] of unexplained) {
       // One record per day (gaps are clipped to their day).
       for (let k = dayKey(a); dayStart(k) < b; k = addDays(k, 1)) {

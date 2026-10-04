@@ -80,7 +80,7 @@ test('a heartbeat carrying the sleep event does not fake a wake; fully asleep mi
   const s = setup();
   t.after(s.cleanup);
   s.p.ingest(s.samples({ inputs: [T + S], system: [{ event: 'sleep', at: T + 30 * S }] }), { since: T, until: T + 31 * S }, T + 31 * S);
-  assert.deepEqual(s.p.asleep(T, T + 10 * MIN), [[T + 30 * S, T + 10 * MIN]]);
+  assert.deepEqual(s.p.blocked(T, T + 10 * MIN), [[T + 30 * S, T + 10 * MIN]]);
   s.p.ingest(s.samples({ system: [{ event: 'wake', at: T + 5 * MIN + 10 * S }] }), { since: T + 31 * S, until: T + 5 * MIN + 12 * S }, T + 5 * MIN + 12 * S);
   s.clock.set(T + 8 * MIN);
   s.p.flushMinutes(s.clock.now());
@@ -120,4 +120,22 @@ test('restart: loading persisted records restores runs, lock state and records (
   p2.flushMinutes(s.clock.now());
   const after = s.store.readDay('2026-10-04').filter((r) => r.type === 'minute').map((r) => r.minute);
   assert.ok(!after.slice(lines).includes(T), 'minute T was not re-emitted');
+});
+
+test('Q-11/D-31: no record for an idle minute that was entirely locked; partial or with input → record', (t) => {
+  const s = setup();
+  t.after(s.cleanup);
+  s.p.ingest(
+    s.samples({ inputs: [T + 5 * S, T + 2 * MIN + 30 * S], system: [{ event: 'lock', at: T + 30 * S }], locked: true }),
+    { since: T, until: T + 4 * MIN },
+    T + 4 * MIN,
+  );
+  s.clock.set(T + 6 * MIN);
+  s.p.flushMinutes(s.clock.now());
+  // T: partly locked; T+1: idle + fully locked → skipped; T+2: locked but typed (password) → kept; T+3: skipped.
+  assert.deepEqual([...s.minutes().keys()], [T, T + 2 * MIN]);
+  assert.equal(s.p.getMinuteInfo(T + MIN), null);
+  const r = s.p.getRangeInfo(T, T + 4 * MIN)!;
+  assert.equal(r.lockedSeconds, 3 * 60 + 30, 'locked totals come from the timeline, not from minute records');
+  assert.equal(r.monitoredMinutes, 2);
 });

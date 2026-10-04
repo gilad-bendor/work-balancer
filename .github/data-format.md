@@ -50,7 +50,7 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 
 ### 3.1 `minute` data per provider
 
-**`interactive`** (R-INFO-2) — one record for every monitored minute:
+**`interactive`** (R-INFO-2) — one record per monitored minute, **except** minutes without input that were entirely locked and/or asleep (ledger D-31: each provider decides which minutes deserve a record; the `system` lock/sleep records already describe those; once a minute has a record, later corrections are still written):
 
 | Field | Meaning |
 |---|---|
@@ -62,7 +62,7 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 
 On disk, zero / empty / `null` fields are **omitted** (a fully locked minute is `"data":{"lockedSeconds":60}`); readers
 default them. A minute is written ~70 s after it ends (and the partial current minute on a graceful stop); a later
-record for the same minute (late samples, a restart) replaces it. Fully asleep minutes are not written. App
+record for the same minute (late samples, a restart) replaces it. App
 `topApps` of a minute loaded from disk are kept when re-emitting (raw app intervals are not persisted; per app the
 larger second count wins).
 

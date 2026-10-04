@@ -257,6 +257,7 @@ work-balancer/
 │   ├── notes/                      ← event-sourced notes (context-memory, feedback, free notes)
 │   ├── effects/                    ← reconciler + one module per effect
 │   ├── bridge/                     ← HTTP server, auth, heartbeat, command queue, JSON API
+│   ├── hammerspoon/                ← logic of scripts/reload-hammerspoon (install + reload + health)
 │   └── ui/                         ← pages (*.html + *.ts + shared css), strings (tone)
 ├── test-fixtures/                  ← sanitized fixtures (no real prompts/notes)
 ├── data/YYYY-MM/YYYY-MM-DD.jsonl   ← the owner's real data (git-able; see §6)

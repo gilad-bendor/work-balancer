@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install/refresh the work-balancer Hammerspoon module and reload Hammerspoon. Logic: _reload-hammerspoon.ts
+# Install/refresh the work-balancer Hammerspoon module and reload Hammerspoon. Logic: src/hammerspoon/reload-hammerspoon.ts
 set -euo pipefail
 repo="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-exec "$repo/scripts/run-node" "$repo/scripts/_reload-hammerspoon.ts" "$@"
+exec "$repo/scripts/run-node" "$repo/src/hammerspoon/reload-hammerspoon.ts" "$@"

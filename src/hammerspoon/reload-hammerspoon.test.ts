@@ -25,12 +25,12 @@ import {
   REQUIRE_LINE,
   type HsReply,
   type HsRunner,
-} from './_reload-hammerspoon.ts';
+} from './reload-hammerspoon.ts';
 
-const repo = resolve(import.meta.dirname, '..');
+const repo = resolve(import.meta.dirname, '..', '..');
 const wrapper = join(repo, 'scripts', 'reload-hammerspoon');
 const target = join(repo, 'hammerspoon', 'work-balancer.lua');
-const scratchRoot = join(repo, '.github/tmp/2026-10-04--16-19--kickoff-m1-m4/tbd-01-reload-hammerspoon/scratch');
+const scratchRoot = join(repo, 'var', 'test'); // gitignored; never /tmp
 
 let base: string;
 before(() => {

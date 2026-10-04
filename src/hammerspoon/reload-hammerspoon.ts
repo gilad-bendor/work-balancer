@@ -1,4 +1,4 @@
-// Logic of scripts/reload-hammerspoon (spec: .github/ledger.md §3 M1).
+// Logic of the scripts/reload-hammerspoon wrapper (spec: .github/ledger.md §3 M1).
 // Installs the work-balancer Hammerspoon module (symlink + one `require` line) and reloads Hammerspoon.
 // The pure / filesystem helpers are exported for tests; the CLI runs only when this is the main module.
 import {
@@ -293,7 +293,7 @@ function makeLogger(quiet: boolean): Logger {
 }
 
 export function repoRoot(): string {
-  return realpathSync(resolve(import.meta.dirname, '..'));
+  return realpathSync(resolve(import.meta.dirname, '..', '..'));
 }
 
 function describeInit(r: InitLuaResult): string {
