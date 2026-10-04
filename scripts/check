@@ -1,0 +1,12 @@
+#!/bin/bash
+# The "is it green?" command: typecheck + all tests.
+set -euo pipefail
+repo="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+cd "$repo"
+if [[ ! -x node_modules/.bin/tsc ]]; then
+  scripts/run-node --npm install --no-audit --no-fund
+fi
+echo "== typecheck"
+scripts/run-node node_modules/typescript/bin/tsc --noEmit
+echo "== tests"
+scripts/run-node --test "src/**/*.test.ts" "scripts/**/*.test.ts"

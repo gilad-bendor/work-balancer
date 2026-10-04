@@ -1,0 +1,21 @@
+#!/bin/bash
+# Run the newest installed Node 26 (nvm), never the `node` on PATH (F-ENV-1: PATH has v20, and
+# Hammerspoon has no shell PATH at all).
+#   scripts/run-node <node args...>     exec node
+#   scripts/run-node --npm <npm args>   exec that Node's npm (with its bin dir first on PATH)
+#   scripts/run-node --bin-dir          print the bin dir
+set -euo pipefail
+bin_dir=""
+for d in $(ls -d "$HOME"/.nvm/versions/node/v26.*/bin 2>/dev/null | sort -t. -k2,2n -k3,3n); do
+  [[ -x "$d/node" ]] && bin_dir="$d"
+done
+if [[ -z "$bin_dir" ]]; then
+  echo "run-node: no Node 26 found under ~/.nvm/versions/node/v26.*/bin — install it with: nvm install 26" >&2
+  exit 127
+fi
+export PATH="$bin_dir:$PATH"
+case "${1:-}" in
+  --bin-dir) echo "$bin_dir" ;;
+  --npm) shift; exec "$bin_dir/npm" "$@" ;;
+  *) exec "$bin_dir/node" "$@" ;;
+esac

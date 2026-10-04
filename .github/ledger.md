@@ -1,0 +1,483 @@
+# Ledger — `work-balancer`
+
+The project's memory between Copilot sessions: **status, requirements, decisions, open questions, discovered facts**.
+Protocol: [copilot-instructions.md §9](./copilot-instructions.md#9-the-ledger-protocol). Read fully at session start;
+update at session end. Keep "Current status" correct at a glance.
+
+---
+
+## 0. Current status (update every session)
+
+| | |
+|---|---|
+| **Phase** | M1 (scaffolding & scripts) **done** (2026-10-04). |
+| **Next** | **M2 — Core & store** (§3). Then M3 → M4 (observe mode live). Enforcement comes later, in M10. |
+| **Blocked** | Nothing. |
+| **Live on the owner's machine?** | Yes — **stub only**: `~/.hammerspoon/work-balancer.lua` symlinked, `require("work-balancer")` in `init.lua`; `WorkBalancer.health()` → `ok 0.1.0`. No daemon, no menubar yet. The owner allows Copilot to change and reload Hammerspoon **freely, without asking** (D-26). |
+| **Active tbd files** | None (see §5). |
+
+---
+
+## 1. Requirements (the owner's — do not silently change; propose changes in §7)
+
+IDs are stable; reference them in code comments only where it clarifies the *why*, and in reports/tbd files.
+
+### 1.1 Platform & runtime
+- **R-PLAT-1** macOS only (this Mac). No cross-platform abstractions.
+- **R-PLAT-2** Node ≥ 26, TypeScript run directly (type stripping), no transpilation. Hammerspoon for native bits.
+- **R-PLAT-3** Hammerspoon integration = one file `hammerspoon/work-balancer.lua`, symlinked into `~/.hammerspoon/`,
+  plus exactly one line `require("work-balancer")` in `~/.hammerspoon/init.lua`. Nothing else in `~/.hammerspoon/`.
+- **R-PLAT-4** `scripts/reload-hammerspoon` (spec in §3 M1). Copilot runs it after every edit of `work-balancer.lua`.
+
+### 1.2 Time model
+- **R-TIME-1** Day boundary **04:00 local civil time**: if the local hour of `t` is < 4 the day key is the previous civil
+  date, else the civil date (calendar arithmetic — **not** `t − 4 h`, which is wrong on DST days). DST-safe (23/25 h days).
+- **R-TIME-2** Week = **Sun 04:00 → next Sun 04:00**. Workdays Sun–Thu. Fri = owner's private day (private work is done on
+  another computer). Sat = Shabbat.
+- **R-TIME-3** **All** activity on this computer is work, on any day.
+- **R-TIME-4** Exact clock hours are never policy inputs (except the 04:00 boundary). Only *worked time* per day/week is.
+
+### 1.3 Info-providers (monitoring)
+- **R-INFO-1** Extensible provider architecture: PerMinuteInfo / PerMinuteInfoProvider / TimeRangeInfo /
+  TimeRangeInfoProvider / InfoRepository (see [copilot-instructions §4.1](./copilot-instructions.md#41-info-providers-the-extension-point-for-metrics)).
+  A future `camera` provider (and others) must plug in without core changes. **Do not build `camera` now.**
+- **R-INFO-2** Provider **`interactive`** (raw): per minute — whether there was input; active seconds; last input time;
+  **top ≤ 3 apps by foreground time in that minute, each ≥ 5 s**; lock/sleep seconds. Input = keyboard, mouse click,
+  mouse move, **scroll** (anything that resets macOS HID idle time).
+- **R-INFO-3** **Busy rule:** a moment is *busy* if there was input in the preceding **5 minutes** (configurable),
+  cut short by screen lock / sleep. Inactivity-dialog resolutions override this rule for their gap (R-UI-INACT).
+  **Arithmetic (normative):** truth is kept as **intervals**, at second precision: `busy = ⋃ [input, input + 5 min)`
+  minus locked/asleep intervals, plus credited intervals (R-UI-INACT). A minute's `workSeconds` = overlap of that union
+  with the minute (0–60). **Budgets sum `workSeconds`** (no rounding to whole minutes); UI shows `h:mm`, floored.
+- **R-INFO-4** Provider **`prompt-history`** (raw): reads Copilot's **local** chat history, counts only **human**
+  interactions — prompts typed by the owner and the owner's answers to agent questions. Agent actions/outputs,
+  subagent traffic and automated launches (e.g. by `execute-copilot-session`) are **not** human interactions.
+  Assume future sessions run in **VS Code** (not the CLI) — but see facts F-COP-* (VS Code sessions live in two stores).
+  **Stores counts and timestamps only, never text.**
+- **R-INFO-5** Provider **`work`** (digest): per minute, `workSeconds` per R-INFO-3 — combines `interactive` input,
+  human prompts (count as input instants), lock/sleep, and inactivity resolutions. All budgets use `work`.
+  **Computed on demand, never persisted** (instructions §4.1), so later providers/resolutions apply retroactively.
+- **R-INFO-6** Time-range aggregates at least: worked minutes; longest continuous work stretch; number of breaks;
+  first/last activity; top apps; prompts count / per hour; unmonitored minutes.
+
+### 1.4 Data
+- **R-DATA-1** JSONL, append-only, git-able. File per day key: **`data/YYYY-MM/YYYY-MM-DD.jsonl`**.
+- **R-DATA-2** Survives restarts; all state (including an active block) is recomputable from data.
+- **R-DATA-3** Feedback and notes are recorded in the same data.
+
+### 1.5 Policy (initial values — owner said "conjure a reasonable policy, I'll change it later")
+- **R-POL-1** Per-weekday policy must be **easy** to edit: one typed file `config/policy.ts`, hot-reloaded.
+- **R-POL-2** Initial policy (all numbers configurable):
+
+  | Day | Track | Menubar | Daily budget | Inactivity dialog | Break nudge | Warn → countdown → **block** | Morning review at 04:00 |
+  |---|---|---|---|---|---|---|---|
+  | Sun | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
+  | Mon | ✅ | ✅ | — (reference 9 h for colour only) | ✅ | ✅ | ❌ | ✅ |
+  | Tue | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
+  | Wed | ✅ | ✅ | — (reference 9 h for colour only) | ✅ | ✅ | ❌ | ✅ |
+  | Thu | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
+  | Fri | ✅ | ✅ | — | ✅ | ✅ | ❌ | ❌ (protects the private day) |
+  | Sat | ✅ | ✅ (no colours) | — | ❌ | ❌ | ❌ | ❌ (Shabbat: **no popups at all**) |
+
+  - **Weekly budget 44 h** (all days of the week count, R-TIME-3).
+  - On enforcing days: **effective daily limit = min(daily budget, weekly budget − worked earlier this week)**, floor 0.
+    A heavy week therefore shortens Thursday — protecting Friday. (If the effective limit is 0, see open question Q-3.)
+  - Ladder on enforcing days (worked-time based, so it pauses when the owner is idle):
+    `ok` (green) → **`orange`** at ≥ 75 % of the effective limit → **`warn`** at limit − 30 worked-min →
+    **`countdown`** at limit − 10 worked-min → **`blocked`** at the limit, **until the next 04:00**.
+  - Non-enforcing workdays: colours only (green/orange/red against the 9 h reference); no dialogs from the ladder.
+  - **Ladder arithmetic (normative):** thresholds are clamped to `[0, limit]`; when several levels qualify, the
+    **highest** wins (`blocked` > `countdown` > `warn` > `orange` > `ok`). Each dialog is shown once per level entry
+    (a level re-entered after a token/bypass expiry does not replay lower-level dialogs). A **limit of 0** blocks only
+    after the first worked second of that day (nobody is blocked at 04:00 while asleep), preceded by a short kind
+    explanation screen.
+- **R-POL-3 Postpone tokens** (enforcing days): per day **1 × 10 min + 2 × 5 min**, wall-clock minutes, do not carry
+  over. Using one lifts the block for its duration; then the block returns. Logged.
+- **R-POL-3a Grant composition (tokens & bypass):** usable **only while `blocked`**. Grants extend:
+  `until = max(currentGrantUntil, now) + minutes`, clipped to the next 04:00. Grants run in wall-clock time (sleeping
+  through a grant consumes it). When the grant expires, the block returns immediately (no re-warning).
+- **R-POL-4 Emergency bypass**: costs effort — retype a long phrase shown on screen (paste disabled), plus a short
+  reason; two-step confirm; grants **30 min** (wall clock); repeatable; every use logged and visible in summaries.
+  Proposed phrase: *"I am choosing to borrow this time from my Friday and my family. I accept the cost, and I will stop
+  as soon as I can."*
+- **R-POL-5 Break nudge**: after **90 min** of continuous work, a gentle, dismissible, non-blocking nudge
+  (snooze 15 min). Never blocks.
+
+### 1.6 UI effects
+- **R-UI-MENU-1** Menubar item: compact status (worked today vs effective limit, e.g. `5:12 / 9:00`), colour-coded
+  (green / orange / red; grey = not monitored / Saturday / daemon down; a warning glyph on errors). Tooltip: week total.
+- **R-UI-MENU-2** **Left-click** → *quick note* window: context-memory textbox + feedback form (R-UI-FB), submit.
+- **R-UI-MENU-3** **Right-click** → menu: **Show activity summary** · **Show status notes** · **Quit**.
+  - *Show activity summary*: today (worked, effective limit, remaining, state, tokens left, bypasses, prompts, top apps,
+    longest stretch, breaks, unmonitored gaps), this week per day vs budgets, recent feedback; last 4 weeks trend.
+  - *Show status notes* (= notes manager): **non-dismissed first, then dismissed**, each with its **date**; actions:
+    **edit, delete, dismiss, un-dismiss, add new**.
+  - *Quit*: confirm → logged → Lua sets a **`quit` latch** (supervisor stops restarting) → daemon stops, menubar
+    removed, gamma restored, windows closed. The latch lives only in memory: the next Hammerspoon module load (login /
+    reload) starts everything again. Not reachable while blocked (the block overlay covers the menubar — by design).
+- **R-UI-FB Feedback form** (reusable component; appears in quick-note, block, countdown, morning review):
+  predefined **multi-select choices** (initial: *Too much work · Feeling tired · Anxious · Stuck / frustrated ·
+  Productive · Good day · Other*) **+ always a free-text comment**, plus optional energy 1–5. Recorded as a note of kind
+  `feedback`.
+- **R-UI-CTX Context-memory** ("close the loop"): free-text box "What's the next thing you'd do? It will be waiting
+  for you tomorrow." + submit. Present in: countdown, block, quick-note. Recorded as a note of kind `context`.
+- **R-UI-WARN** Warning dialog (dismissible) + **dim pulse** (few seconds; gamma based; always restored).
+  Grayscale is a nice-to-have later (no clean public API).
+- **R-UI-COUNTDOWN** Countdown window: "≈ N min of work left today", context-memory box, feedback; not dismissible but
+  can be collapsed to a small pill.
+- **R-UI-BLOCK** Full-screen block on **all screens, all spaces, above the menubar and full-screen apps**, until 04:00:
+  kind message, today/week numbers, context-memory box, feedback form, token buttons (remaining counts),
+  emergency-bypass flow. Consequential actions (token, bypass) need a two-step confirm (guards against accidental and
+  synthetic clicks — see F-HS-2). Re-asserted on screen/space changes and after restarts.
+- **R-UI-INACT Inactivity dialog**: when inactivity (default 5 min, R-INFO-3) is detected, show a non-focus-stealing
+  window stating the **last activity time** and the **time elapsed since** (live). Buttons:
+  **"I am back to work!"** (default busy rule applies) · **"I was working the whole time"** (whole gap credited) ·
+  **"Worked some of the time"** with a slider (0 … gap length) crediting that many minutes from the gap start.
+  Multiple unresolved gaps are listed in the same window. It **disappears automatically at 04:00** (unresolved =
+  default rule). Not shown on Saturday or while blocked. Gaps are clipped to their day.
+  **Credit arithmetic (normative):** a gap is `[lastInput, nextInput)`. "Whole" credits the entire gap **including
+  locked/asleep time** (the owner locks the screen when leaving for a meeting — that is work). "Some = N min" credits
+  `[gapStart, gapStart + N)` chronologically (N ≤ gap length). "Back" keeps the default rule. A later resolution of
+  the same gap replaces the earlier one.
+- **R-UI-REVIEW Morning review at 04:00** (on rollover into Sun–Thu; if the Mac sleeps at 04:00, on first wake after):
+  a window listing **all non-dismissed notes** (context-memory + feedback + free notes), **pre-filled/editable**, each
+  with a **Dismiss** button. Closing the window does not dismiss anything. Thursday's notes therefore surface on Sunday.
+- **R-UI-ESC** Escape hatches (must exist before the block): panic hotkey (long-press combo) and
+  `hs -c 'WorkBalancer.panic()'` → set a Lua-side **`panic` latch** (reconciler cannot override it): remove overlays,
+  restore gamma, suppress all enforcement windows/dims **until the next 04:00 rollover** or
+  `WorkBalancer.resume()`; tracking continues; log `panic`. Internal errors fail **open** with a visible warning.
+
+### 1.7 Dev process
+- **R-DEV-1** `.github/copilot-instructions.md` + this ledger; additional Copilot topic files flat in `.github/`.
+- **R-DEV-2** Session tmp-folders `.github/tmp/YYYY-MM-DD--HH-MM--<title>/`; tbd files inside them; tbd files
+  registered in §5.
+- **R-DEV-3** Prefer `scripts/execute-copilot-session` over subagents for tasks needing/benefiting from owner interaction.
+
+---
+
+## 2. Initial data model (draft — becomes `.github/data-format.md` in M2)
+
+Every line: `{ "v": 1, "ts": <epochMs>, "type": "<type>", ... }`. Unknown types/fields are ignored by readers.
+
+| `type` | Key fields | Notes |
+|---|---|---|
+| `daemon.started` / `daemon.stopped` | `pid`, `version`, `reason` | `stopped` may be missing after a crash — derive gaps from heartbeats. |
+| `monitor.gap` | `from`, `to`, `cause` (`daemon-down`, `quit`, `hs-down`, `stall`) | Unmonitored time, written when detected. |
+| `minute` | `provider`, `minute` (MinuteKey), `data` | Raw providers only (`work` is never persisted). Written to the file of the day the minute belongs to. Last record per `(provider, minute)` wins. `interactive` writes every monitored minute (`inputs`: input-instant timestamps or compact runs, `activeSeconds`, `lastInputAt`, `topApps`, `lockedSeconds`, `asleepSeconds`); `prompt-history` only minutes with ≥ 1 interaction. |
+| `system` | `event` (`sleep`, `wake`, `lock`, `unlock`, `display-sleep`, `display-wake`) | From Lua watchers. |
+| `inactivity.detected` | `gapId`, `lastInputAt` | |
+| `inactivity.resolved` | `gapId`, `from`, `to`, `choice` (`back`, `whole`, `some`, `expired`), `creditedMinutes` | |
+| `policy.transition` | `from`, `to`, `workedMin`, `limitMin`, `weekMin` | Level changes only (not every tick). |
+| `token.used` | `minutes`, `until` | |
+| `bypass.used` | `minutes`, `until`, `reason` | |
+| `effect.shown` / `effect.closed` | `effect`, `windowId`, `by` (`user`, `system`, `rollover`) | Lightweight UX audit. |
+| `note.created` | `noteId`, `kind` (`context`, `feedback`, `note`), `text`, `choices?`, `energy?`, `source` | `source`: `quick`, `countdown`, `block`, `review`, `manager`. |
+| `note.edited` / `note.deleted` / `note.dismissed` / `note.undismissed` | `noteId`, (`text`) | Event-sourced; state = fold over all days. Delete = tombstone (see Q-5). |
+| `config.loaded` / `config.invalid` | `hash`, `errors?` | |
+| `day.rollover` | `fromDay`, `toDay` | |
+| `app.quit` / `panic` | `by` | |
+
+---
+
+## 3. Milestones & tasks
+
+Legend: `todo` · `in-progress` · `done` · `blocked` · `dropped`. Each milestone lists acceptance criteria (AC).
+Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via `execute-copilot-session`).
+
+### M0 — Design docs · `done`
+- [x] `.github/copilot-instructions.md`, `.github/ledger.md` (session 2026-10-04, see §9).
+
+### M1 — Scaffolding & scripts · `done`
+- [x] `package.json` (`"type": "module"`, scripts `typecheck`, `test`, `check`), `tsconfig.json` (baseline in
+      instructions §3.1), `.nvmrc` (`26`), `.gitignore` (`node_modules/`, `var/`, `.github/tmp/**/scratch/`, `.DS_Store`).
+- [x] `scripts/run-node` (resolve newest `~/.nvm/versions/node/v26.*/bin/node`; fail clearly if none) — every script
+      uses it; **never rely on `node` in PATH** (F-ENV-1).
+- [x] `scripts/run-daemon` → `run-node src/main.ts` (env passthrough: `WB_ENV`, `WB_PORT`, `WB_FAKE_NOW`).
+- [x] `scripts/check` → typecheck + `node --test` (via run-node / its npm).
+- [x] ⟂ `scripts/reload-hammerspoon` — spec (done by tbd-01; `scripts/_reload-hammerspoon.ts` + 36 tests):
+  - Resolve repo root from the script's own location (works via symlinks / any cwd).
+  - Ensure `~/.hammerspoon/` exists. Ensure `~/.hammerspoon/work-balancer.lua` is a symlink to
+    `<repo>/hammerspoon/work-balancer.lua`: create if missing; fix if it is a symlink pointing elsewhere (print old
+    target); if it is a **regular file**, **refuse** (exit ≠ 0, explain) — never clobber.
+  - Ensure `~/.hammerspoon/init.lua` contains **exactly one** line `require("work-balancer")` (tolerate `'` quotes and
+    surrounding whitespace when detecting; normalise to the canonical line). Add if missing (append, preceded by a
+    newline if the file doesn't end with one); remove duplicates; leave every other line byte-identical. Before any
+    modification write a backup `init.lua.bak.<epochMs>` (the owner's existing convention). No change → no backup.
+  - Ensure Hammerspoon is running (`open -g -a Hammerspoon` if not) and the `hs` CLI responds (`hs -c 'return 1'`);
+    if not, explain that `hs.ipc` must be loaded (our module requires it, but the first load needs a manual reload or
+    Hammerspoon restart).
+  - Reload **without killing the IPC call**: `hs -c 'hs.timer.doAfter(0.2, hs.reload)'`, then poll
+    `hs -t 2 -c 'return WorkBalancer and WorkBalancer.health() or "missing"'` until healthy or timeout (~15 s).
+  - On failure: print the tail of the Hammerspoon console, exit ≠ 0. Flags: `--check` (verify links/line only, no
+    reload), `--hammerspoon-dir <dir>` (operate on another dir, implies no reload — for tests), `--quiet`, `--help`.
+  - Idempotent: running twice in a row changes nothing the second time.
+  - Tested with `node --test` against scratch dirs (missing dir, missing line, duplicate lines, `'`-quoted line,
+    no trailing newline, wrong symlink, regular-file conflict).
+- [x] `hammerspoon/work-balancer.lua` stub: `require("hs.ipc")`, global `WorkBalancer` with `health()` → `"ok <version>"`,
+      `panic()` / `resume()` (latch only, for now), clean unload on reload (stop timers/watchers, delete menubar,
+      restore gamma).
+- [x] README.md: one-paragraph intro + setup steps (`scripts/reload-hammerspoon`).
+- [x] **First live install — ask the owner first** (`ask_user`; instructions §10). If he declines, stop after the
+      scratch-dir tests and record it in §0.
+- **AC:** `scripts/check` green; scratch-dir tests cover the cases above; after the approved live install, a second
+  run makes no changes, `init.lua` diff shows only the one added line, and the owner's other modules still load
+  (console clean).
+- **AC verified (2026-10-04):** `scripts/check` → typecheck clean, 36/36 tests (`scripts/reload-hammerspoon.test.ts`:
+  missing dir, missing/duplicate/`'`-quoted/whitespace/`;` lines, no trailing newline, wrong symlink, regular-file
+  conflict, backup only on change, idempotency, spawned CLI via `--hammerspoon-dir` from `/` and via a symlink).
+  Live: owner consented; `scripts/reload-hammerspoon` → created symlink, backup `init.lua.bak.1791121428512`, appended
+  the line, reload healthy (`ok 0.1.0`), exit 0; second run → "symlink ok / init.lua ok", no new backup, exit 0;
+  `diff` of `init.lua` before/after = only `> require("work-balancer")`; console tail clean (`playwright-focus-guard`,
+  `copilot-retry-watcher` loaded).
+
+### M2 — Core & store · `todo`
+- [ ] `core/clock.ts` (real + fake/offset clock from env), `core/time.ts` (MinuteKey, dayKey, day start/end, week start,
+      weekday names `sun..sat`), with tests run under `TZ=Asia/Jerusalem` covering both 2026 DST transitions (verify the
+      dates with `Intl` — expected late March and late October) and day-boundary edges (03:59/04:00, Sat→Sun week edge).
+- [ ] `core/registry.ts` + provider/effect type contracts (instructions §4.1, §4.3).
+- [ ] `store/`: synchronous append with torn-line repair, file routing by record kind (instructions §6: time-records
+      → the day they describe; entity/action records → current day), read day, read range, tolerant parsing, last-wins
+      minute index; data dir from env (`data/` live, `var/dev/data/` dev, a temp dir in tests).
+- [ ] `policy/config.ts`: `PolicyConfig` type, validation (clear errors), loader with cache-busted hot-reload,
+      last-good snapshot + cold-start fallback (instructions §4.2); `config/policy.ts` with R-POL-2 values.
+- [ ] Logger → `var/<env>/logs/daemon-<dayKey>.log` (+ stderr in dev).
+- [ ] Create `.github/data-format.md` from §2; register in instructions §11.
+- **AC:** tests cover DST, boundaries, torn lines, unknown types, out-of-order minutes, invalid config.
+
+### M3 — Daemon, bridge, Lua skeleton · `todo`
+- [ ] `src/main.ts`: port bind as mutex, atomic `var/<env>/daemon.json` (pid, port, token, protocol version, repo),
+      graceful shutdown (`daemon.stopped`), `/health`.
+- [ ] Bridge: `POST /bridge/heartbeat` (auth, `seq`, `sentAt`, timestamped sensor samples, actual-UI report, command
+      acks) → reply (menubar spec, commands). Dedup by `seq`; protocol version check (instructions §4.4).
+- [ ] Lua: supervisor (adopt healthy daemon / spawn via `hs.task` + `scripts/run-daemon` / restart with backoff; honours
+      the `quit` latch), 5 s heartbeat (single in-flight + watchdog), static menubar title from reply, grey
+      `daemon down` state, `WorkBalancer.health()` real.
+- [ ] Dev instance (`WB_ENV=dev`, browser-only daemon, `var/dev/`), `WorkBalancer.preview(url)`. Document how to run.
+- [ ] Escape hatch: panic hotkey + `WorkBalancer.panic()` / `resume()` latch (R-UI-ESC).
+- [ ] Create `.github/hammerspoon.md` (API facts verified here, gotchas, how to debug via `hs -c`).
+- **AC:** kill the daemon → Lua restarts it within ~10 s and menubar shows grey meanwhile; Hammerspoon reload → no
+  duplicate daemon (adopted); a second live daemon exits on bind failure; a dev daemon runs alongside the live one
+  without touching `var/live/` or `data/`.
+
+### M4 — `interactive` provider, `work` digest, aggregates, live menubar · `todo`
+- [ ] Lua sensors: `hs.host.idleTime()` per heartbeat; app focus intervals via `hs.application.watcher` (exact
+      durations, bundle id + name); `hs.caffeinate.watcher` (sleep/wake/lock/unlock/display) pushed immediately.
+- [ ] `interactive` minute records (R-INFO-2), every monitored minute; `monitor.gap` detection (heartbeat silence
+      > 30 s without a sleep event).
+- [ ] `work` digest (R-INFO-3, R-INFO-5) — computed on demand, designed to accept prompt instants (M5) and inactivity
+      credits (M9) as additional inputs — + time-range aggregates (R-INFO-6): today, week, current stretch.
+- [ ] Menubar: `worked / limit` text + colour (R-UI-MENU-1), no enforcement yet.
+- **AC:** interval-arithmetic unit tests (R-INFO-3: overlapping grace windows, lock cut-off, minute projection,
+  sleep across minute boundaries, 04:00 split); **observe mode is live** (tracking + menubar only) on the owner's
+  machine (with his consent from M1).
+
+### M5 — `prompt-history` provider · `todo`
+- [ ] ⟂ Investigation (record results in `.github/copilot-history-formats.md`): both stores (F-COP-1..5), how to tell
+      human prompts from automated launches/subagents, how answers to agent questions appear in each store, VS Code
+      Insiders paths, file growth/rotation.
+- [ ] Incremental reader: scan changed files by mtime every ~30 s; per-file byte cursors in `var/<env>/`; only from today's
+      day start on startup; robust to partial lines and format drift (skip unknown, never crash).
+- [ ] Human filter — **heuristic, and say so**: prefer deterministic **whole-session provenance** where the
+      investigation finds a signal (e.g. a field such as `delivery`, the runner's outcome-protocol text in the first
+      message, `parentAgentTaskId` for subagents); answers to `ask_user` count as human even inside runner-launched
+      sessions (the owner answers them); later `user.message`s in a runner-launched session count only if
+      **corroborated** by `interactive` input within the preceding ~60 s (configurable). Anything undecidable is
+      counted in a separate `unclassified` bucket, never silently as human.
+- [ ] Minute records `{ prompts, answers, bySource }` (no text) + range aggregates (count, per hour, first/last,
+      longest silence). Prompts count as input in the `work` digest.
+- [ ] Sanitized fixtures for both formats.
+- **AC:** fixture tests; a live dry-run report over today's real history (counts only) shown to the owner for a sanity
+  check.
+
+### M6 — Policy engine · `todo`
+- [ ] Pure evaluator → `PolicyState` (R-POL-2): weekday rules, effective limit, ladder thresholds in worked minutes,
+      tokens/bypass windows from today's events, Saturday quiet mode, rollover semantics.
+- [ ] Exhaustive table-driven tests (each weekday, week overrun, token sequences, bypass during token, credit from an
+      inactivity resolution pushing over the limit, restart mid-block, config change mid-day, DST day).
+- **AC:** 100 % of ladder transitions covered by tests; no I/O in the evaluator.
+
+### M7 — UI infrastructure · `todo`
+- [ ] Lua window manager: create/update/close webviews by id; levels (normal, floating, overlay above menubar);
+      behaviours (all spaces, full-screen auxiliary); per-screen overlays; re-assert on `hs.screen.watcher` / space
+      changes; `allowTextEntry(true)`; report actual state in heartbeats; fallback inline HTML if a page fails to load
+      (with auto-close after 60 s → fail open).
+- [ ] Daemon: page serving (`src/ui/`), TS page scripts via type stripping (verify; else JSDoc `.js`), JSON API with
+      token, shared CSS, central strings module (tone).
+- [ ] Effects reconciler (desired vs actual → commands), dim pulse (`setGamma` + guaranteed restore).
+- [ ] Create `.github/ui-and-tone.md`.
+- **AC:** every window type renders against the dev daemon (browser + `WorkBalancer.preview`); with the owner's
+  consent and a short agreed window, the live overlay is shown once on 2 monitors and over a full-screen app, and panic
+  removes it.
+
+### M8 — Notes, feedback, menubar menus, summary, morning review · `todo`
+- [ ] Notes event-sourcing (fold across all days; ids `n-<epochMs>-<rand>`).
+- [ ] ⟂ Quick-note window (left click): context-memory + feedback (R-UI-MENU-2, R-UI-CTX, R-UI-FB).
+- [ ] Right-click menu (R-UI-MENU-3) — verify right-click detection first (F-HS-4); fallback documented.
+- [ ] ⟂ Notes manager window (*Show status notes*).
+- [ ] ⟂ Activity summary window.
+- [ ] Quit flow (confirm, `app.quit`, teardown).
+- [ ] Rollover at 04:00 (timer + on-wake check) and morning review window (R-UI-REVIEW).
+- **AC:** owner reviews wording/visuals (use `execute-copilot-session --questions free-to-ask` or `ask_user`).
+
+### M9 — Inactivity dialog · `todo`
+- [ ] Gap detection, window (non-focus-stealing, corner), live elapsed time, three actions + slider, multi-gap list,
+      auto-close at 04:00, not on Saturday / while blocked; `inactivity.*` events; `work` digest honours resolutions.
+- **AC:** tests for credit math (incl. lock inside gap, gap across 04:00); owner tries it in dev.
+
+### M10 — Enforcement: warn, countdown, block, tokens, bypass, break nudge · `todo`
+- [ ] **First verify escape hatches** (panic hotkey, `hs -c`), fail-open on daemon death / page failure.
+- [ ] Warn dialog + dim pulse; countdown window (collapsible); block overlay (all screens/spaces, above menubar);
+      tokens; emergency bypass (phrase typing, paste blocked, reason, two-step); break nudge.
+- [ ] Block persists across daemon restart and Hammerspoon reload; lifts at 04:00 rollover.
+- **AC:** full ladder walk-through in dev with a fake clock, recorded in the session report; owner approves before
+  enforcement is enabled on the live instance.
+
+### M11 — Hardening & soak · `todo`
+- [ ] Sleep/wake across 04:00, lid closed, external monitors hot-plug, DST day, Hammerspoon crash/restart, daemon
+      crash loops (backoff + visible warning), disk full / unwritable data dir (fail open + warning), config errors.
+- [ ] One week of live use; collect owner feedback; tune defaults (decisions logged).
+
+---
+
+## 4. Backlog / future (not scheduled — do not build without the owner's go-ahead)
+- `camera` provider (posture/fatigue/stress) — architecture already allows it (R-INFO-1).
+- True grayscale effect; screen "shake".
+- Fatigue proxies from existing signals: typo/backspace rate, prompt length trend, rapid app switching, late prompts.
+- Meeting awareness (don't throw a block over a screen share; offer auto-postpone during calls).
+- Gentle Friday notice on first activity ("Friday is your private day").
+- Historical backfill script for `prompt-history`; weekly report (markdown) generated into `data/`.
+- Optional auto-commit of `data/` (owner currently commits manually).
+- Energy/feedback trend charts in the summary.
+
+---
+
+## 5. tbd-file registry
+
+Register every tbd file here when created (path **stem**; the on-disk suffix shows its state:
+`.md` pending · `.<harness>.launched-<stamp>.md` · `.<harness>.completed.md` · `.<harness>.error-<kind>.md`).
+
+| tbd stem | Milestone/task | Created by (session) | Purpose | Outcome / report |
+|---|---|---|---|---|
+| `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/tbd-01-reload-hammerspoon` | M1 `scripts/reload-hammerspoon` | 2026-10-04 kickoff-m1-m4 | Implement + test the install/reload script | completed (2nd launch; 1st opened in the wrong VS Code window — runner bug, fixed by the owner). Report: `…/tbd-01-reload-hammerspoon/report.md`; its ledger delta applied (F-HS-7 corrected: `getConsole()` returns a string via `hs -c`). |
+
+---
+
+## 6. Decision log (newest last; never delete — mark superseded)
+
+| # | Date | Decision | Why |
+|---|---|---|---|
+| D-1 | 2026-10-04 | The goal is protecting Fri/Sat energy; hours are the proxy. Friction not prohibition; kind wording; close-the-loop (context-memory) at every stop. | Root-cause analysis with the owner (instructions §1). |
+| D-2 | 2026-10-04 | Policy inputs are worked time per day/week only; clock times only for the 04:00 boundary. | Owner: "Exact hours are never important." |
+| D-3 | 2026-10-04 | Block lasts until 04:00; only tokens or emergency bypass open it. | Owner choice. |
+| D-4 | 2026-10-04 | Initial policy per R-POL-2 (9 h on Sun/Tue/Thu, 44 h/week, ladder 75 % / −30 / −10). | Owner: "conjure a reasonable policy; I'll change it later." |
+| D-5 | 2026-10-04 | Architecture: thin Hammerspoon Lua (sensors/actuators/supervisor) + Node 26 TS daemon (all logic), HTTP on 127.0.0.1 with token; UI = `hs.webview` pages served by the daemon. | Testable logic in TS; Lua limited to what only it can do. |
+| D-6 | 2026-10-04 | Lua spawns the daemon via `hs.task` (no launchd plist). | Keeps the "single `require` line" footprint; Hammerspoon supervises. |
+| D-7 | 2026-10-04 | JSONL per 04:00-day in `data/YYYY-MM/`; append-only; event-sourced notes; last-wins minute records. | Git-able, crash-tolerant, mergeable. |
+| D-8 | 2026-10-04 | Policy config = typed `config/policy.ts`, hot-reloaded. | Typechecked, easy per-weekday editing. |
+| D-9 | 2026-10-04 | Zero runtime dependencies; npm; `node --test`; `tsc --noEmit`. | Small and boring; mirrors owner's baseline (`storm/.github`). |
+| D-10 | 2026-10-04 | Camera provider deferred; architecture must support it. | Owner. |
+| D-11 | 2026-10-04 | Inactivity = no input (incl. scroll) for 5 min; dialog with back / whole / some(slider); auto-close 04:00. | Owner. |
+| D-12 | 2026-10-04 | All activity on this computer is work (no app filtering); top-3 apps (≥ 5 s/min) recorded for insight. | Owner: personal work happens on another computer. |
+| D-13 | 2026-10-04 | Morning review skipped on Fri/Sat mornings; Thursday's notes surface Sunday 04:00. No popups on Saturday at all. | Protect private day and Shabbat. |
+| D-14 | 2026-10-04 | Quit is a simple confirm + logged gap; unreachable during a block because the overlay covers the menubar. | Owner. |
+| D-15 | 2026-10-04 | Fail open on internal errors; panic escape hatch is a prerequisite of the block. | Never trap the user because of a bug. |
+| D-16 | 2026-10-04 | Prompt-history stores counts/timestamps only; never text. | Data is git-able; privacy. |
+| D-17 | 2026-10-04 | Day key via local civil 04:00 (calendar arithmetic), not `t − 4h`. | DST correctness (design review). |
+| D-18 | 2026-10-04 | Worked time = interval arithmetic at second precision; `work` digest computed on demand, never persisted. | Unambiguous budgets; later providers/resolutions apply retroactively. |
+| D-19 | 2026-10-04 | Inactivity "whole"/"some" credit includes locked/asleep time within the gap. | Owner locks the screen when leaving for meetings — that is work. |
+| D-20 | 2026-10-04 | `panic` and `quit` are Lua-side latches that override reconciliation; panic lasts until 04:00 or `resume()`. | Otherwise the next heartbeat re-creates the block / supervisor restarts the daemon. |
+| D-21 | 2026-10-04 | Port bind = daemon mutex (no lockfiles); runtime files namespaced `var/<env>/`; dev daemon is browser-only. | Stale lockfiles after crashes; safe dev beside live. |
+| D-22 | 2026-10-04 | Single ledger writer: tbd-launched sessions return a `## Ledger delta`; the launching session applies it. | Concurrent sessions would clobber the ledger. |
+| D-23 | 2026-10-04 | First live install into `~/.hammerspoon/` only with the owner's explicit consent; scripts testable via `--hammerspoon-dir`. | Never surprise the owner's live setup. *(First install done with consent; see D-26.)* |
+| D-24 | 2026-10-04 | The daemon is spawned **detached** through an `hs.task` shell (`/bin/sh -c '… &'`), supervised via `daemon.json` + `/health` (not the task exit callback). Still `hs.task`, so D-6 holds. | Verified: direct `hs.task` children are killed by `hs.reload()`; detached grandchildren survive → adoption works (`.github/hammerspoon.md` H-3). |
+| D-25 | 2026-10-04 | `reload-hammerspoon` sets a `_WB_RELOAD_PENDING` global before reloading; health polling treats it as "reloading". | The old Lua state may answer `ok` in the 0.2 s before the reload — never a false success. |
+| D-26 | 2026-10-04 | Copilot sessions may **change and reload Hammerspoon freely, without asking** (still: only our own `work-balancer.lua` + the one `require` line; never other modules; no reload loops; never show test UI / enforcement on the live instance without consent). | Owner, at the M1 live install. |
+| D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
+
+---
+
+## 7. Open questions (non-blocking; current default in **bold**)
+
+| # | Question | Current default | Status |
+|---|---|---|---|
+| Q-1 | Should the right-click menu be reachable if `hs.menubar` cannot distinguish right-click? | **Fallback: Ctrl-click or an eventtap on `rightMouseDown` within `menubar:frame()`; last resort: left-click menu whose first item is "Quick note…".** | open (verify in M8) |
+| Q-2 | Inactivity dialog appears while the owner is *reading* (5 min without input). Annoying? | **Keep 5 min (owner's call); revisit after soak.** | open |
+| Q-3 | Effective limit ≤ 0 on an enforcing day (weekly budget exhausted): is blocking at the first worked second (R-POL-2 ladder arithmetic) too harsh? | **Yes it blocks, after a kind explanation screen; tokens/bypass available.** Consider a floor (e.g. 2 h) after soak. | open |
+| Q-4 | Should non-enforcing days (Mon/Wed/Fri) show the warn dialog at 9 h without blocking? | **No — colours only.** | open |
+| Q-5 | Note deletion is a tombstone; the text remains in an older day file (and in git history). Need a real purge tool? | **Tombstone; a manual `scripts/purge-note` later if wanted.** | open |
+| Q-6 | Should using a token require writing a context-memory first? | **No — scarcity is the friction.** | open |
+| Q-7 | Saturday-night (after Shabbat) work belongs to the ending week (Sat day key). Fine? | **Yes, per R-TIME-2.** | open |
+| Q-8 | Synthetic input from `copilot-retry-watcher` likely resets HID idle time → phantom busy minutes. Filter? | **Accept for now (rare); revisit if visible in data.** | open |
+| Q-9 | Auto-commit `data/` daily? | **No; owner commits manually.** | open |
+| Q-10 | Fixed port `47621` acceptable? | **Yes; dev = `47622`; both overridable via env.** | open |
+
+---
+
+## 8. Facts discovered (environment & external formats — verified 2026-10-04 unless marked)
+
+### Environment
+- **F-ENV-1** Shell default `node` is **v20.19.5** (nvm). Installed: v20.19.5, v24.16.0, **v26.7.0**
+  (`~/.nvm/versions/node/v26.7.0/bin/node`). `npm`/`yarn` on PATH belong to v20 → always go through `scripts/run-node`.
+- **F-ENV-2** Baseline conventions to mirror: `~/go/src-4/storm/.github/package.json` and `tsconfig.json`
+  (Node ≥ 26 type stripping, `erasableSyntaxOnly`, `verbatimModuleSyntax`, `allowImportingTsExtensions`,
+  `typescript ^7`, `@types/node ^26`).
+- **F-ENV-3** `scripts/execute-copilot-session` is a wrapper → `~/go/src-4/storm/.github/copilot-tbd-sessions/execute-copilot-session`
+  (external dependency; if it breaks, it's not this repo's code). `--model` is required (or `$COPILOT_MODEL`).
+- **F-ENV-4** Timezone: Asia/Jerusalem (UTC+3 in summer, +2 in winter).
+- **F-ENV-5** Node 26.7.0 type stripping (verified 2026-10-04): `satisfies` and `import type` are erased fine;
+  `enum` and constructor parameter properties are rejected at load ("not supported in strip-only mode");
+  `module.stripTypeScriptTypes(code)` exists (for serving page scripts, M7); a `.ts` module re-imported with a
+  different `?v=<n>` query is re-evaluated (hot-reload works; same query → cached). `typescript` latest = 7.0.2
+  (`tsc` binary present), `@types/node` 26.6.4.
+- **F-ENV-6** `scripts/execute-copilot-session` (vscode harness) originally opened sessions in the storm window
+  regardless of cwd; the owner fixed it on 2026-10-04 (it now prints `Repo: <git toplevel of cwd>`). Run it from this
+  repo's directory.
+
+### Hammerspoon
+- **F-HS-1** `hs` CLI at `/opt/homebrew/bin/hs`; Hammerspoon 1.1.1. `~/.hammerspoon/init.lua` (as of 2026-10-04, after
+  our install): `require("playwright-focus-guard")`, `require("copilot-retry-watcher")`, `require("work-balancer")`
+  (`copilot-chat-opener` is gone). The owner keeps `init.lua.bak.<epoch>` backups there. Hotkeys already taken:
+  `⌘⌃⌥P` (playwright-focus-guard), `⌘⌃⌥R` (copilot-retry-watcher).
+- **F-HS-2** `copilot-retry-watcher.lua` auto-clicks VS Code Copilot "Try Again" buttons (raising windows, synthetic
+  mouse events) and **keeps the display awake while a chat is in flight** (toggle Cmd+Alt+Ctrl+R; menubar 🔁/⏸).
+  Consequences: (a) display-awake ≠ owner present; (b) synthetic input may reset idle time (Q-8);
+  (c) its clicks land at VS Code button coordinates — if our overlay is on top, they could hit our buttons → two-step
+  confirm for consequential actions (R-UI-BLOCK).
+- **F-HS-3** Agents keep running during a block — by design (delegated work is fine; the block protects the owner).
+- **F-HS-4** *(to verify in M8)* Whether `hs.menubar` exposes right-click vs left-click.
+- **F-HS-5** *(to verify in M7)* `hs.webview` needs `allowTextEntry(true)` for typing; overlay levels/behaviours
+  for all spaces and full-screen apps. (`hs.task` across reload: verified → F-HS-8.)
+- **F-HS-6** `hs.host.idleTime()` returns **integer** seconds → input instants known to ±1 s (sample every 1 s).
+- **F-HS-7** `hs.http.asyncPost`: refused → status `-1` immediately; unanswered → status `-1` "request timed out"
+  after ~61 s; no cancel. `hs.console.getConsole()` returns a string via `hs -c`; use the tolerant form
+  `local c = hs.console.getConsole(); return type(c)=="string" and c or c:string()`.
+- **F-HS-8** `hs.reload()` **kills direct `hs.task` children**; a grandchild backgrounded by an `hs.task` shell survives
+  (→ D-24). Details and method: [hammerspoon.md](./hammerspoon.md) §1.
+
+### Copilot local history (for `prompt-history`, M5)
+- **F-COP-1** `~/.copilot/session-state/<sessionId>/` (~6.7 k dirs): `events.jsonl` + `workspace.yaml`.
+  `workspace.yaml` has `client_name` — seen: `vscode-agent-host` (**VS Code sessions via the agent host — the owner's
+  current main mode**), `vscode`, `github/cli`, `copilot-intellij`. So "VS Code only" still means this store too.
+- **F-COP-2** `events.jsonl` lines: `{type, data, id, timestamp (ISO), parentId}`. Human prompts: `type:"user.message"`;
+  `data` keys include `content`, `transformedContent`, `attachments`, `delivery`, `interactionId`, `turnId`,
+  `parentAgentTaskId` (→ subagent traffic when set). Agent question answers: `tool.execution_start` with
+  `data.toolName:"ask_user"` + matching `tool.execution_complete` (`data.toolCallId`) whose
+  `toolTelemetry.properties.outcome == "answered"` and result like `"User selected: …"`.
+- **F-COP-3** Sessions launched by `execute-copilot-session` (and test harness runs) also appear here; their first
+  `user.message` is the prompt file — **not** human input. Must be filtered (M5).
+- **F-COP-4** VS Code native chat: `~/Library/Application Support/Code/User/workspaceStorage/<hash>/chatSessions/*.jsonl`
+  (~1.8 k files) and `.../globalStorage/emptyWindowChatSessions/*.jsonl`. Op-log format: `kind:0` = initial snapshot
+  (`v.requests`), `kind:1` = set at path `k`, `kind:2` = push at path `k` (e.g. `k:["requests"]` pushes a request with
+  `timestamp` (epoch ms), `message.text`, `hiddenFromTranscript`, `modeInfo`, …). Files can be several MB → incremental
+  reading required.
+- **F-COP-5** Sample of the CLI/agent store: in the 90 days before 2026-10-04 only ~290 `user.message`s were found there
+  (most of the owner's history is presumably in F-COP-4 and/or agent-host sessions). Re-measure in M5.
+
+---
+
+## 9. Session log
+
+| Date | Session / tmp-folder | Summary | tbd files |
+|---|---|---|---|
+| 2026-10-04 | Design session (ran from `~/gits/GILAD-PRIVATE-BRANCH`; no tmp-folder in this repo) | Problem analysis with the owner; requirements, policy, architecture; created `copilot-instructions.md` and this ledger; independent design review applied (D-17…D-23). | — |
+| 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4. M1 done: scaffolding, run-node/run-daemon/check, reload-hammerspoon (tbd-01), Lua stub, first live install (consented); Hammerspoon + Node facts verified (F-HS-6..8, F-ENV-5..6). | tbd-01 |

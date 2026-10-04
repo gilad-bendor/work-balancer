@@ -1,0 +1,3 @@
+#!/bin/bash
+exec ~/go/src-4/storm/.github/copilot-tbd-sessions/execute-copilot-session "$@"
+

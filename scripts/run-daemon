@@ -1,0 +1,7 @@
+#!/bin/bash
+# Start the daemon (used by Hammerspoon, and by hand for the dev instance: WB_ENV=dev scripts/run-daemon).
+# Env passthrough: WB_ENV (live|dev), WB_PORT, WB_FAKE_NOW.
+set -euo pipefail
+repo="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+cd "$repo"
+exec "$repo/scripts/run-node" "$repo/src/main.ts" "$@"
