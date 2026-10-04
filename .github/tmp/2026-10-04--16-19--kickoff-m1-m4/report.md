@@ -31,3 +31,16 @@ last-wins/write errors, config validation/hot-reload/snapshot/cold start, regist
 **Design notes:** store reads are incremental per file (cache by size; unterminated tail held back until terminated).
 `aboutTime()` centralises routing. `PolicyConfig` carries all R-POL-2 knobs now (ladder, tokens, bypass phrase,
 break nudge, feedback choices) so later milestones do not change the owner's file shape.
+
+## M3 checkpoint
+
+**Done:** `src/bridge/{protocol,server}.ts`, `src/daemon/{daemon,tracker}.ts` (tracker = M3 placeholder),
+`src/main.ts`, Lua supervisor (heartbeat loop, watchdog/generation, outbox, spawn detached + adopt, backoff, grey
+"down" menubar, panic hotkey ⌃⌥⌘⇧Esc hold 1.5 s + `panic()/resume()`, `quit()`, `preview()`, `health()/status()`),
+README dev-instance section, `.github/hammerspoon.md` §2–4.
+
+**Verified:** see ledger M3 "AC verified" (unit + live: kill→restart ~9 s with grey meanwhile; reload→adopted;
+second live daemon exits; dev isolation by stat snapshot).
+
+**Incident:** first live spawn froze Hammerspoon ~67 s (H-6). Root cause found with `sample`; fixed and documented.
+Not done on live on purpose: triggering `panic()` (would write a fake record into `data/`).

@@ -25,7 +25,9 @@ export function resolveEnv(env: NodeJS.ProcessEnv, repoRoot: string = REPO_ROOT)
   const name: EnvName = raw;
   const port = env.WB_PORT ? Number(env.WB_PORT) : DEFAULT_PORTS[name];
   if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error(`WB_PORT invalid: ${env.WB_PORT}`);
-  const varDir = join(repoRoot, 'var', name);
+  if (env.WB_VAR_DIR && name === 'live') throw new Error('WB_VAR_DIR is for dev/test instances only');
+  // WB_VAR_DIR: tests only — isolates a spawned daemon's runtime files (and, for dev, its data).
+  const varDir = env.WB_VAR_DIR ? resolve(env.WB_VAR_DIR) : join(repoRoot, 'var', name);
   return {
     name,
     repoRoot,

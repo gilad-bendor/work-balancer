@@ -10,10 +10,10 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1 (scaffolding & scripts) and M2 (core & store) **done** (2026-10-04). |
-| **Next** | **M3 — Daemon, bridge, Lua skeleton** (§3). Then M4 (observe mode live). Enforcement comes later, in M10. |
+| **Phase** | M1, M2, M3 **done** (2026-10-04): live daemon supervised by Hammerspoon, placeholder menubar `⏱`. |
+| **Next** | **M4 — `interactive` provider, `work` digest, live menubar** (§3) → observe mode. Enforcement comes later, in M10. |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes — **stub only**: `~/.hammerspoon/work-balancer.lua` symlinked, `require("work-balancer")` in `init.lua`; `WorkBalancer.health()` → `ok 0.1.0`. No daemon, no menubar yet. The owner allows Copilot to change and reload Hammerspoon **freely, without asking** (D-26). |
+| **Live on the owner's machine?** | Yes: `~/.hammerspoon/work-balancer.lua` symlinked + `require("work-balancer")`; Lua supervises the live daemon (port 47621, `var/live/`, writes `data/`); menubar `⏱` (no tracking yet). `hs -c 'return WorkBalancer.health()'`. The owner allows Copilot to change and reload Hammerspoon **freely, without asking** (D-26). |
 | **Active tbd files** | None (see §5). |
 
 ---
@@ -254,20 +254,35 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   keeps previous; snapshot written; cold start → snapshot, else tracking-only). `src/core/registry.test.ts`
   (dependency order, typed augmentation, missing dep, duplicate). Test scratch dirs: `var/test/` (never `/tmp`, never `data/`).
 
-### M3 — Daemon, bridge, Lua skeleton · `todo`
-- [ ] `src/main.ts`: port bind as mutex, atomic `var/<env>/daemon.json` (pid, port, token, protocol version, repo),
+### M3 — Daemon, bridge, Lua skeleton · `done`
+- [x] `src/main.ts`: port bind as mutex, atomic `var/<env>/daemon.json` (pid, port, token, protocol version, repo),
       graceful shutdown (`daemon.stopped`), `/health`.
-- [ ] Bridge: `POST /bridge/heartbeat` (auth, `seq`, `sentAt`, timestamped sensor samples, actual-UI report, command
+- [x] Bridge: `POST /bridge/heartbeat` (auth, `seq`, `sentAt`, timestamped sensor samples, actual-UI report, command
       acks) → reply (menubar spec, commands). Dedup by `seq`; protocol version check (instructions §4.4).
-- [ ] Lua: supervisor (adopt healthy daemon / spawn via `hs.task` + `scripts/run-daemon` / restart with backoff; honours
+- [x] Lua: supervisor (adopt healthy daemon / spawn via `hs.task` + `scripts/run-daemon` / restart with backoff; honours
       the `quit` latch), 5 s heartbeat (single in-flight + watchdog), static menubar title from reply, grey
       `daemon down` state, `WorkBalancer.health()` real.
-- [ ] Dev instance (`WB_ENV=dev`, browser-only daemon, `var/dev/`), `WorkBalancer.preview(url)`. Document how to run.
-- [ ] Escape hatch: panic hotkey + `WorkBalancer.panic()` / `resume()` latch (R-UI-ESC).
-- [ ] Create `.github/hammerspoon.md` (API facts verified here, gotchas, how to debug via `hs -c`).
+- [x] Dev instance (`WB_ENV=dev`, browser-only daemon, `var/dev/`), `WorkBalancer.preview(url)`. Document how to run.
+- [x] Escape hatch: panic hotkey + `WorkBalancer.panic()` / `resume()` latch (R-UI-ESC).
+- [x] Create `.github/hammerspoon.md` (API facts verified here, gotchas, how to debug via `hs -c`).
 - **AC:** kill the daemon → Lua restarts it within ~10 s and menubar shows grey meanwhile; Hammerspoon reload → no
   duplicate daemon (adopted); a second live daemon exits on bind failure; a dev daemon runs alongside the live one
   without touching `var/live/` or `data/`.
+- **AC verified (2026-10-04):** `scripts/check` 64/64 (`src/daemon/daemon.test.ts`: daemon.json atomic + 0600 +
+  removed on stop; `/health` open, token on everything else, foreign `Host` → 403; heartbeat reply, `(loadId, seq)`
+  dedup, protocol mismatch 409, bad body 400; panic transition logged once; `WB_VAR_DIR` refused for live; **two
+  spawned `scripts/run-daemon` → the second exits 0, the first keeps `daemon.json`**, SIGTERM removes it).
+  Live: `kill <pid>` → menubar grey `⏱ –:––` after ~4 s, new daemon answering after ~9 s (1 s polling of
+  `WorkBalancer.health()`); `scripts/reload-hammerspoon` → same pid, `adopted=true`; `WB_ENV=live scripts/run-daemon`
+  while live runs → exit 0, `daemon.json` pid unchanged; dev daemon on 47622 (health, heartbeat, `/api/status`) →
+  `var/dev/data/…` only; before/after `stat` snapshot of `data/` + `var/live/` identical except the live log line of
+  the refused second live daemon. `preview()` refuses the live port and non-local URLs; a hidden `hs.webview` loads a
+  dev page (`loading()==false`). Panic hotkey registered (`✧ESCAPE`); a live `panic()` was **not** triggered (it
+  would write a fake `panic` record into `data/`) — daemon-side logging is unit-tested; full escape-hatch check is
+  M10's first task. Script: `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/scratch/m3-ac.sh` (gitignored scratch).
+- **Incident (2026-10-04 16:56–16:57):** the first spawn command (`mkdir … && nohup … & echo $!`) froze all of
+  Hammerspoon for ~67 s (hs.task stdout pipe held by a background subshell — `.github/hammerspoon.md` H-6). Killed the
+  subshell; fixed the command; verified spawn/restart since.
 
 ### M4 — `interactive` provider, `work` digest, aggregates, live menubar · `todo`
 - [ ] Lua sensors: `hs.host.idleTime()` per heartbeat; app focus intervals via `hs.application.watcher` (exact
@@ -461,6 +476,10 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 - **F-HS-7** `hs.http.asyncPost`: refused → status `-1` immediately; unanswered → status `-1` "request timed out"
   after ~61 s; no cancel. `hs.console.getConsole()` returns a string via `hs -c`; use the tolerant form
   `local c = hs.console.getConsole(); return type(c)=="string" and c or c:string()`.
+- **F-HS-9** `hs.task`'s exit handler reads leftover stdout **synchronously on the main thread**: a surviving process
+  holding the pipe freezes all of Hammerspoon (H-6). Background only simple commands with all fds redirected.
+- **F-HS-10** `hs.json.decode`: JSON `null` → `nil`; `hs.json.encode({})` → `[]`; integers (epoch ms) encode exactly.
+  `hs.styledtext.defaultFonts.menuBar` = `.AppleSystemUIFont` 13 pt. Hyper hotkeys show as `✧` in `getHotkeys()`.
 - **F-HS-8** `hs.reload()` **kills direct `hs.task` children**; a grandchild backgrounded by an `hs.task` shell survives
   (→ D-24). Details and method: [hammerspoon.md](./hammerspoon.md) §1.
 
