@@ -1,0 +1,11 @@
+# Default ignored files (per-user / machine-local — JetBrains recommendation)
+/shelf/
+/workspace.xml
+/usage.statistics.xml
+/tasks.xml
+/dictionaries/
+/dataSources/
+/dataSources.local.xml
+/httpRequests/
+/contentModel.xml
+/aws.xml
