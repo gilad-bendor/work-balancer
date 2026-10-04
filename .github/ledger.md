@@ -10,8 +10,8 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1 (scaffolding & scripts) **done** (2026-10-04). |
-| **Next** | **M2 — Core & store** (§3). Then M3 → M4 (observe mode live). Enforcement comes later, in M10. |
+| **Phase** | M1 (scaffolding & scripts) and M2 (core & store) **done** (2026-10-04). |
+| **Next** | **M3 — Daemon, bridge, Lua skeleton** (§3). Then M4 (observe mode live). Enforcement comes later, in M10. |
 | **Blocked** | Nothing. |
 | **Live on the owner's machine?** | Yes — **stub only**: `~/.hammerspoon/work-balancer.lua` symlinked, `require("work-balancer")` in `init.lua`; `WorkBalancer.health()` → `ok 0.1.0`. No daemon, no menubar yet. The owner allows Copilot to change and reload Hammerspoon **freely, without asking** (D-26). |
 | **Active tbd files** | None (see §5). |
@@ -230,19 +230,29 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   `diff` of `init.lua` before/after = only `> require("work-balancer")`; console tail clean (`playwright-focus-guard`,
   `copilot-retry-watcher` loaded).
 
-### M2 — Core & store · `todo`
-- [ ] `core/clock.ts` (real + fake/offset clock from env), `core/time.ts` (MinuteKey, dayKey, day start/end, week start,
+### M2 — Core & store · `done`
+- [x] `core/clock.ts` (real + fake/offset clock from env), `core/time.ts` (MinuteKey, dayKey, day start/end, week start,
       weekday names `sun..sat`), with tests run under `TZ=Asia/Jerusalem` covering both 2026 DST transitions (verify the
       dates with `Intl` — expected late March and late October) and day-boundary edges (03:59/04:00, Sat→Sun week edge).
-- [ ] `core/registry.ts` + provider/effect type contracts (instructions §4.1, §4.3).
-- [ ] `store/`: synchronous append with torn-line repair, file routing by record kind (instructions §6: time-records
+- [x] `core/registry.ts` + provider/effect type contracts (instructions §4.1, §4.3).
+- [x] `store/`: synchronous append with torn-line repair, file routing by record kind (instructions §6: time-records
       → the day they describe; entity/action records → current day), read day, read range, tolerant parsing, last-wins
       minute index; data dir from env (`data/` live, `var/dev/data/` dev, a temp dir in tests).
-- [ ] `policy/config.ts`: `PolicyConfig` type, validation (clear errors), loader with cache-busted hot-reload,
+- [x] `policy/config.ts`: `PolicyConfig` type, validation (clear errors), loader with cache-busted hot-reload,
       last-good snapshot + cold-start fallback (instructions §4.2); `config/policy.ts` with R-POL-2 values.
-- [ ] Logger → `var/<env>/logs/daemon-<dayKey>.log` (+ stderr in dev).
-- [ ] Create `.github/data-format.md` from §2; register in instructions §11.
+- [x] Logger → `var/<env>/logs/daemon-<dayKey>.log` (+ stderr in dev).
+- [x] Create `.github/data-format.md` from §2; register in instructions §11.
 - **AC:** tests cover DST, boundaries, torn lines, unknown types, out-of-order minutes, invalid config.
+- **AC verified (2026-10-04):** `scripts/check` → typecheck clean, 58/58 tests. `src/core/time.test.ts` (TZ
+  Asia/Jerusalem; asserts the 2026 transitions found via a scan of `getTimezoneOffset`: **Fri 27 Mar 02:00→03:00**
+  ⇒ day `2026-03-26` = 23 h; **Sun 25 Oct 02:00→01:00** ⇒ day `2026-10-24` = 25 h, both repeated 01:30s on Saturday's
+  day; 03:59/04:00 edges; month/year edges; Sat-night→ending week; week with fall-back = 169 h).
+  `src/store/store.test.ts` (routing incl. a 03:59 minute written at 04:00:30 → previous file; torn line repaired +
+  skipped with warning; garbage/non-object/unknown type/extra fields; incremental re-read; last-wins minutes;
+  unwritable dir → no throw, `health().writeError`, cleared after a good write). `src/policy/config.test.ts` (owner's
+  file valid + R-POL-2 values; clear validation errors; hot reload via `?v=<mtime>`; syntax error / invalid value
+  keeps previous; snapshot written; cold start → snapshot, else tracking-only). `src/core/registry.test.ts`
+  (dependency order, typed augmentation, missing dep, duplicate). Test scratch dirs: `var/test/` (never `/tmp`, never `data/`).
 
 ### M3 — Daemon, bridge, Lua skeleton · `todo`
 - [ ] `src/main.ts`: port bind as mutex, atomic `var/<env>/daemon.json` (pid, port, token, protocol version, repo),

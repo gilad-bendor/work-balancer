@@ -417,7 +417,7 @@ sub-folders other than `tmp/`). Each starts with a one-paragraph "when to read m
 | File | Read when | Status |
 |---|---|---|
 | [ledger.md](./ledger.md) | Always | exists |
-| `data-format.md` | Touching the store, any event type, or any reader of `data/` | to be created (milestone M2) |
+| [data-format.md](./data-format.md) | Touching the store, any event type, or any reader of `data/` | exists (schema v1) |
 | [hammerspoon.md](./hammerspoon.md) | Touching `work-balancer.lua`, bridge, windows, sensors | exists (verified API facts) |
 | `copilot-history-formats.md` | Touching the `prompt-history` provider | to be created (milestone M5) |
 | `ui-and-tone.md` | Touching any page, wording, or effect | to be created (milestone M7) |
