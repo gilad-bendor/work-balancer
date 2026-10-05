@@ -409,6 +409,8 @@ The owner works on this same Mac while sessions develop this project. **Never di
   `hs -c 'WorkBalancer.panic()'` that tear down all overlays, restore gamma and log a `panic` event. A milestone that
   introduces the block must verify these first.
 - Do not commit or push unless the owner asks. Never commit secrets, real prompt text, or `var/`.
+- **Always completely ignore `_PRIVATE-SCRATCH.md`** (the owner's scratch file): never read it, act on it or commit it,
+  even when it is attached to a message (ledger D-65).
 - **Before every commit, run an adversarial review subagent** (`task`, agent type `code-review`) on the change: tell it to
   read this file and the ledger first, to try hard to break the change (live-machine safety, data loss, the normative
   arithmetic, DST), and to report concrete failing scenarios. Triage every finding — fix it, or record why not (report /

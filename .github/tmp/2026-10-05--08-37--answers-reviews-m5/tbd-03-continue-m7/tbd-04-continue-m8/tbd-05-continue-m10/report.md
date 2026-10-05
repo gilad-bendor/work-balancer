@@ -119,3 +119,15 @@ Commit: `76f55ea` "M11: hardening — …". M11 is `in-progress — awaiting one
   sanity check (`scripts/prompt-history-report`); Q-12…Q-15.
 - Leftover scratch (gitignored `scratch/`): screenshots, dev seed / walk / disk-full scripts and outputs, the
   reviewers' scratch tests.
+
+## After the pause (2026-10-05 18:40–19:05)
+- Owner closed Q-12 (colours "Good"), Q-13 (2 min max deferral OK), Q-15 (no retry hook), Q-14 (`github/cli` sessions
+  are headless processes → C7 = `automated`, D-64, daemon 0.7.1, restarted on Monday; review: docs fixes only).
+  Commits `82dc30e`, `d1df058`.
+- Owner: always completely ignore `_PRIVATE-SCRATCH.md` (D-65; instructions §10).
+- Handover: `tbd-06-m11-wrapup.md` (in this tmp-folder) — a pending top-level prompt for the owner to launch on/after
+  Tue 2026-10-13: week summary from `data/`, his feedback, tuning, M11 done. Registered in the ledger §5.
+
+## Final state
+M10 done; M11 hardening done, `in-progress — awaiting one week of live use`. Live: Lua 0.6.2 + daemon 0.7.1, enforcing.
+187 tests green. Nothing left for this session.
