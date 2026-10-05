@@ -399,6 +399,8 @@ The owner works on this same Mac while sessions develop this project. **Never di
   and no reload loops. `scripts/reload-hammerspoon` supports `--hammerspoon-dir <dir>` (no reload) for scratch tests.
 - The live instance's state must not be changed by tests (no writes to `data/`, no consuming real tokens).
 - Green bar = `scripts/check` (typecheck + all tests) passes. Run it before declaring any code task done.
+- A `blocked` level latches until 04:00 under `<config hash>@<daemon version>` (ledger D-45): when shipping a fix that
+  changes worked time or the ladder, **bump `package.json`'s version** so a block caused by the bug is released.
 - Lua changes: `scripts/reload-hammerspoon` must exit 0 and report healthy; also check the Hammerspoon console for
   errors (`hs -c 'return hs.console.getConsole()'` — read only the tail).
 - When a feature needs the owner's eyes (visual check of a window, wording), ask him (`ask_user`) or delegate to a

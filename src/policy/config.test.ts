@@ -36,6 +36,7 @@ test('validation reports clear errors', () => {
   bad.days.mon.enforce = true;
   delete bad.days.fri;
   bad.days.funday = {};
+  bad.days.sat.enforce = true;
   const r = validatePolicy(bad);
   assert.equal(r.ok, false);
   const errors = (r as { errors: string[] }).errors.join('\n');
@@ -44,6 +45,7 @@ test('validation reports clear errors', () => {
   assert.match(errors, /days.mon.enforce needs a dailyBudgetMin/);
   assert.match(errors, /days.fri is missing/);
   assert.match(errors, /days.funday is not a weekday/);
+  assert.match(errors, /days.sat.enforce must be false/);
   assert.equal(validatePolicy(null).ok, false);
 });
 

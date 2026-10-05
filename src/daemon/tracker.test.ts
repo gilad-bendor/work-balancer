@@ -63,9 +63,9 @@ test('worked time earlier in the week (from disk) shortens the effective limit',
     }
   });
   t.after(s.cleanup);
-  const st = s.tracker.status(s.clock.now()) as { workedEarlierThisWeekSeconds: number; limit: { limitSeconds: number } };
+  const st = s.tracker.status(s.clock.now()) as { workedEarlierThisWeekSeconds: number; policy: { limitSeconds: number } };
   assert.equal(st.workedEarlierThisWeekSeconds, 4 * (10 * 3600 + 4 * 60)); // each day's last grace window adds 4 min
-  assert.equal(st.limit.limitSeconds, 44 * 3600 - st.workedEarlierThisWeekSeconds);
+  assert.equal(st.policy.limitSeconds, 44 * 3600 - st.workedEarlierThisWeekSeconds);
   assert.match(s.tracker.menubar(s.clock.now()).title, /^⏱ 0:00 \/ 3:44$/);
 });
 
@@ -112,4 +112,42 @@ test('Q-11: a restart after a long lock is not a gap (skipped locked minutes are
   t.after(s.cleanup);
   s.tracker.ingest(s.samples({ since: T + 60 * MIN, locked: true }), T + 60 * MIN + 5 * S);
   assert.deepEqual(s.store.readDay('2026-10-04').filter((r) => r.type === 'monitor.gap'), []);
+});
+
+test('M6: ladder level changes are logged as policy.transition, once, and restored after a restart', async (t) => {
+  const T = local(2026, 10, 4, 12, 0); // Sunday, 9 h budget; 04:30–11:30 active → 7 h 05 min worked
+  const s = await setup(T, (store) => {
+    for (let i = 0; i < 7 * 60; i++) store.append({ type: 'minute', provider: 'interactive', minute: local(2026, 10, 4, 4, 30) + i * MIN, data: { inputs: [[0, 0]] } });
+  });
+  t.after(s.cleanup);
+  s.tracker.tick(s.clock.now()); // 7 h (+ grace) worked → orange
+  s.tracker.tick(s.clock.now() + 1000);
+  const transitions = () => s.store.readDay('2026-10-04').filter((r) => r.type === 'policy.transition').map((r) => `${r.from}→${r.to}`);
+  assert.deepEqual(transitions(), ['ok→orange']);
+  const policy = createPolicyLoader({ path: join(REPO_ROOT, 'config', 'policy.ts'), snapshotPath: join(s.dir, 'snap2.json'), log: silentLogger });
+  await policy.refresh();
+  const again = await createTracker({ store: s.store, clock: s.clock, log: silentLogger, policy, startedAt: s.clock.now(), copilotHome: join(s.dir, 'empty-home') });
+  again.tick(s.clock.now() + 2000);
+  assert.deepEqual(transitions(), ['ok→orange'], 'a restarted daemon does not re-log the level');
+});
+
+test('M6: grants are read from the day file; a block survives a restart even if worked time is recomputed lower', async (t) => {
+  const T = local(2026, 10, 4, 14, 0); // Sunday; 04:30–13:30 active → 9 h 05 min worked → blocked
+  const s = await setup(T, (store) => {
+    for (let i = 0; i < 9 * 60; i++) store.append({ type: 'minute', provider: 'interactive', minute: local(2026, 10, 4, 4, 30) + i * MIN, data: { inputs: [[0, 0]] } });
+  });
+  t.after(s.cleanup);
+  s.tracker.tick(s.clock.now());
+  type St = { policy: { level: string; blockActive: boolean; grant: { until: number } | null } };
+  const status = (tr = s.tracker) => (tr.status(s.clock.now()) as St).policy;
+  assert.deepEqual([status().level, status().blockActive], ['blocked', true]);
+  s.store.append({ type: 'token.used', minutes: 10, until: s.clock.now() + 10 * MIN });
+  assert.deepEqual([status().blockActive, status().grant?.until], [false, s.clock.now() + 10 * MIN]);
+  // Restart after a late lock event that cuts worked time to ~7.5 h (same config): the block is latched for the day.
+  const policy = createPolicyLoader({ path: join(REPO_ROOT, 'config', 'policy.ts'), snapshotPath: join(s.dir, 'snap3.json'), log: silentLogger });
+  await policy.refresh();
+  s.store.append({ type: 'system', ts: local(2026, 10, 4, 12, 0), event: 'lock' });
+  const again = await createTracker({ store: s.store, clock: s.clock, log: silentLogger, policy, startedAt: s.clock.now(), copilotHome: join(s.dir, 'empty-home') });
+  s.clock.advance(11 * MIN); // the token expired
+  assert.deepEqual([status(again).level, status(again).blockActive], ['blocked', true]);
 });

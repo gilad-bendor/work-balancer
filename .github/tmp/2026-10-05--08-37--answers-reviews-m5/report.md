@@ -57,3 +57,17 @@ Verified: 116/116 tests (fixtures vs `expected.json`); live dry run 79 ms, numbe
 findings, then 3 on the fixes, then clean — all fixed (most notable: the first db-reading fix copied whole dbs, incl.
 drafts/terminal output, into `var/`; replaced by lock-free in-place reads; no copy ever persisted). Open: owner's
 sanity check of the dry-run numbers; daemon RSS ≈ 150 MB (mostly Node + imports).
+
+## 7. M6 policy engine (done)
+
+`src/policy/evaluate.ts` (pure): ladder with clamped thresholds + highest-wins, limit-0 rule, no level before the first
+real activity of the day, block latch keyed by `<config hash>@<daemon version>`, tokens/bypass folding and validation
+(`canUseToken`, `canBypass`, `grantUntil`), Saturday hard-guarded. Tracker: menubar colour from `PolicyState`,
+`policy.transition` on changes (04:00-race safe, restored after restarts), `/api/status.policy`. Version 0.4.0.
+Verified: 133/133 (11 evaluator tests incl. every ladder transition at its exact threshold; tracker transition/grant/
+latch tests). Review: 9 findings + 1 → all addressed (D-45, D-46).
+
+## Next
+
+M7 — UI infrastructure: needs the owner's eyes (visual checks), so best run as its own session
+(`execute-copilot-session --questions free-to-ask`) or with the owner present.

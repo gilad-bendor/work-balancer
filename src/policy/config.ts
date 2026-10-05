@@ -102,6 +102,9 @@ export function validatePolicy(x: unknown): ValidationResult {
       if (d.enforce === true && d.dailyBudgetMin === null) errors.push(`${p}.enforce needs a dailyBudgetMin`);
     }
     for (const k of Object.keys(x.days)) if (!(WEEKDAYS as readonly string[]).includes(k)) errors.push(`days.${k} is not a weekday (use sun..sat)`);
+    // Shabbat: tracking only, no popups at all (principle 6 — not configurable).
+    const sat = x.days.sat;
+    if (isObj(sat)) for (const k of ['enforce', 'inactivityDialog', 'breakNudge', 'morningReview'] as const) if (sat[k] === true) errors.push(`days.sat.${k} must be false (Shabbat: nothing intrusive)`);
   }
   return errors.length ? { ok: false, errors } : { ok: true, config: x as unknown as PolicyConfig };
 }

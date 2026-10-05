@@ -1,6 +1,6 @@
 // Wires the providers to the daemon (M4 observe mode): sensor ingest, minute records, monitor gaps, the `work`
 // digest, today/week aggregates, and the menubar text/colour.
-import type { Tracker, TrackerDeps } from './daemon.ts';
+import { DAEMON_VERSION, type Tracker, type TrackerDeps } from './daemon.ts';
 import { createInfoRepository } from '../core/registry.ts';
 import { addDays, dayEnd, dayKey, dayKeysBetween, dayStart, minuteKey, weekday, weekStartKey, type DayKey } from '../core/time.ts';
 import { clip, normalize, subtract, total, type Interval } from '../core/intervals.ts';
@@ -9,7 +9,7 @@ import type { GapCause } from '../store/records.ts';
 import { createInteractiveProvider } from '../providers/interactive/index.ts';
 import { createWorkProvider } from '../providers/work/index.ts';
 import { createPromptHistoryProvider } from '../providers/prompt-history/index.ts';
-import { effectiveLimit, statusColour } from '../policy/observe.ts';
+import { evaluate, type GrantRecord, type Level, type PolicyState } from '../policy/evaluate.ts';
 import { strings } from '../ui/strings.ts';
 
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
@@ -64,6 +64,32 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     }
   }
 
+  /** Last logged ladder level per day (restored from today's `policy.transition` records after a restart). */
+  let levelDay: DayKey | null = null;
+  let lastLevel: Level = 'ok';
+
+  // A block latches until 04:00 under this key: a config edit — or a daemon version bump shipping a bug fix — releases
+  // it (principle 5: never trap the owner because of a bug). Bump package.json's version for fixes that change worked time.
+  const latchKey = (): string => `${policy.state().hash ?? 'none'}@${DAEMON_VERSION}`;
+
+  function policyState(now: number): PolicyState {
+    const { today, earlier, todaySeconds } = weekNumbers(now);
+    const records = store.readDay(today);
+    const grants = records.filter((r) => (r.type === 'token.used' || r.type === 'bypass.used') && typeof r.until === 'number' && typeof r.minutes === 'number') as unknown as GrantRecord[];
+    if (levelDay !== today) {
+      levelDay = today;
+      const last = records.filter((r) => r.type === 'policy.transition').at(-1);
+      lastLevel = (typeof last?.to === 'string' ? last.to : 'ok') as Level;
+    }
+    const lastBlocked = records.filter((r) => r.type === 'policy.transition' && r.to === 'blocked').at(-1);
+    return evaluate({
+      config: policy.state().config, now, day: today, workedTodaySeconds: todaySeconds, workedEarlierThisWeekSeconds: earlier, grants,
+      activeToday: (work.getRangeInfo(dayStart(today), now)?.firstActivityAt ?? null) !== null,
+      blockedTodayUnderConfig: typeof lastBlocked?.configHash === 'string' ? lastBlocked.configHash : null,
+      configHash: latchKey(),
+    });
+  }
+
   function weekNumbers(now: number) {
     const today = dayKey(now);
     const earlier = dayKeysBetween(weekStartKey(today), addDays(today, -1)).reduce((s, k) => s + work.daySeconds(k), 0);
@@ -86,6 +112,17 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     tick(now) {
       interactive.flushMinutes(now);
       promptHistory.poll(now);
+      const st = policyState(now);
+      // The tick may straddle 04:00 (flush/poll take time): never file a transition into the next day.
+      if (st.level !== lastLevel && dayKey(clock.now()) === st.day) {
+        store.append({
+          type: 'policy.transition', from: lastLevel, to: st.level, configHash: latchKey(), workedMin: Math.floor(st.workedSeconds / 60),
+          limitMin: st.limitSeconds === null ? null : Math.floor(st.limitSeconds / 60),
+          weekMin: Math.floor(weekNumbers(now).weekSeconds / 60),
+        });
+        log.info('policy level', { from: lastLevel, to: st.level });
+        lastLevel = st.level;
+      }
       const today = dayKey(now);
       if (today !== lastPruneDay) {
         lastPruneDay = today;
@@ -105,16 +142,16 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       if (!c) {
         return { title: strings.menubarTitle(todaySeconds, null), colour: 'none', tooltip: [strings.tooltipToday(todaySeconds, null, null), strings.trackingOnly].join('\n'), warning: null };
       }
-      const limit = effectiveLimit(c, wd, earlier);
-      const base = limit.limitSeconds ?? limit.referenceSeconds;
+      const st = policyState(now);
+      const base = st.limitSeconds ?? st.referenceSeconds;
       const lines = [
-        wd === 'sat' ? strings.tooltipShabbat : wd === 'fri' ? strings.tooltipFriday : strings.tooltipToday(todaySeconds, limit.limitSeconds, limit.referenceSeconds),
+        wd === 'sat' ? strings.tooltipShabbat : wd === 'fri' ? strings.tooltipFriday : strings.tooltipToday(todaySeconds, st.limitSeconds, st.referenceSeconds),
         ...(wd === 'sat' || wd === 'fri' ? [strings.tooltipToday(todaySeconds, null, null)] : []),
         strings.tooltipWeek(weekSeconds, c.weeklyBudgetMin * 60),
         strings.tooltipStretch(stretch ? stretch.seconds : null),
         strings.observeMode,
       ];
-      return { title: strings.menubarTitle(todaySeconds, base), colour: statusColour(c, limit, todaySeconds), tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds) };
+      return { title: strings.menubarTitle(todaySeconds, base), colour: st.colour, tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds) };
     },
 
     status(now) {
@@ -122,14 +159,14 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       const { today, earlier, todaySeconds, weekSeconds } = weekNumbers(now);
       const start = dayStart(today);
       const end = minuteKey(now) + 60_000;
-      const limit = c ? effectiveLimit(c, weekday(today), earlier) : null;
+      const policyNow = c ? policyState(now) : null;
       return {
         today,
         weekday: weekday(today),
         workedSeconds: todaySeconds,
         weekSeconds,
         workedEarlierThisWeekSeconds: earlier,
-        limit,
+        policy: policyNow,
         currentStretch: work.currentStretch(),
         work: work.getRangeInfo(start, end),
         interactive: interactive.getRangeInfo(start, end),

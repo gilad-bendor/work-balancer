@@ -10,8 +10,8 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M5 **done** (2026-10-05): **observe mode is live** — `interactive` + `prompt-history` tracking into `data/`, menubar `⏱ worked / limit` with colours. No enforcement, no dialogs. |
-| **Next** | **M6 — Policy engine** (pure evaluator + exhaustive table-driven tests; R-POL-2/3/3a/4, Q-3, R-UI-QUIET timing inputs). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Follow-up: daemon RSS ≈ 150 MB (≈ 90 MB is Node + TS imports; JS heap ≈ 10 MB) — watch, no action now. |
+| **Phase** | M1–M6 **done** (2026-10-05): **observe mode is live** — `interactive` + `prompt-history` tracking into `data/`, policy evaluator (ladder logged as `policy.transition`), menubar `⏱ worked / limit` with colours. No enforcement UI yet (M7–M10). |
+| **Next** | **M7 — UI infrastructure** (window manager in Lua, page serving + JSON API, effects reconciler incl. R-UI-QUIET deferral (Q-13), dim pulse; `ui-and-tone.md`). Needs the owner for visual checks (`execute-copilot-session --questions free-to-ask` or `ask_user`). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. |
 | **Blocked** | Nothing. |
 | **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.3.2 + current daemon, 2026-10-05): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | None (see §5). |
@@ -348,12 +348,19 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   Adversarial review: 8 findings + 3 on the fixes (incl. a db byte-copy that would have put drafts/terminal output
   into `var/`) — all fixed (`.github/tmp/2026-10-05--08-37--answers-reviews-m5/scratch/review-m5.txt`).
 
-### M6 — Policy engine · `todo`
-- [ ] Pure evaluator → `PolicyState` (R-POL-2): weekday rules, effective limit, ladder thresholds in worked minutes,
+### M6 — Policy engine · `done`
+- [x] Pure evaluator → `PolicyState` (R-POL-2) — `src/policy/evaluate.ts` (builds on `observe.ts`); wired in the tracker (menubar colour, `policy.transition` on level changes, `/api/status`): weekday rules, effective limit, ladder thresholds in worked minutes,
       tokens/bypass windows from today's events, Saturday quiet mode, rollover semantics.
-- [ ] Exhaustive table-driven tests (each weekday, week overrun, token sequences, bypass during token, credit from an
+- [x] Exhaustive table-driven tests (each weekday, week overrun, token sequences, bypass during token, credit from an
       inactivity resolution pushing over the limit, restart mid-block, config change mid-day, DST day).
 - **AC:** 100 % of ladder transitions covered by tests; no I/O in the evaluator.
+- **AC verified (2026-10-05):** `src/policy/evaluate.test.ts` (11 tests): each weekday (D-35), every ladder transition
+  at its exact threshold (t−1 / t) for 9 h, clamping + highest-wins for a short limit, week overrun (Thursday 4 h;
+  limit 0 → `ok` at 0 s, `blocked` at 1 s, `zeroLimit`), token slots, grant composition (token then bypass during it →
+  max+30), expiry → block returns, clip to 04:00 on the 25 h day, credit pushing over the limit, purity (restart),
+  config change mid-day, token/bypass only while blocked; tracker test: transitions logged once and restored after a
+  restart. The evaluator has no I/O (pure function of its input). Adversarial review: 9 findings + 1 on the fixes, all
+  addressed (D-45, D-46) — 133 tests; `.github/tmp/2026-10-05--08-37--answers-reviews-m5/scratch/review-m6.txt`.
 
 ### M7 — UI infrastructure · `todo`
 - [ ] Lua window manager: create/update/close webviews by id; levels (normal, floating, overlay above menubar);
@@ -469,6 +476,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-42 | 2026-10-05 | Live env refuses `WB_PORT` (≠ 47621) and `WB_FAKE_NOW`. `reload-hammerspoon`: a commented-out require line = owner disabled it (never re-added); refuses to re-point to another checkout without `--force`; byte-transparent (latin1) atomic write. | Review M1#2/#6/#8. |
 | D-43 | 2026-10-05 | `prompt-history` provenance: the agent-host turn-id format (`request_*` vs bare UUID) is the primary signal, runner boilerplate markers outrank it, subagents by `agentId`/`source`; undecidable cases (retries, `github/cli`, runner follow-ups without corroboration, missing turn rows, cancelled asks) go to `unclassified`. Text is read in memory only; nothing derived from text (not even hashes) is persisted. | Deterministic for the owner's main mode; verified on ground-truth sessions (tbd-02). |
 | D-44 | 2026-10-05 | `prompt-history` keeps no persisted cursors: on start it re-scans today's changed history files (< 0.5 s) and rewrites no unchanged minute; a minute is never re-emitted with fewer interactions than its persisted record. | Simpler and restart-proof; the ledger's "cursors in var/" was only a means. |
+| D-45 | 2026-10-05 | A `blocked` level **latches until 04:00** (worked time may shrink later: late lock events, re-resolved inactivity credits) under the key `<config hash>@<daemon version>`: a config edit or a daemon version bump (a bug fix) releases it. `policy.transition` records carry the key. Editing `tokensMin` mid-day may yield extra tokens — accepted (explicit owner act). | Review M6#3 + principle 5 (never trap the owner because of a bug). |
+| D-46 | 2026-10-05 | No ladder level above `ok` before the first **real** activity of the day (input or human prompt — not a grace window carried over from before 04:00); effective limit floored to whole seconds; Saturday is non-intrusive by construction (evaluator + config validation); a non-enforcing day with a budget uses it as colour reference; grant records are only today's, clipped to `[ts, 04:00]`. | Review M6#1/#5/#6/#7/#8; Q-3's "nobody is blocked at 04:00 while asleep"; principle 6. |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -595,4 +604,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-04 | Design session (ran from `~/gits/GILAD-PRIVATE-BRANCH`; no tmp-folder in this repo) | Problem analysis with the owner; requirements, policy, architecture; created `copilot-instructions.md` and this ledger; independent design review applied (D-17…D-23). | — |
 | 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4, all done; **observe mode live**. M1 scaffolding + reload-hammerspoon (tbd-01) + live install; M2 core/store/config; M3 daemon/bridge/supervisor (incident: hs.task pipe freeze, H-6); M4 interactive/work/menubar. Facts F-HS-6..11, F-ENV-5..6; decisions D-24..D-30. | tbd-01 |
 | 2026-10-04 | (same tmp-folder, follow-up) | Q-11 → D-31 (skip idle fully-locked/asleep minutes; locked time never a gap); moved reload-hammerspoon logic + tests to `src/hammerspoon/` (owner's TODO); Q-12: no interim menu. 88 tests. | — |
-| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. **M5 implemented** (readers, classifier, minute records, dry-run report; review + 2 re-checks; D-44). 116 tests. | tbd-02 |
+| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. **M5 implemented** (readers, classifier, minute records, dry-run report; review + 2 re-checks; D-44). **M6 done** (pure evaluator, ladder transitions logged, latch; review + re-check; D-45, D-46; version 0.4.0). 133 tests. | tbd-02 |

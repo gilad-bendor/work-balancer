@@ -37,8 +37,8 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 | `system` | `event` (`sleep` · `wake` · `lock` · `unlock` · `display-sleep` · `display-wake`) | written (M4) | From Lua's `hs.caffeinate.watcher`; `ts` = event time. The daemon may also write a **synthetic** `lock`/`unlock` (heartbeat's `locked` flag disagrees with the timeline) or `wake` (a heartbeat arrives while the timeline says asleep), at the receiving time. Lock/unlock and sleep/wake pairs give the intervals that cut busy time. |
 | `inactivity.detected` | `gapId`, `lastInputAt` | planned (M9) | |
 | `inactivity.resolved` | `gapId`, `from`, `to`, `choice` (`back` · `whole` · `some` · `expired`), `creditedMinutes` | planned (M9) | Later resolution of the same gap replaces earlier. |
-| `policy.transition` | `from`, `to`, `workedMin`, `limitMin`, `weekMin` | planned (M6/M10) | Level changes only. |
-| `token.used` | `minutes`, `until` | planned (M10) | |
+| `policy.transition` | `from`, `to` (`ok` · `orange` · `warn` · `countdown` · `blocked`), `configHash` (latch key `<config hash>@<daemon version>`), `workedMin`, `limitMin` (null on non-enforcing days), `weekMin` | written (M6) | Ladder level changes only (one per change; a restarted daemon resumes from the day's last record; each day starts at `ok`). |
+| `token.used` | `minutes`, `until` | planned (M10) | `until` = `max(previous until, ts) + minutes`, clipped to the next 04:00 (`grantUntil()`); the evaluator folds these. |
 | `bypass.used` | `minutes`, `until`, `reason` | planned (M10) | |
 | `effect.shown` / `effect.closed` | `effect`, `windowId`, `by` (`user` · `system` · `rollover`) | planned (M7) | |
 | `note.created` | `noteId`, `kind` (`context` · `feedback` · `note`), `text`, `choices?`, `energy?`, `source` | planned (M8) | `source`: `quick` · `countdown` · `block` · `review` · `manager`. |
