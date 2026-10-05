@@ -71,3 +71,11 @@ latch tests). Review: 9 findings + 1 → all addressed (D-45, D-46).
 
 M7 — UI infrastructure: needs the owner's eyes (visual checks), so best run as its own session
 (`execute-copilot-session --questions free-to-ask`) or with the owner present.
+
+## 8. Handover (D-47)
+
+Owner chose to run M7 as its own session and to continue the project in a fresh session. `tbd-03-continue-m7.md`
+(reviewed by a rubber-duck agent: 7 points applied — explicit top-level designation, live-effects gate, no live panic
+test, M7 scope, checkpoint protocol, M11 soak, documentation duties) launched with `execute-copilot-session --model
+claude-opus --context long --questions free-to-ask --no-wait`. From its launch on, it owns the ledger; this session
+stops writing it.
