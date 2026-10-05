@@ -1,6 +1,6 @@
 // Lua ⇄ Node bridge protocol (instructions §4.4). Bump PROTOCOL_VERSION on any incompatible change; Lua shows
 // "reload needed" on a mismatch.
-import type { MenubarSpec, UiCommand } from '../core/effects.ts';
+import type { ClosedWindow, CloseBy, MenubarSpec, UiCommand } from '../core/effects.ts';
 import { SYSTEM_EVENTS, type SystemEvent } from '../store/records.ts';
 
 export const PROTOCOL_VERSION = 1;
@@ -37,7 +37,10 @@ export interface Heartbeat {
   sentAt: number;
   samples: SensorSamples;
   ui: {
-    windows: string[];
+    /** Window id → rev on screen (M7). Older Lua sent a list of ids; they map to rev "". */
+    windows: Record<string, string>;
+    /** Windows that went away since the last acknowledged heartbeat (re-sent until a 200; deduped by id+at). */
+    closed: ClosedWindow[];
     dimmed: boolean;
     latches: { panic: boolean; quit: boolean };
     /** Who set the panic latch (`hotkey` / `cli`), when set. */
@@ -62,6 +65,18 @@ export interface HeartbeatReply {
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+const CLOSE_BY: readonly CloseBy[] = ['user', 'page', 'system', 'panic', 'failopen', 'load-failed', 'reload'];
+
+function parseWindows(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (Array.isArray(v)) {
+    for (const id of v) if (typeof id === 'string') out[id] = '';
+  } else if (isObj(v)) {
+    for (const [id, rev] of Object.entries(v)) if (typeof rev === 'string') out[id] = rev;
+  }
+  return out;
+}
 
 /** Validates and normalises a heartbeat body; throws with a short reason. Unknown fields are ignored. */
 export function parseHeartbeat(body: unknown): Heartbeat {
@@ -91,7 +106,10 @@ export function parseHeartbeat(body: unknown): Heartbeat {
       since: isNum(s.since) ? s.since : null,
     },
     ui: {
-      windows: arr(ui.windows).filter((w): w is string => typeof w === 'string'),
+      windows: parseWindows(ui.windows),
+      closed: arr(ui.closed).filter(
+        (c): c is ClosedWindow => isObj(c) && typeof c.id === 'string' && (CLOSE_BY as readonly unknown[]).includes(c.by) && isNum(c.at),
+      ).map((c) => ({ id: c.id, by: c.by, at: c.at })),
       dimmed: ui.dimmed === true,
       latches: { panic: latches.panic === true, quit: latches.quit === true },
       panicBy: typeof ui.panicBy === 'string' ? ui.panicBy : null,

@@ -43,6 +43,16 @@ export interface PolicyConfig {
   breakNudge: { afterMin: number; snoozeMin: number };
   feedbackChoices: string[];
   days: Record<Weekday, DayPolicy>;
+  /**
+   * Live gate (ledger D-48): system-initiated effects (dialogs, dims, countdown, block, nudges, morning review) run on
+   * the live instance only when true. The owner flips it once he approves enforcement (M10). The dev instance ignores
+   * it. Default false.
+   */
+  liveEffects?: boolean;
+  /** R-UI-QUIET (D-34, Q-13): no effect starts within `afterInputSec` of input, unless due for `maxDeferSec`. */
+  quiet?: { afterInputSec: number; maxDeferSec: number };
+  /** Opacity (0.2–1) of every window that covers a whole screen (overlay mode or full placement). Default 1. */
+  overlayOpacity?: number;
 }
 
 export type ValidationResult = { ok: true; config: PolicyConfig } | { ok: false; errors: string[] };
@@ -86,6 +96,15 @@ export function validatePolicy(x: unknown): ValidationResult {
   }
   if (!Array.isArray(x.feedbackChoices) || Array.from(x.feedbackChoices).some((c) => typeof c !== 'string' || !c.trim())) {
     errors.push('feedbackChoices must be an array of non-empty strings');
+  }
+  if (x.liveEffects !== undefined) bool(x.liveEffects, 'liveEffects');
+  if (x.overlayOpacity !== undefined) num(x.overlayOpacity, 'overlayOpacity', 0.2, 1);
+  if (x.quiet !== undefined) {
+    if (!isObj(x.quiet)) errors.push('quiet must be an object');
+    else {
+      num(x.quiet.afterInputSec, 'quiet.afterInputSec', 0, 120);
+      num(x.quiet.maxDeferSec, 'quiet.maxDeferSec', 0, 3600);
+    }
   }
   if (!isObj(x.days)) errors.push('days must be an object with sun..sat');
   else {

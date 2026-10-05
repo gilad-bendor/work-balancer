@@ -24,6 +24,12 @@ export default {
     phrase: 'I am choosing to borrow this time from my Friday and my family. I accept the cost, and I will stop as soon as I can.',
   },
   breakNudge: { afterMin: 90, snoozeMin: 15 },
+  // No effect (dialog, dim, …) starts within 10 s of typing/mouse input — unless it has waited 2 min already.
+  quiet: { afterInputSec: 10, maxDeferSec: 120 },
+  // Live gate: dialogs, dims, countdown and block stay OFF on this Mac until you approve enforcement (milestone M10).
+  liveEffects: false,
+  // Opacity of full-screen effects (block, overlays): 1 = solid; 0.7 lets you read what is behind.
+  overlayOpacity: 0.7,
   feedbackChoices: ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day', 'Other'],
   days: {
     sun: enforcingWorkday,

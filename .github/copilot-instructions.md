@@ -427,4 +427,4 @@ sub-folders other than `tmp/`). Each starts with a one-paragraph "when to read m
 | [data-format.md](./data-format.md) | Touching the store, any event type, or any reader of `data/` | exists (schema v1) |
 | [hammerspoon.md](./hammerspoon.md) | Touching `work-balancer.lua`, bridge, windows, sensors | exists (verified API facts) |
 | [copilot-history-formats.md](./copilot-history-formats.md) | Touching the `prompt-history` provider | exists (tbd-02, 2026-10-05) |
-| `ui-and-tone.md` | Touching any page, wording, or effect | to be created (milestone M7) |
+| [ui-and-tone.md](./ui-and-tone.md) | Touching any page, wording, effect, window or dim — **mandatory for M8–M10** | exists |

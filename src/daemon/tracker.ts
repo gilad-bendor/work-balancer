@@ -134,6 +134,10 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       interactive.flushMinutes(now, { all: true });
     },
 
+    lastInputAt(now) {
+      return interactive.workSource.activity!(now - 10 * 60_000, now + 1).at(-1)?.[1] ?? null;
+    },
+
     menubar(now): MenubarSpec {
       const c = policy.state().config;
       const { today, earlier, todaySeconds, weekSeconds } = weekNumbers(now);

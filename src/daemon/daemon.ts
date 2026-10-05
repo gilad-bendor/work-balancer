@@ -12,7 +12,11 @@ import { createStore, type Store } from '../store/store.ts';
 import { createPolicyLoader, type PolicyLoader } from '../policy/config.ts';
 import { createBridgeServer, type Route } from '../bridge/server.ts';
 import { parseHeartbeat, PROTOCOL_VERSION, shiftSamples, type HeartbeatReply, type SensorSamples } from '../bridge/protocol.ts';
-import type { MenubarSpec } from '../core/effects.ts';
+import type { MenubarSpec, UiCommand } from '../core/effects.ts';
+import { createEffectsManager, type EffectsManager } from '../effects/manager.ts';
+import { createTestEffect } from '../effects/test-effect.ts';
+import { DEFAULT_QUIET } from '../effects/reconcile.ts';
+import { pagesRoute } from '../ui/serve.ts';
 
 export const DAEMON_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
@@ -35,6 +39,8 @@ export interface Tracker {
   status(now: number): unknown;
   /** Called once on graceful stop (flush pending minutes). */
   flush(now: number): void;
+  /** Latest input instant (R-UI-QUIET); null if none known. */
+  lastInputAt?(now: number): number | null;
 }
 
 export interface TrackerDeps {
@@ -46,11 +52,14 @@ export interface TrackerDeps {
   startedAt: number;
   /** Home whose Copilot history is read (prompt-history). */
   copilotHome: string;
+  /** Product effects register here (M8+). Optional so tests can omit it. */
+  effects?: EffectsManager;
 }
 
 export interface Daemon {
   info: DaemonInfo;
   store: Store;
+  effects: EffectsManager;
   server: Server;
   stop(reason: string): Promise<void>;
 }
@@ -78,6 +87,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
   });
 
   let tracker: Tracker | null = null;
+  const effects = createEffectsManager({
+    env: env.name, store, log, now: () => clock.now(),
+    gateOpen: () => env.name === 'dev' || policy.state().config?.liveEffects === true,
+    lastInputAt: (now) => tracker?.lastInputAt?.(now) ?? null,
+    quiet: () => {
+      const q = policy.state().config?.quiet;
+      return q ? { afterInputMs: q.afterInputSec * 1000, maxDeferMs: q.maxDeferSec * 1000 } : DEFAULT_QUIET;
+    },
+    overlayOpacity: () => policy.state().config?.overlayOpacity ?? 1,
+  });
+  const testEffect = createTestEffect({ env: env.name, now: () => clock.now() });
+  effects.register(testEffect.effect);
   let lastSeq: { loadId: string; seq: number } | null = null;
   let panicLatched = false;
   /** `at` of the last logged panic: an expired latch that was never logged (daemon unreachable until after 04:00)
@@ -151,7 +172,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
         }
         // The latch lasts until the next 04:00 (R-UI-ESC); Lua clears it when told so.
         const panicExpired = hb.ui.latches.panic && hb.ui.panicAt !== null && dayKey(hb.ui.panicAt + clock.offsetMs) !== dayKey(now);
-        const reply: HeartbeatReply = { protocol: PROTOCOL_VERSION, serverNow: now, dayKey: dayKey(now), menubar: menubar(now), commands: [], duplicate, panicExpired };
+        let commands: UiCommand[] = [];
+        try {
+          commands = effects.heartbeat({
+            actual: { windows: hb.ui.windows, dimmed: hb.ui.dimmed, closed: hb.ui.closed }, acks: hb.acks,
+            panic: hb.ui.latches.panic && !panicExpired, now,
+          });
+        } catch (e) {
+          // Fail open: no commands this beat (Lua keeps what it has; a broken reconciler never blocks the heartbeat).
+          log.error('effects reconcile failed', { error: e as Error });
+        }
+        const reply: HeartbeatReply = { protocol: PROTOCOL_VERSION, serverNow: now, dayKey: dayKey(now), menubar: menubar(now), commands, duplicate, panicExpired };
         return { json: reply };
       },
     },
@@ -164,6 +195,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
             env: env.name, version: DAEMON_VERSION, pid: process.pid, now, dayKey: dayKey(now), lastHeartbeatAt, panic: panicLatched,
             policy: { source: policy.state().source, hash: policy.state().hash, errors: policy.state().errors },
             menubar: menubar(now),
+            effects: effects.status(now),
             tracker: tracker?.status(now) ?? null,
           },
         };
@@ -177,6 +209,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
         return { json: { ok: true } };
       },
     },
+    pagesRoute(),
+    ...effects.routes(),
+    ...testEffect.routes,
   ];
 
   const server = createBridgeServer({ token, log, routes });
@@ -210,7 +245,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     }
     else if (r.type === 'resume') panicLatched = false;
   }
-  tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt, copilotHome: env.copilotHome })) ?? null;
+  tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt, copilotHome: env.copilotHome, effects })) ?? null;
   log.info('daemon started', { env: env.name, port, pid: process.pid, dataDir: env.dataDir });
 
   const tick = async (): Promise<void> => {
@@ -227,6 +262,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
   const daemon: Daemon = {
     info,
     store,
+    effects,
     server,
     async stop(reason) {
       if (stopped) return;

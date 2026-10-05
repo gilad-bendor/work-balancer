@@ -40,7 +40,7 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 | `policy.transition` | `from`, `to` (`ok` · `orange` · `warn` · `countdown` · `blocked`), `configHash` (latch key `<config hash>@<daemon version>`), `workedMin`, `limitMin` (null on non-enforcing days), `weekMin` | written (M6) | Ladder level changes only (one per change; a restarted daemon resumes from the day's last record; each day starts at `ok`). |
 | `token.used` | `minutes`, `until` | planned (M10) | `until` = `max(previous until, ts) + minutes`, clipped to the next 04:00 (`grantUntil()`); the evaluator folds these. |
 | `bypass.used` | `minutes`, `until`, `reason` | planned (M10) | |
-| `effect.shown` / `effect.closed` | `effect`, `windowId`, `by` (`user` · `system` · `rollover`) | planned (M7) | |
+| `effect.shown` / `effect.closed` | `effect`, `windowId`; `closed` also `by` (`user` · `page` · `system` · `panic` · `failopen` · `load-failed`) | written (M7) | Only for effects with `audit: true` (product effects from M8; `test` windows are never logged). `shown` when Lua first reports the window; `closed` once per Lua close report (deduped by id + time). |
 | `note.created` | `noteId`, `kind` (`context` · `feedback` · `note`), `text`, `choices?`, `energy?`, `source` | planned (M8) | `source`: `quick` · `countdown` · `block` · `review` · `manager`. |
 | `note.edited` / `note.dismissed` / `note.undismissed` | `noteId`, (`text`) | planned (M8) | Event-sourced; state = fold over all days. No delete (ledger D-36): "removing" a note = dismissing it. |
 | `config.loaded` | `hash`, `source` (`file` · `snapshot`) | written (M3) | |

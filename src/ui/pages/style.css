@@ -1,0 +1,30 @@
+/* Shared look of every work-balancer page: calm, neutral, readable (principle 3 — red only as a status colour). */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f5f2;
+  --card: #ffffff;
+  --text: #2b2b2b;
+  --muted: #6b6b6b;
+  --accent: #3b6e8f;
+  --border: #dedbd4;
+  --overlay: rgba(28, 32, 36, 0.94);
+  font: 22px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1f2124; --card: #2a2d31; --text: #e8e6e1; --muted: #a3a09a; --accent: #8fb8d4; --border: #3a3d42; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; }
+body.mode-overlay { background: var(--overlay); color: #ece9e2; }
+body.mode-overlay .card { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.15); color: #ece9e2; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 30px 36px; max-width: 960px; width: calc(100% - 32px); }
+h1 { font-size: 30px; font-weight: 600; margin: 0 0 8px; }
+p { margin: 6px 0; }
+.muted { color: var(--muted); }
+button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+input[type=text], textarea { font: inherit; width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+/* Dev instance: an unmistakable badge (instructions §4.4). */
+body.env-dev::before { content: attr(data-badge); position: fixed; top: 6px; right: 8px; background: #b5651d; color: #fff; font-weight: 700; font-size: 16px; padding: 3px 12px; border-radius: 6px; letter-spacing: 0.08em; }

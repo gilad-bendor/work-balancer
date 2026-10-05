@@ -10,10 +10,10 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M6 **done** (2026-10-05): **observe mode is live** — `interactive` + `prompt-history` tracking into `data/`, policy evaluator (ladder logged as `policy.transition`), menubar `⏱ worked / limit` with colours. No enforcement UI yet (M7–M10). |
-| **Next** | **M7 — UI infrastructure** (window manager in Lua, page serving + JSON API, effects reconciler incl. R-UI-QUIET deferral (Q-13), dim pulse; `ui-and-tone.md`). Needs the owner for visual checks (`execute-copilot-session --questions free-to-ask` or `ask_user`). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. |
+| **Phase** | M1–M7 **done** (2026-10-05): **observe mode is live**; M7 UI infrastructure in place (window manager, page serving, reconciler, live gate **off**, debug panic-eject **on**) — `interactive` + `prompt-history` tracking into `data/`, policy evaluator (ladder logged as `policy.transition`), menubar `⏱ worked / limit` with colours. No enforcement UI yet (M7–M10). |
+| **Next** | **M8 — notes, feedback, menu, summary, morning review** (read `ui-and-tone.md` first). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.3.2 + current daemon, 2026-10-05): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.4.0 + daemon 0.4.0, 2026-10-05; `liveEffects: false` ⇒ no dialogs/dims/blocks; debug eject ON — ⌃⌥⌘⇧F12 terminates Hammerspoon; `overlayOpacity: 0.7`): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | `tbd-03-continue-m7` — the **successor top-level session** (D-47), continuing from M7; it owns the ledger from its launch on. |
 
 ---
@@ -155,6 +155,15 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   `hs -c 'WorkBalancer.panic()'` → set a Lua-side **`panic` latch** (reconciler cannot override it): remove overlays,
   restore gamma, suppress all enforcement windows/dims **until the next 04:00 rollover** or
   `WorkBalancer.resume()`; tracking continues; log `panic`. Internal errors fail **open** with a visible warning.
+
+- **R-UI-EJECT** *(2026-10-05, owner, D-49)* **Debug panic-eject** — a temporary safety net while the blockers are new:
+  every window that covers a whole screen (overlay mode or `full` placement — block, full-screen dialogs, test
+  overlays, even when its page failed to load) shows a label at its bottom: **"Press Shift+Ctrl+Alt+Cmd+F12 to
+  PANIC-EJECT"**; pressing that combo **terminates Hammerspoon** (gamma restored first; the detached daemon keeps
+  running). Implemented in Lua only (works with the daemon down). **Toggle-able, default on**:
+  `hs -c 'return WorkBalancer.debugEject(false)'` (persisted in `var/live/debug-eject.json`); the owner turns it off
+  once he trusts the blockers. While on, the combo ejects on press (it supersedes the hold-1.5 s panic of R-UI-ESC,
+  which returns when eject is off). **Must exist before any real block** (M10 verifies it first, with the escape hatches).
 
 ### 1.7 Dev process
 - **R-DEV-1** `.github/copilot-instructions.md` + this ledger; additional Copilot topic files flat in `.github/`.
@@ -362,18 +371,30 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   restart. The evaluator has no I/O (pure function of its input). Adversarial review: 9 findings + 1 on the fixes, all
   addressed (D-45, D-46) — 133 tests; `.github/tmp/2026-10-05--08-37--answers-reviews-m5/scratch/review-m6.txt`.
 
-### M7 — UI infrastructure · `todo`
-- [ ] Lua window manager: create/update/close webviews by id; levels (normal, floating, overlay above menubar);
+### M7 — UI infrastructure · `done`
+- [x] Lua window manager: create/update/close webviews by id; levels (normal, floating, overlay above menubar);
       behaviours (all spaces, full-screen auxiliary); per-screen overlays; re-assert on `hs.screen.watcher` / space
       changes; `allowTextEntry(true)`; report actual state in heartbeats; fallback inline HTML if a page fails to load
       (with auto-close after 60 s → fail open).
-- [ ] Daemon: page serving (`src/ui/`), TS page scripts via type stripping (verify; else JSDoc `.js`), JSON API with
+- [x] Daemon: page serving (`src/ui/`), TS page scripts via type stripping (verify; else JSDoc `.js`), JSON API with
       token, shared CSS, central strings module (tone).
-- [ ] Effects reconciler (desired vs actual → commands), dim pulse (`setGamma` + guaranteed restore).
-- [ ] Create `.github/ui-and-tone.md`.
+- [x] Effects reconciler (desired vs actual → commands), dim pulse (`setGamma` + guaranteed restore).
+- [x] Create `.github/ui-and-tone.md`.
+- [x] Debug panic-eject (R-UI-EJECT, D-49): label on full-screen windows, press → terminate Hammerspoon, toggle.
 - **AC:** every window type renders against the dev daemon (browser + `WorkBalancer.preview`); with the owner's
   consent and a short agreed window, the live overlay is shown once on 2 monitors and over a full-screen app, and panic
   removes it.
+- **AC verified (2026-10-05):** `scripts/check` 147/147 (`src/effects/reconcile.test.ts`: open/update/close, every
+  R-UI-QUIET edge incl. max deferral and re-appearance, panic, pulse once; `src/effects/effects.test.ts`: page serving
+  + traversal + type stripping, test-window lifecycle through the daemon, panic suppression, live gate + consent flag,
+  covering ⇒ intrusive, audit incl. restart/reload, opacity, cap). Live, with the owner's consent (~11:05–11:36): the
+  fixture rendered in a DEV PREVIEW and in managed `normal` windows (typing after the H-10 focus fix; the dev page in
+  the browser too); a `perScreen` **overlay** at 70 % on **both monitors**, then **over full-screen apps on both
+  screens**, capturing all input, with the eject label; ⌃⌥⌘⇧F12 terminated Hammerspoon (Esc version impossible —
+  H-9); panic teardown via `WorkBalancer._panicDryRun` removed the overlay at once (no `panic` record, no latch);
+  readiness handshake: a broken page failed after 15 s, closed, stayed quarantined. Floating mode and dim pulses are
+  covered by the tests and the dev fixture but were not shown live (no consent needed yet — first live use in M9/M10).
+  Adversarial review: 8 findings + 2 on the fixes, all fixed; final re-check clean (`tbd-03-continue-m7/scratch/review-m7.txt`).
 
 ### M8 — Notes, feedback, menubar menus, summary, morning review · `todo`
 - [ ] Notes event-sourcing (fold across all days; ids `n-<epochMs>-<rand>`).
@@ -414,6 +435,9 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
 - Historical backfill script for `prompt-history`; weekly report (markdown) generated into `data/`.
 - Optional auto-commit of `data/` (owner currently commits manually).
 - Energy/feedback trend charts in the summary.
+- *(2026-10-05, owner — low priority)* **Statistics on every full-screen effect** (block, zero-limit explanation, any
+  overlay): today worked vs limit, this week vs weekly budget, per-day bars Sun–Thu, current stretch, tokens/bypasses
+  used; reuse the summary's model. (The block already shows today/week numbers per R-UI-BLOCK — this extends it.)
 
 ---
 
@@ -480,6 +504,9 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-45 | 2026-10-05 | A `blocked` level **latches until 04:00** (worked time may shrink later: late lock events, re-resolved inactivity credits) under the key `<config hash>@<daemon version>`: a config edit or a daemon version bump (a bug fix) releases it. `policy.transition` records carry the key. Editing `tokensMin` mid-day may yield extra tokens — accepted (explicit owner act). | Review M6#3 + principle 5 (never trap the owner because of a bug). |
 | D-46 | 2026-10-05 | No ladder level above `ok` before the first **real** activity of the day (input or human prompt — not a grace window carried over from before 04:00); effective limit floored to whole seconds; Saturday is non-intrusive by construction (evaluator + config validation); a non-enforcing day with a budget uses it as colour reference; grant records are only today's, clipped to `[ts, 04:00]`. | Review M6#1/#5/#6/#7/#8; Q-3's "nobody is blocked at 04:00 while asleep"; principle 6. |
 | D-47 | 2026-10-05 | **Top-level handover:** the session `2026-10-05--08-37--answers-reviews-m5` ends after launching `tbd-03-continue-m7` (via `execute-copilot-session`, `--questions free-to-ask`), which becomes the single top-level / ledger-writing session and continues M7 → M11 under the same standing rules (D-26, D-27, D-37, D-45) plus a live-effects gate (new effects hard-disabled for `live` until the owner approves enforcement in M10; no live `panic()` as a test). Successors hand over the same way when their context grows. | Owner: this session's context is very large; continue in a fresh session. |
+| D-48 | 2026-10-05 | **Live gate** = `liveEffects` in `config/policy.ts` (default false): system-initiated (*intrusive*) effects run on the live instance only when true; dev ignores it. User-initiated windows (from the menu, M8) and explicitly requested `test` windows (`live: true`, TTL ≤ 120 s, owner consent) are exempt. Panic and R-UI-QUIET still apply to them. | Task tbd-03 live-effects gate; the owner's own file is the most visible place for the switch. |
+| D-49 | 2026-10-05 | **Debug panic-eject** (R-UI-EJECT): Lua-only label on full-screen windows + ⌃⌥⌘⇧**F12** **press** (owner's original Esc is swallowed by macOS — H-9) terminates Hammerspoon while enabled (default on, `WorkBalancer.debugEject(bool)`, persisted). Same combo as the panic hotkey on purpose: when eject is on, eject wins. Limitation: a Hammerspoon whose main thread is frozen (H-6) cannot run any hotkey — `kill` from a terminal remains the last resort. | Owner: a safety net against buggy blockers locking the computer, before any real block exists. |
+| D-50 | 2026-10-05 | M7 window contract: effects declare windows (`mode`, `placement`, `perScreen`, `focus`, `intrusive`); the manager adds `rev` + `opacity`; anything covering a screen is always intrusive; Lua's kill-switches key on `intrusive or covers-screen`; pages must say `ready` within 15 s or fail open (screen-covering: closed after 5 s; quarantine doubles); a window already shown today is never deferred by R-UI-QUIET; 6 × 503 ⇒ fail open; `effect.*` audit rebuilt from the day's records, unreported disappearance = `closed by reload`. `overlayOpacity` (owner: 0.7) for screen-covering windows; page fonts +50 % (owner). | Owner requests + adversarial review M7 (8 findings). |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -538,8 +565,11 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
   confirm for consequential actions (R-UI-BLOCK).
 - **F-HS-3** Agents keep running during a block — by design (delegated work is fine; the block protects the owner).
 - **F-HS-4** *(to verify in M8)* Whether `hs.menubar` exposes right-click vs left-click.
-- **F-HS-5** *(to verify in M7)* `hs.webview` needs `allowTextEntry(true)` for typing; overlay levels/behaviours
-  for all spaces and full-screen apps. (`hs.task` across reload: verified → F-HS-8.)
+- **F-HS-5** *(verified 2026-10-05)* `hs.webview` typing needs `allowTextEntry(true)` **and** key focus
+  (`hswindow():focus()`) — H-10; overlay at `screenSaver` level + `canJoinAllSpaces|fullScreenAuxiliary|stationary`
+  covers both monitors and full-screen apps and captures all input — H-11. (`hs.task` across reload: → F-HS-8.)
+- **F-HS-13** *(2026-10-05)* macOS swallows **⌘⌥Esc** (Force Quit) even with ⌃⇧ added: no app/eventtap ever sees the
+  Esc — the panic/eject combo is ⌃⌥⌘⇧F12 (hammerspoon.md H-9). `os.exit(0)` in Lua terminates Hammerspoon (H-12).
 - **F-HS-6** `hs.host.idleTime()` returns **integer** seconds → input instants known to ±1 s (sample every 1 s).
 - **F-HS-7** `hs.http.asyncPost`: refused → status `-1` immediately; unanswered → status `-1` "request timed out"
   after ~61 s; no cancel. `hs.console.getConsole()` returns a string via `hs -c`; use the tolerant form
@@ -607,3 +637,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4, all done; **observe mode live**. M1 scaffolding + reload-hammerspoon (tbd-01) + live install; M2 core/store/config; M3 daemon/bridge/supervisor (incident: hs.task pipe freeze, H-6); M4 interactive/work/menubar. Facts F-HS-6..11, F-ENV-5..6; decisions D-24..D-30. | tbd-01 |
 | 2026-10-04 | (same tmp-folder, follow-up) | Q-11 → D-31 (skip idle fully-locked/asleep minutes; locked time never a gap); moved reload-hammerspoon logic + tests to `src/hammerspoon/` (owner's TODO); Q-12: no interim menu. 88 tests. | — |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. **M5 implemented** (readers, classifier, minute records, dry-run report; review + 2 re-checks; D-44). **M6 done** (pure evaluator, ladder transitions logged, latch; review + re-check; D-45, D-46; version 0.4.0). 133 tests. Handed over to tbd-03 (D-47). | tbd-02, tbd-03 |
+| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/` | Successor top-level session (D-47). **M7 done**: effects contracts/reconciler/manager (live gate D-48), test effect, page serving with type stripping, Lua window manager + dim + fail-open, owner's **debug panic-eject** (R-UI-EJECT, D-49; Esc impossible → F12, H-9) and `overlayOpacity`; live visual checks with consent; review 8 + 2 findings fixed (D-50); `ui-and-tone.md`. 147 tests. | — |

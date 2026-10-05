@@ -7,14 +7,19 @@ import type { Logger } from '../core/log.ts';
 export interface Route {
   method: 'GET' | 'POST';
   path: string;
+  /** Match every path that starts with `path` (static pages). */
+  prefix?: boolean;
   auth: boolean;
-  handle(req: { body: unknown; query: URLSearchParams }): Promise<RouteResult> | RouteResult;
+  handle(req: { body: unknown; query: URLSearchParams; path: string }): Promise<RouteResult> | RouteResult;
 }
 
 export interface RouteResult {
   status?: number;
   json?: unknown;
   html?: string;
+  /** Raw body with its content type (static assets). */
+  body?: string;
+  contentType?: string;
 }
 
 const MAX_BODY = 1024 * 1024;
@@ -32,7 +37,7 @@ export function createBridgeServer(opts: { token: string; log: Logger; routes: R
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const host = (req.headers.host ?? '').replace(/:\d+$/, '');
       if (host !== '127.0.0.1' && host !== 'localhost') return send(res, 403, { error: 'bad host' });
-      const route = opts.routes.find((r) => r.path === url.pathname && r.method === req.method);
+      const route = opts.routes.find((r) => r.method === req.method && (r.prefix ? url.pathname.startsWith(r.path) : r.path === url.pathname));
       if (!route) return send(res, 404, { error: 'not found' });
       if (route.auth && !tokenOk((req.headers['x-wb-token'] as string | undefined) ?? url.searchParams.get('token'))) {
         return send(res, 401, { error: 'bad token' });
@@ -46,10 +51,11 @@ export function createBridgeServer(opts: { token: string; log: Logger; routes: R
           return send(res, 400, { error: 'invalid JSON' });
         }
       }
-      const result = await route.handle({ body, query: url.searchParams });
-      if (result.html !== undefined) {
-        res.writeHead(result.status ?? 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(result.html);
+      const result = await route.handle({ body, query: url.searchParams, path: url.pathname });
+      if (result.html !== undefined || result.body !== undefined) {
+        const type = result.html !== undefined ? 'text/html; charset=utf-8' : (result.contentType ?? 'text/plain; charset=utf-8');
+        res.writeHead(result.status ?? 200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        res.end(result.html ?? result.body);
       } else send(res, result.status ?? 200, result.json ?? {});
     } catch (e) {
       opts.log.error('request failed', { url: req.url, error: e as Error });

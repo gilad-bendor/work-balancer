@@ -25,3 +25,20 @@ export const strings = {
   promptHistoryTurnsDrift: 'Copilot history: agent-host prompts cannot be matched to their turns (format change?) — prompts are not counted.',
   promptHistoryNothingParsed: 'Copilot history: nothing parsed today (format change?) — prompts are not counted.',
 } as const;
+
+/** Plain strings the pages fetch (`GET /api/ui/strings`); pages never hard-code user-facing text. */
+export const pageStrings = {
+  devBadge: 'DEV',
+  loading: 'One moment…',
+  loadFailed: "This window couldn't load its content. It will close by itself in a minute — nothing is blocked.",
+  close: 'Close',
+  fixtureTitle: 'work-balancer — test window',
+  fixtureBody: 'A harmless test window. It closes by itself.',
+  fixtureMode: 'Mode',
+  fixtureSecondsLeft: 'Closes by itself in',
+  fixtureTypeHere: 'Type here to check that text entry works',
+  fixtureEcho: 'Send to the daemon',
+  fixtureEchoed: 'The daemon received',
+  fixtureNotInHammerspoon: '(Opened in a browser: closing is up to you.)',
+} as const;
+

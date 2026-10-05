@@ -22,12 +22,16 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 | H-7 | `hs.host.idleTime()` **while locked + display asleep** | The counter grows *slower than the wall clock* (~11 s per 12 s), so `now − idle` creeps forward with no input. Only treat a **reset** (idle `0`, or lower than the previous sample) as an input. | Live data 2026-10-04 (phantom inputs re-emitting minutes up to 60×); fixed in Lua 0.3.1. |
 | H-8 | `hs.caffeinate.watcher` `systemWillSleep` | Lua timers still fire for ~1 s after it (a regular heartbeat followed the one carrying `sleep`). | Live data 2026-10-04 (17:30:07 sleep → heartbeat 1.2 s later). |
 
+| H-9 | `hs.hotkey` with **Esc + ⌘⌥** (e.g. ⌃⌥⌘⇧Esc) | **Never fires**: macOS consumes ⌘⌥Esc (Force Quit) before any app — even an `hs.eventtap` sees only the modifier changes, no Esc key-down. ⌃⌥⌘⇧**F12** arrives (key 111, with `fn` on the laptop keyboard). ⇒ panic/eject combo = ⌃⌥⌘⇧F12. | Owner pressed it under a logging `hs.eventtap` (key codes only), 2026-10-05 |
+| H-10 | `hs.webview` text entry | Needs `:allowTextEntry(true)` **and** key focus: `webview:hswindow():focus()` after `show()`. With `bringToFront(true)` alone the owner could not type. | DEV PREVIEW of the fixture page, owner typed + echo, 2026-10-05 |
+| H-11 | Overlay above everything | `level = windowLevels.screenSaver`, behaviour `canJoinAllSpaces | fullScreenAuxiliary | stationary | ignoresCycle`, borderless, Hammerspoon's dock icon hidden (it is: `hs.dockicon.visible()` = false) ⇒ shown on **both monitors**, **over full-screen apps**, above the menubar, and it **captures all input** (no app usable behind it). `webview:alpha(0.7)` works for the whole window. An `hs.canvas` at `level + 1` stays above it (the eject label). | Live test overlays with the owner's consent, 2026-10-05 |
+| H-12 | `os.exit(0)` (= `hs._exit`) | Terminates Hammerspoon at once (every module stops); the detached daemon keeps running and is adopted on relaunch (`open -g -a Hammerspoon`). | Owner pressed the eject combo over a live test overlay, 2026-10-05 |
+| H-13 | `print` inside an `hs.eventtap` callback | While an `hs -c` call is in flight, `print` is routed to the IPC client and raises `ipc.lua:402: attempt to index a nil value` (and the CLI times out). Diagnostics from callbacks: write to a file. | 2026-10-05 |
+
 ### Still to verify (do it before relying on it)
 
-- `hs.webview` text entry needs `:allowTextEntry(true)` + window brought to front as key (needed from M7/M8 — needs a
-  visible window, so verify with the owner's consent or in a `DEV PREVIEW` window).
-- Overlay levels/behaviours for all spaces and full-screen apps (M7).
-- Right-click vs left-click on `hs.menubar` (F-HS-4, M8).
+- Right-click vs left-click on `hs.menubar` (F-HS-4) — moot since D-32 (any click opens the menu).
+- A `focus = false` floating window really never takes key focus (`nonactivating` mask) — check in M9 (inactivity).
 
 ---
 
@@ -46,7 +50,7 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
   touching this line.
 - **Outbox:** sensor samples (M4) stay queued until a heartbeat carrying them returns 200; the daemon's ingest is
   idempotent, so a re-send after a lost reply is harmless.
-- **Latches:** `panic` (hotkey: hold ⌃⌥⌘⇧Esc 1.5 s, or `WorkBalancer.panic()`; persisted in `var/live/panic.json`
+- **Latches:** `panic` (hotkey: hold ⌃⌥⌘⇧F12 1.5 s **when the debug eject is off**, or `WorkBalancer.panic()`; persisted in `var/live/panic.json`
   so a reload keeps it; heartbeats carry `panicAt` and the daemon answers `panicExpired` after the next 04:00, or
   `WorkBalancer.resume()`), `quit` (`WorkBalancer.quit()`: shutdown request, menubar removed, no
   respawn until the next module load).
@@ -57,6 +61,25 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
   carries `locked` (`sessionProperties().CGSSessionScreenIsLocked`) and `since` (coverage start: load time, then the
   last acknowledged `sentAt`). Outbox ≤ 50 000 per kind; ≤ 5 000 per heartbeat (drains faster when backlogged).
 - **Code changes in `src/`** need `scripts/restart-daemon` (the supervisor adopts the running daemon across reloads).
+- **Window manager (M7):** heartbeat replies carry idempotent commands (`window.open` with a full spec + `rev`,
+  `window.close`, `dim`); Lua executes them, acks their ids in the next heartbeat, and reports `ui.windows`
+  (id → rev on screen) and `ui.closed` (`{id, by, at}`: `user` = native close button, `page` = the page asked,
+  `system` = daemon command, `panic`, `failopen`, `load-failed`) until a 200. Modes → level/behaviour: `normal`
+  (titled), `floating` (`floating` level, all spaces + full-screen auxiliary, `nonactivating` unless `focus`),
+  `overlay` (H-11, borderless). `perScreen` = one webview per screen (keyed by screen UUID), followed on
+  `hs.screen.watcher`; levels re-asserted every beat and on `hs.spaces.watcher`. Pages talk back through a
+  `hs.webview.usercontent` port named `wb` (`close` / `push` / `failed`). A navigation failure shows inline fallback
+  HTML and closes the window after 60 s (that id+rev is not reopened for 5 min).
+  **Kill-switches in Lua:** panic latch (and `WorkBalancer._panicDryRun(sec)` — the same teardown + suppression, local
+  only: nothing persisted, nothing sent) refuses intrusive windows/dims and closes them; **fail open**: daemon gone
+  (`not running` / no `daemon.json`) or 2 failed heartbeats in a row ⇒ intrusive windows closed + gamma restored;
+  dims are capped at 15 s and never darker than 0.3, ended early by input when `cancelOnInput`, restored on screen
+  changes, panic, quit and unload.
+- **Debug panic-eject (R-UI-EJECT, D-49):** while `WorkBalancer.debugEject()` is ON (default; persisted in
+  `var/live/debug-eject.json`), every screen-covering window gets a red bottom label "Press Shift+Ctrl+Alt+Cmd+F12 to
+  PANIC-EJECT" (an `hs.canvas` one level above), and ⌃⌥⌘⇧F12 terminates Hammerspoon (`restoreGamma`, a detached
+  `kill -9` fallback after 3 s, `os.exit(0)`). `WorkBalancer.debugEject(false)` turns it off (the combo becomes the
+  1.5 s panic hold again).
 - **Dev preview:** `WorkBalancer.preview(url)` opens a normal, closable `DEV PREVIEW — <url>` webview; it refuses the
   live port and non-local URLs.
 
@@ -76,6 +99,9 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 
 - `hs -c 'return WorkBalancer.health()'` → `ok <ver> daemon=up|starting|down|stopped(quit) pid=… adopted=… lastHeartbeat=…s panic=on|off [lastError=…]`
 - `hs -c 'return hs.inspect(WorkBalancer.status())'` — supervisor state (failures, backoff, seq, outbox sizes).
+- `hs -c 'return hs.inspect(WorkBalancer.windows())'` — windows on screen (mode, rev, webviews, eject labels, failed).
+- `hs -c 'return WorkBalancer.debugEject()'` — eject state; `(false)` / `(true)` to toggle.
+- Test windows (live only with the owner's consent): `curl -X POST -H "x-wb-token: $T" -d '{"mode":"overlay","perScreen":true,"ttlSeconds":60,"live":true}' http://127.0.0.1:47621/api/test/window`; `/api/test/clear` removes them.
 - `hs -c 'local o={} for _,h in ipairs(hs.hotkey.getHotkeys()) do o[#o+1]=h.idx end return table.concat(o," ")'` — bound hotkeys (`✧` = ⌘⌥⌃⇧).
 - `hs` CLI answers "send/receive timeout" → Hammerspoon's main thread is blocked: `sample $(pgrep -x Hammerspoon) 1` (see H-6).
 - Daemon side: `var/live/logs/daemon-<dayKey>.log`, `var/live/logs/daemon.out.log` (stdout/stderr),
