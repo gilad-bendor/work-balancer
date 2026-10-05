@@ -57,3 +57,10 @@ fixed. Round 3: holds. 147/147. Review text: `scratch/review-m7.txt` (round 1).
 - Owner's sanity check of the M5 dry-run numbers (`scripts/prompt-history-report`) still pending.
 - Panic hotkey while eject is ON = eject (same combo); `WorkBalancer.panic()` via CLI unchanged.
 - The dev daemon was started with `WB_ENV=dev nohup scripts/run-daemon` (stop: `scripts/restart-daemon --env dev`).
+
+## Handover (D-51)
+
+Owner chose a fresh session for M8 at the M7 checkpoint. Successor prompt `tbd-04-continue-m8.md` (in this
+tmp-folder; includes M8 design notes and the owner's call-to-action preference), registered in the ledger §5,
+launched with `scripts/execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait`.
+From its launch on, it owns the ledger; this session stops writing it. The dev daemon was stopped.
