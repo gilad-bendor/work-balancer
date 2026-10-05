@@ -11,7 +11,12 @@ export interface AppInterval {
   name: string;
   from: number;
   to: number;
+  /** Focused window title (Lua 0.7+), for the categorizer only — never stored or logged (D-67). */
+  title?: string;
 }
+
+/** Window titles longer than this are cut (they only feed the categorizer). */
+export const MAX_TITLE = 300;
 
 export interface SystemSample {
   event: SystemEvent;
@@ -98,7 +103,10 @@ export function parseHeartbeat(body: unknown): Heartbeat {
       inputs: arr(s.inputs).filter(isNum),
       apps: arr(s.apps).filter(
         (a): a is AppInterval => isObj(a) && typeof a.id === 'string' && typeof a.name === 'string' && isNum(a.from) && isNum(a.to) && a.to >= a.from,
-      ),
+      ).map((a) => {
+        const { title, ...rest } = a;
+        return typeof title === 'string' && title ? { ...rest, title: title.slice(0, MAX_TITLE) } : rest;
+      }),
       system: arr(s.system).filter(
         (e): e is SystemSample => isObj(e) && (SYSTEM_EVENTS as readonly unknown[]).includes(e.event) && isNum(e.at),
       ),

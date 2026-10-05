@@ -61,6 +61,7 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 | `activeSeconds` | Distinct whole seconds of the minute touched by an input run (0–60). |
 | `lastInputAt` | Epoch ms of the end of the last input run in this minute (`minute + 59999` if the run continues into the next minute). |
 | `topApps` | ≤ 3 apps by foreground time in this minute, each ≥ 5 s: `[{ "id": bundleId, "name": appName, "s": seconds }]`. |
+| `categories` | *(since 2026-10-05, D-67)* Foreground seconds per **app category** in this minute: `{ "Work": 48, "WhatsApp": 12 }` (locked/asleep time excluded; all seconds, no threshold). The category comes from the owner's `config/categories.ts` `categorize()` (bundle id, app name, window title) **when the interval arrives** — later edits of that function do not change history. Insight only: **no time logic reads it**. Window titles are never stored. Older minutes have no `categories`. |
 | `lockedSeconds`, `asleepSeconds` | Seconds of this minute with the screen locked / the Mac asleep. Locked/asleep time is not counted as app time. |
 
 On disk, zero / empty / `null` fields are **omitted** (a fully locked minute is `"data":{"lockedSeconds":60}`); readers

@@ -14,6 +14,8 @@ export interface RuntimeEnv {
   /** The owner's data/ for live; var/dev/data/ for dev — dev never writes to data/. */
   dataDir: string;
   configPath: string;
+  /** The owner's app categories (D-67). */
+  categoriesPath: string;
   /** Home whose Copilot history (~/.copilot, ~/Library/Application Support/Code) the prompt-history provider reads. */
   copilotHome: string;
 }
@@ -44,6 +46,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv, repoRoot: string = REPO_ROOT)
     logDir: join(varDir, 'logs'),
     dataDir: name === 'live' ? join(repoRoot, 'data') : join(varDir, 'data'),
     configPath: join(repoRoot, 'config', 'policy.ts'),
+    categoriesPath: join(repoRoot, 'config', 'categories.ts'),
     copilotHome: env.WB_COPILOT_HOME ? resolve(env.WB_COPILOT_HOME) : homedir(),
   };
 }

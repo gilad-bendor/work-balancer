@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.6.2"
+local VERSION = "0.7.0"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -15,6 +15,7 @@ local LIVE_PORT_DEFAULT = 47621
 local PANIC_HOLD = 1.5         -- seconds to hold the panic hotkey
 local MAX_OUTBOX = 50000       -- per sample kind; oldest dropped beyond this (≈ 14 h of continuous input)
 local BATCH = 5000             -- max samples per kind in one heartbeat
+local APPS_BATCH = 1500        -- app intervals carry titles: fewer per heartbeat (body ≤ 1 MiB)
 local HUNG_AFTER = 4           -- consecutive heartbeat timeouts before a hung daemon is killed and respawned
 local CRASH_LOOP_AFTER = 3     -- spawns without a healthy daemon in between: a visible crash-loop warning (M11)
 
@@ -597,7 +598,7 @@ end
 local function buildHeartbeat()
   local o = S.outbox
   -- At most BATCH per kind: after a long daemon outage the outbox drains over several beats (body limit 1 MB).
-  local counts = { inputs = math.min(#o.inputs, BATCH), apps = math.min(#o.apps, BATCH), system = math.min(#o.system, BATCH) }
+  local counts = { inputs = math.min(#o.inputs, BATCH), apps = math.min(#o.apps, APPS_BATCH), system = math.min(#o.system, BATCH) }
   local sentAt = nowMs()
   local samples = {
     inputs = { table.unpack(o.inputs, 1, counts.inputs) },
@@ -741,7 +742,7 @@ end
 
 -- After a 200 only (never after a failure: that would retry 10×/s on the main thread): drain a backlog faster.
 local function drainBacklog()
-  if #S.outbox.inputs > BATCH or #S.outbox.apps > BATCH or #S.outbox.system > BATCH then
+  if #S.outbox.inputs > BATCH or #S.outbox.apps > APPS_BATCH or #S.outbox.system > BATCH then
     S.timers.push = hs.timer.doAfter(0.1, function() sendHeartbeat() end)
   end
 end
@@ -837,18 +838,65 @@ local function appIdentity(app, fallbackName)
   return (app and app:bundleID()) or name, name
 end
 
-local function switchApp(id, name)
+-- Focused window title, for the daemon's app categorizer only (D-67: never stored there). Read through the
+-- accessibility API with a short timeout: a hung app must never stall Hammerspoon's main thread (H-6 spirit). An app
+-- that is slow to answer is not asked again for a minute.
+local TITLE_TIMEOUT = 0.1
+local TITLE_SLOW = 0.05
+local TITLE_BACKOFF = 60
+local TITLE_MAX = 120 -- bytes: keeps a heartbeat backlog far below the daemon's 1 MiB body limit
+S.titleSkipUntil = {} -- pid → time before which its title is not read
+S.lastTitle = {}      -- pid → last title read (reused while the app is in back-off)
+local function windowTitle(app)
+  if not app then return nil end
+  local ok, pid = pcall(function() return app:pid() end)
+  if not ok or not pid then return nil end
+  local now = hs.timer.secondsSinceEpoch()
+  if (S.titleSkipUntil[pid] or 0) > now then return nil end
+  local t0 = hs.timer.absoluteTime()
+  local okT, title = pcall(function()
+    local e = hs.axuielement.applicationElement(app)
+    if not e then return nil end
+    e:setTimeout(TITLE_TIMEOUT)
+    local w = e:attributeValue("AXFocusedWindow")
+    if not w then return nil end
+    w:setTimeout(TITLE_TIMEOUT)
+    return w:attributeValue("AXTitle")
+  end)
+  if (hs.timer.absoluteTime() - t0) / 1e9 > TITLE_SLOW then S.titleSkipUntil[pid] = now + TITLE_BACKOFF end
+  if not okT or type(title) ~= "string" or title == "" then S.lastTitle[pid] = nil; return nil end
+  S.lastTitle[pid] = title:sub(1, TITLE_MAX)
+  return S.lastTitle[pid]
+end
+
+--- A new interval starts on an app switch or when the focused window's title changes (the daemon categorizes each
+--- interval as it arrives).
+local function switchApp(id, name, title)
   local t = nowMs()
   if S.app then
-    if S.app.id == id then return end
-    pushSample("apps", { id = S.app.id, name = S.app.name, from = S.app.from, to = t })
+    if S.app.id == id and S.app.title == title then return end
+    pushSample("apps", { id = S.app.id, name = S.app.name, from = S.app.from, to = t, title = S.app.title })
   end
-  S.app = { id = id, name = name, from = t }
+  S.app = { id = id, name = name, from = t, title = title }
+end
+
+--- Every 2 s (from the idle sampler): the title of the frontmost app's focused window.
+local function sampleTitle()
+  if not S.app then return end
+  local front = hs.application.frontmostApplication()
+  if not front then return end
+  local id, name = appIdentity(front)
+  if id ~= S.app.id then return end -- the app watcher handles switches
+  local okPid, pid = pcall(function() return front:pid() end)
+  -- A slow app in back-off keeps its last title (no flip to "unknown" — review D-67#8).
+  if okPid and pid and (S.titleSkipUntil[pid] or 0) > hs.timer.secondsSinceEpoch() then return end
+  local title = windowTitle(front)
+  if title ~= S.app.title then switchApp(id, name, title) end
 end
 
 S.sensors.openAppInterval = function()
   if not S.app then return nil end
-  return { id = S.app.id, name = S.app.name, from = S.app.from, to = nowMs() }
+  return { id = S.app.id, name = S.app.name, from = S.app.from, to = nowMs(), title = S.app.title }
 end
 
 S.sensors.isLocked = function()
@@ -865,12 +913,27 @@ local SYSTEM_EVENTS = {
 
 local function startSensors()
   S.loadedAt = nowMs()
-  S.timers.idle = hs.timer.doEvery(1, sampleIdle)
+  S.titleTick = 0
+  S.timers.idle = hs.timer.doEvery(1, function()
+    sampleIdle()
+    S.titleTick = S.titleTick + 1
+    if S.titleTick % 2 == 0 then pcall(sampleTitle) end
+  end)
   sampleIdle()
   local front = hs.application.frontmostApplication()
-  if front then switchApp(appIdentity(front)) end
+  if front then
+    local id, name = appIdentity(front)
+    switchApp(id, name, windowTitle(front))
+  end
   S.sensors.watchers.apps = hs.application.watcher.new(function(name, event, app)
-    if event == hs.application.watcher.activated then switchApp(appIdentity(app, name)) end
+    if event == hs.application.watcher.activated then
+      local id, nm = appIdentity(app, name)
+      local okPid, pid = pcall(function() return app:pid() end)
+      -- The last known title for now (a slow app in back-off keeps it); the fresh one is read 0.3 s later.
+      switchApp(id, nm, okPid and pid and S.lastTitle[pid] or nil)
+      -- The title is read just after, outside the watcher callback (a just-launched app may be slow to answer).
+      later(0.3, function() pcall(sampleTitle) end)
+    end
   end):start()
   S.sensors.watchers.caffeinate = CAFF.new(function(e)
     local ev = SYSTEM_EVENTS[e]
@@ -1116,7 +1179,7 @@ else
   S.timers.first = hs.timer.doAfter(0.2, function() sendHeartbeat() end)
 end
 
-M._S = S -- debugging only: hs -c 'return hs.inspect(WorkBalancer._S.outbox)'
+M._S = S -- debugging only: hs -c 'return hs.inspect(WorkBalancer.status())' (the raw outbox holds window titles)
 WorkBalancer = M
 log("loaded %s (repo %s)", VERSION, tostring(REPO))
 return M

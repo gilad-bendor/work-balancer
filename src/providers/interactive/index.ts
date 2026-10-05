@@ -9,6 +9,7 @@ import type { Store } from '../../store/store.ts';
 import { isMinuteRecord, type AnyRecord, type SystemEvent } from '../../store/records.ts';
 import type { SensorSamples } from '../../bridge/protocol.ts';
 import type { WorkSource } from '../work/index.ts';
+import { DEFAULT_CATEGORY, type AppContext } from '../../categories/categories.ts';
 
 export const PROVIDER = 'interactive';
 /** Input instants closer than this are one run (the sampler runs every second). */
@@ -35,6 +36,8 @@ export interface InteractiveMinute {
   activeSeconds: number;
   lastInputAt: number | null;
   topApps: TopApp[];
+  /** Foreground seconds per app category (locked/asleep time excluded) — insight only, never time logic (D-67). */
+  categories: Record<string, number>;
   lockedSeconds: number;
   asleepSeconds: number;
 }
@@ -45,6 +48,7 @@ export interface InteractiveRange {
   firstInputAt: number | null;
   lastInputAt: number | null;
   topApps: TopApp[];
+  categories: Record<string, number>;
   lockedSeconds: number;
   asleepSeconds: number;
 }
@@ -80,6 +84,8 @@ export function encodeMinute(m: InteractiveMinute): Record<string, unknown> {
   if (m.activeSeconds) o.activeSeconds = m.activeSeconds;
   if (m.lastInputAt !== null) o.lastInputAt = m.lastInputAt;
   if (m.topApps.length) o.topApps = m.topApps;
+  // Sorted keys: an identical minute must encode identically (no rewrite after a restart — review D-67#2).
+  if (Object.keys(m.categories).length) o.categories = Object.fromEntries(Object.entries(m.categories).sort(([a], [b]) => a.localeCompare(b)));
   if (m.lockedSeconds) o.lockedSeconds = m.lockedSeconds;
   if (m.asleepSeconds) o.asleepSeconds = m.asleepSeconds;
   return o;
@@ -94,11 +100,16 @@ export function decodeMinute(data: unknown): InteractiveMinute {
   const topApps = Array.isArray(d.topApps)
     ? d.topApps.filter((a): a is TopApp => !!a && typeof a.id === 'string' && typeof a.name === 'string' && typeof a.s === 'number')
     : [];
+  const categories: Record<string, number> = {};
+  if (d.categories && typeof d.categories === 'object' && !Array.isArray(d.categories)) {
+    for (const [k, v] of Object.entries(d.categories as Record<string, unknown>)) if (k && typeof v === 'number' && Number.isFinite(v) && v > 0) categories[k] = v;
+  }
   return {
     inputs,
     activeSeconds: num(d.activeSeconds, 0),
     lastInputAt: typeof d.lastInputAt === 'number' ? d.lastInputAt : null,
     topApps,
+    categories,
     lockedSeconds: num(d.lockedSeconds, 0),
     asleepSeconds: num(d.asleepSeconds, 0),
   };
@@ -109,8 +120,17 @@ interface TimelineEvent {
   at: number;
 }
 
-export function createInteractiveProvider(opts: { store: Store; log: Logger; now: () => number }): InteractiveProvider {
+export function createInteractiveProvider(opts: {
+  store: Store;
+  log: Logger;
+  now: () => number;
+  /** App → category, decided when the interval arrives (the window title is used here and then dropped). */
+  categorize?: (app: AppContext) => string;
+}): InteractiveProvider {
   const { store, log } = opts;
+  const categorize = opts.categorize ?? (() => DEFAULT_CATEGORY);
+  /** Category → foreground intervals (no titles kept). */
+  const cats = new Map<string, Interval[]>();
   // Input runs, stored padded: run [a, b] ⇔ [a, b + RUN_JOIN_MS), so normalize() joins instants ≤ RUN_JOIN_MS apart.
   let padded: Interval[] = [];
   const apps = new Map<string, { name: string; list: Interval[] }>();
@@ -179,7 +199,31 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
       const s = Math.round((overlap(fg, m, end) - overlapOf(fg, blocked)) / 1000);
       appSeconds.push({ id, name, s });
     }
+    const exact: [string, number][] = [];
+    for (const [c, list] of cats) {
+      const fg = clip(list, m, end);
+      if (!fg.length) continue;
+      const ms = overlap(fg, m, end) - overlapOf(fg, blocked);
+      if (ms > 0) exact.push([c, ms / 1000]);
+    }
+    let categories = roundSeconds(exact);
     const base = loadedBase.get(m);
+    // A minute already on disk (a restart re-sends only the still-open app interval):
+    // - written before categories existed (apps recorded, no categories) → none: the live part would be partial;
+    // - otherwise per category the larger of recorded and live, so a partial minute flushed at shutdown gets its rest —
+    //   unless that is more than the minute can hold (60 s minus locked/asleep): then the categorizer changed and the
+    //   recorded categories stay (history is not re-labelled — D-67#1/#3).
+    if (base) {
+      const recorded = base.categories;
+      if (!Object.keys(recorded).length && base.topApps.length) categories = {};
+      else {
+        const merged: Record<string, number> = { ...recorded };
+        for (const [c, s] of Object.entries(categories)) merged[c] = Math.max(merged[c] ?? 0, s);
+        const capacity = Math.round((MINUTE_MS - overlap(blocked, m, end)) / 1000);
+        const sum = Object.values(merged).reduce((n, x) => n + x, 0);
+        categories = sum <= capacity ? merged : { ...recorded };
+      }
+    }
     if (base) {
       for (const b of base.topApps) {
         const live = appSeconds.find((a) => a.id === b.id);
@@ -193,6 +237,7 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
       activeSeconds: Math.min(60, seconds.size),
       lastInputAt: inMinute.length ? inMinute[inMinute.length - 1]![1] : null,
       topApps,
+      categories,
       lockedSeconds: Math.round(overlap(locked, m, end) / 1000),
       asleepSeconds: Math.round(overlap(asleep, m, end) / 1000),
     };
@@ -259,6 +304,19 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
         entry.list = normalize([...entry.list, [a.from, a.to]]);
         apps.set(a.id, entry);
         dirtyFrom = Math.min(dirtyFrom, fresh[0]![0]);
+        // The category of the newly covered part only: what was decided earlier stays (a hot-reloaded categorizer or a
+        // title change applies from now on). The title is not kept.
+        let c = DEFAULT_CATEGORY;
+        try {
+          c = categorize({ bundleId: a.id, appName: a.name, windowTitle: a.title ?? null });
+        } catch {
+          // never skip the rest of the ingest (coverage!) because of a categorizer
+        }
+        const lo = fresh[0]![0];
+        const hi = fresh.at(-1)![1];
+        const taken = [...cats.values()].flatMap((list) => list.filter(([x, y]) => y > lo && x < hi));
+        const catFresh = subtract(fresh, normalize(taken));
+        if (catFresh.length) cats.set(c, normalize([...(cats.get(c) ?? []), ...catFresh]));
       }
       if (cover.until > cover.since) {
         const fresh = subtract([[cover.since, cover.until]], coverage);
@@ -328,6 +386,11 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
         e.list = e.list.filter(([, b]) => b > t);
         if (!e.list.length) apps.delete(id);
       }
+      for (const [c, list] of cats) {
+        const kept = list.filter(([, b]) => b > t);
+        if (kept.length) cats.set(c, kept);
+        else cats.delete(c);
+      }
       // Keep the last event before t: it defines the lock/sleep state at t.
       const before = events.filter((e) => e.at < t);
       const keep = new Set<TimelineEvent>();
@@ -349,7 +412,7 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     },
 
     getRangeInfo(start, end) {
-      const r: InteractiveRange = { monitoredMinutes: 0, activeSeconds: 0, firstInputAt: null, lastInputAt: null, topApps: [], lockedSeconds: 0, asleepSeconds: 0 };
+      const r: InteractiveRange = { monitoredMinutes: 0, activeSeconds: 0, firstInputAt: null, lastInputAt: null, topApps: [], categories: {}, lockedSeconds: 0, asleepSeconds: 0 };
       const appTotals = new Map<string, TopApp>();
       // Locked/asleep totals come from the timeline: fully locked idle minutes have no record (D-31).
       const hi = Math.min(end, opts.now());
@@ -373,6 +436,7 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
           t.s += a.s;
           appTotals.set(a.id, t);
         }
+        for (const [c, s] of Object.entries(info.categories)) r.categories[c] = (r.categories[c] ?? 0) + s;
       }
       if (!r.monitoredMinutes && !r.lockedSeconds && !r.asleepSeconds) return null;
       r.topApps = [...appTotals.values()].sort((x, y) => y.s - x.s).slice(0, 5);
@@ -387,6 +451,21 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     },
   };
   return provider;
+}
+
+/** Whole seconds per key whose total is the rounded exact total (largest remainder): never more than the minute. */
+export function roundSeconds(exact: readonly [string, number][]): Record<string, number> {
+  const total = Math.round(exact.reduce((n, [, x]) => n + x, 0));
+  const floors = exact.map(([k, x]) => [k, Math.floor(x), x - Math.floor(x)] as const);
+  let left = total - floors.reduce((n, [, f]) => n + f, 0);
+  const out: Record<string, number> = Object.fromEntries(floors.map(([k, f]) => [k, f]));
+  for (const [k] of [...floors].sort((x, y) => y[2] - x[2] || x[0].localeCompare(y[0]))) {
+    if (left <= 0) break;
+    out[k]! += 1;
+    left--;
+  }
+  for (const k of Object.keys(out)) if (out[k] === 0) delete out[k];
+  return out;
 }
 
 function overlapOf(a: readonly Interval[], b: readonly Interval[]): number {

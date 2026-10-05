@@ -131,3 +131,18 @@ Commit: `76f55ea` "M11: hardening — …". M11 is `in-progress — awaiting one
 ## Final state
 M10 done; M11 hardening done, `in-progress — awaiting one week of live use`. Live: Lua 0.6.2 + daemon 0.7.1, enforcing.
 187 tests green. Nothing left for this session.
+
+## App categories (owner's request, 2026-10-05 ~19:30–20:05, D-67)
+- `config/categories.ts` (`categorize` → `WhatsApp` for `net.whatsapp.WhatsApp`, else `Work`; `categoryStyle` incl.
+  `Inactive`/`Blocked`/`Future`), `src/categories/categories.ts` (safe wrapper + hot-reload), per-minute
+  `categories` in `interactive` records, Lua 0.7.0 window title via `hs.axuielement` (H-19), never stored.
+- Verified: 196 tests (`src/categories/categories.test.ts`: owner's file, hostile/throwing/async categorizers, broken
+  file, per-minute seconds with lock excluded, worked time identical with/without categories, titles never in data,
+  restart neither re-labels nor duplicates, partial minute keeps both halves, title not in logs). Live: Lua 0.7.0
+  reloaded, daemon restarted (Monday), `categories loaded`; the current window title appears 0 times in data/logs.
+  Categories show up in `data/` from the owner's next active minute (the screen was locked at deploy time).
+- Adversarial review: round 1 — 10 findings (re-labelling after a restart, key-order rewrites, title in error
+  messages, heartbeat size, rounding > 60 s, slow categorizer, back-off flip, activation lag, title in category names /
+  debug hint) — all fixed; round 2 — 4 (hostile return value could stop coverage, partial minute, back-off on
+  re-activation, docs) — fixed; round 3 — 2 (async categorizer → unhandled rejection crash loop; restart-split minute)
+  — fixed.

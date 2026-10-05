@@ -248,6 +248,7 @@ work-balancer/
 │   ├── run-daemon                  ← resolve Node 26 and exec src/main.ts (used by Lua)
 │   └── check                       ← typecheck + tests (the "is it green?" command)
 ├── config/policy.ts                ← the owner's editable policy (typed)
+├── config/categories.ts            ← the owner's app categories + timeline styles (D-67)
 ├── src/
 │   ├── main.ts                     ← daemon entry
 │   ├── core/                       ← clock, time (day-boundary, minute keys, weekdays), registry, types, log

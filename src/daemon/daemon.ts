@@ -10,6 +10,7 @@ import type { Logger } from '../core/log.ts';
 import { addDays, dayKey } from '../core/time.ts';
 import { createStore, type Store } from '../store/store.ts';
 import { createPolicyLoader, type PolicyLoader } from '../policy/config.ts';
+import { createCategories, type Categories } from '../categories/categories.ts';
 import { createBridgeServer, type Route } from '../bridge/server.ts';
 import { parseHeartbeat, PROTOCOL_VERSION, shiftSamples, type HeartbeatReply, type SensorSamples } from '../bridge/protocol.ts';
 import type { MenubarSpec, UiCommand } from '../core/effects.ts';
@@ -55,6 +56,8 @@ export interface TrackerDeps {
   copilotHome: string;
   /** Product effects register here (M8+). Optional so tests can omit it. */
   effects?: EffectsManager;
+  /** App categories (D-67); without it every app is "Work". */
+  categories?: Categories;
 }
 
 export interface Daemon {
@@ -87,6 +90,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     onEvent: (e) => store.append(e.type === 'config.loaded' ? { type: e.type, hash: e.hash, source: e.source } : { type: e.type, errors: e.errors }),
   });
 
+  const categories = createCategories({ path: env.categoriesPath, log });
   let tracker: Tracker | null = null;
   const effects = createEffectsManager({
     env: env.name, store, log, now: () => clock.now(),
@@ -112,6 +116,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     const w: string[] = [];
     const c = policy.state();
     if (c.errors.length) w.push(c.config ? `Policy file has errors — using the ${c.source === 'snapshot' ? 'last good' : 'previous'} policy.` : 'Policy file has errors — tracking only.');
+    if (categories.errors().length) w.push('Categories file has errors — see the daemon log.');
     const se = store.health().writeError;
     if (se) w.push(`Cannot write data: ${se}`);
     return w.length ? w.join('\n') : null;
@@ -239,6 +244,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
 
   store.append({ type: 'daemon.started', pid: process.pid, version: DAEMON_VERSION, env: env.name, reason: 'start' });
   await policy.refresh();
+  await categories.refresh();
   // Latest panic state (yesterday + today: a panic from last night is still latched until its rollover is logged),
   // so a restart neither re-logs an active panic nor misses its resume.
   const today = dayKey(clock.now());
@@ -249,12 +255,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     }
     else if (r.type === 'resume') panicLatched = false;
   }
-  tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt, copilotHome: env.copilotHome, effects })) ?? null;
+  tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt, copilotHome: env.copilotHome, effects, categories })) ?? null;
   log.info('daemon started', { env: env.name, port, pid: process.pid, dataDir: env.dataDir });
 
   const tick = async (): Promise<void> => {
     try {
       await policy.refresh();
+      await categories.refresh();
       tracker?.tick(clock.now());
     } catch (e) {
       log.error('tick failed', { error: e as Error });

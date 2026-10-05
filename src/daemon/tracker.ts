@@ -28,7 +28,10 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   const loadFrom = addDays(weekStartKey(today0), -1);
   const history = store.readDays(loadFrom, today0);
 
-  const interactive = createInteractiveProvider({ store, log, now: () => clock.now() });
+  const interactive = createInteractiveProvider({
+    store, log, now: () => clock.now(),
+    ...(deps.categories ? { categorize: deps.categories.categorize } : {}),
+  });
   interactive.load(history);
   const promptHistory = createPromptHistoryProvider({
     store, log, now: () => clock.now(), home: deps.copilotHome,
