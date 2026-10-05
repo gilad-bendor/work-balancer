@@ -92,13 +92,36 @@ The menu itself comes from the daemon (`strings.menu`, sent in every menubar spe
 `/bridge/ui-request {open}`; a second click on an open window raises it (`window.focus`). A restarted daemon adopts the
 open menu windows; a Hammerspoon reload ends them.
 
+## 4a. The M10 windows (enforcement — `src/enforcement/enforcement.ts`)
+
+All intrusive (live gate, R-UI-QUIET, panic) and audited. Levels come from the policy state; a level *entry* is today's
+latest `policy.transition` into it.
+
+| Window id | When | Mode / size | Page | Notes |
+|---|---|---|---|---|
+| `warn` | level `warn` (≈ 30 worked min left), until dismissed for this entry | floating center 860×400, **no focus** | `warn` | + one 3 s dim pulse (0.6) with its first appearance; Got it / ✕ / Esc |
+| `countdown` | level `countdown` (≈ 10 min left) | floating center 960×820, no focus, **not closable** | `countdown` | "≈ N min of work left today"; park the thought; **Save = done for today** (`budget.forfeited` → block, D-60); "Make it small" → the pill (`?pill=1`, top right 420×150, in memory per entry); its typed text is a draft that reappears in the block |
+| `block` | `blockActive` (blocked, no grant) — and the store can write | **overlay, full, per screen**, focus | `block` | not dismissible; numbers + week strip; park the thought; tokens (two-step: the confirm appears elsewhere, enabled after 0.8 s, disarms after 20 s); emergency bypass (sentence retyped with paste/drop blocked + reason + two-step); zero limit → an explanation first ("I understand"); other screens: message + numbers |
+| `nudge` | ≥ 90 min continuous work on a `breakNudge` day, not at countdown/block | floating top-right 640×330, no focus | `nudge` | "Taking a break now" = quiet for this stretch (memory); ✕ / Esc / "Remind me in 15 min" = snooze (from the `effect.closed` record) |
+
+Once a token or the bypass was used today, the block's return is `immediate` (no R-UI-QUIET deferral). While the
+countdown or the block is due (live, enforcing day), the menu has no *Quit* and the quit page refuses (D-61).
+Shared page module `park.ts`: context box + feedback form + Save (action `save`, notes with source `countdown`/`block`) +
+debounced `draft`. Strings use `{n}`/`{m}`/`{k}`/`{t}` placeholders filled by `page.ts` `fill()`.
+**Trial mode:** `POST /api/test/window {"live": true, "page": "block" | "countdown" | "warn" | "nudge" | "inactivity"}`
+(+ `"zeroLimit": true` for the block) shows the real page over synthetic numbers; answers are logged (never their text),
+nothing reaches `data/`.
+**Titled windows** (every non-overlay window): Lua uses `fullSizeContentView` and adds `titled=1` to the page URL; the
+page pads its top by 28 px so its own background fills the title bar (owner 2026-10-05: the plain title bar was
+see-through and hard to drag — hammerspoon.md H-15).
+
 ## 5. The debug panic-eject (R-UI-EJECT, D-49)
 
 While ON (default until the owner trusts the blockers): every screen-covering window carries a big red bottom label
 "Press Shift+Ctrl+Alt+Cmd+F12 to PANIC-EJECT", and that combo terminates Hammerspoon. Lua-only, independent of the
 daemon. Toggle: `hs -c 'return WorkBalancer.debugEject(false)'`. Every new screen-covering effect (M9 pre-warning dim
-excluded — gamma only; the M9 inactivity dialog checked live 2026-10-05; M10 block, zero-limit explanation) must be
-checked with the label visible.
+excluded — gamma only; the M9 inactivity dialog checked live 2026-10-05; the M10 block trial checked live 2026-10-05 —
+2 labels) must be checked with the label visible.
 - **Trying a product page live without touching data:** `POST /api/test/window {"live": true, "page": "inactivity",
   "gapMinutes": 12}` shows the real inactivity dialog over a synthetic gap (TTL ≤ 120 s); the answer goes to the daemon
   log only. `WorkBalancer.preview(url, true)` = a full-screen DEV PREVIEW at the overlay opacity.

@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.5.1"
+local VERSION = "0.6.0"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -342,8 +342,10 @@ local function pageUrl(spec, key, primary)
   local d = S.daemon
   if not d then return nil end
   local sep = spec.path:find("?", 1, true) and "&" or "?"
-  return string.format("http://127.0.0.1:%d%s%stoken=%s&win=%s&screen=%s&primary=%s", d.port, spec.path, sep,
-    hs.http.encodeForQuery(d.token), hs.http.encodeForQuery(spec.id), hs.http.encodeForQuery(key), primary and "1" or "0")
+  -- `titled=1`: the page draws under the title bar (fullSizeContentView) and pads its top for it.
+  return string.format("http://127.0.0.1:%d%s%stoken=%s&win=%s&screen=%s&primary=%s&titled=%s", d.port, spec.path, sep,
+    hs.http.encodeForQuery(d.token), hs.http.encodeForQuery(spec.id), hs.http.encodeForQuery(key), primary and "1" or "0",
+    spec.mode == "overlay" and "0" or "1")
 end
 
 local function createView(rec, key, target)
@@ -355,7 +357,9 @@ local function createView(rec, key, target)
   local v = hs.webview.new(frameFor(spec, target.screen), { developerExtrasEnabled = false, javaScriptCanOpenWindowsAutomatically = false }, ucc)
   local style = MASK.borderless
   if spec.mode ~= "overlay" then
-    style = MASK.titled | (spec.closable and MASK.closable or 0)
+    -- The webview's window is not opaque: a plain title bar shows whatever is behind it (owner: hard to see and
+    -- drag). With fullSizeContentView the page's own background fills the title bar (the page pads its top).
+    style = MASK.titled | MASK.fullSizeContentView | (spec.closable and MASK.closable or 0)
     if spec.mode == "floating" and not spec.focus then style = style | MASK.nonactivating end
   end
   v:windowStyle(style)
@@ -389,6 +393,7 @@ local function createView(rec, key, target)
   end
   rec.views[key] = v
   rec.uccs[key] = ucc
+  rec.primary[key] = target.primary
   if M.ejectEnabled and coversScreen(spec) then rec.labels[key] = makeEjectLabel(target.screen, v:level() + 1) end
   -- Readiness handshake: a page that never says "ready" (HTTP 404 page, script error) fails open too.
   later(READY_TIMEOUT, function()
@@ -406,7 +411,7 @@ local function deleteView(rec, key)
     S.internalDelete = false
   end
   if rec.labels[key] then pcall(function() rec.labels[key]:delete() end) end
-  rec.views[key], rec.labels[key], rec.uccs[key] = nil, nil, nil
+  rec.views[key], rec.labels[key], rec.uccs[key], rec.primary[key] = nil, nil, nil, nil
 end
 
 local function destroy(rec)
@@ -448,7 +453,7 @@ local function openWindow(spec)
   local rec = S.wins[spec.id]
   if rec and rec.spec.rev == spec.rev then return end
   if rec then destroy(rec) end -- a new rev: rebuild (not reported as closed)
-  rec = { spec = spec, views = {}, labels = {}, uccs = {} }
+  rec = { spec = spec, views = {}, labels = {}, uccs = {}, primary = {} }
   S.wins[spec.id] = rec
   for key, target in pairs(targetScreens(spec)) do createView(rec, key, target) end
 end
@@ -460,7 +465,15 @@ local function reassert(screensChanged)
     local targets = targetScreens(spec)
     if spec.perScreen then
       for key in pairs(rec.views) do if not targets[key] then deleteView(rec, key) end end
-      for key, target in pairs(targets) do if not rec.views[key] then createView(rec, key, target) end end
+      -- A screen that became the primary one (the main monitor unplugged) gets a fresh page with the inputs: the
+      -- block's tokens and bypass live on the primary instance only (review M10#1).
+      for key, target in pairs(targets) do
+        if rec.views[key] and rec.primary[key] ~= target.primary then deleteView(rec, key) end
+        if not rec.views[key] then
+          rec.ready = false -- the new page must say "ready" too, or it fails open (review M10b#2)
+          createView(rec, key, target)
+        end
+      end
     end
     for key, v in pairs(rec.views) do
       local target = targets[key]

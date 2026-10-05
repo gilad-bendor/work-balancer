@@ -53,6 +53,8 @@ export interface WindowInput {
    * menu) are not.
    */
   intrusive: boolean;
+  /** Never deferred by R-UI-QUIET (the block returning when a token/bypass ends — R-POL-3a "immediately"). */
+  immediate?: boolean;
   /** Window opacity 0.2–1 (set by the manager for screen-covering windows from `overlayOpacity`). */
   opacity?: number;
 }

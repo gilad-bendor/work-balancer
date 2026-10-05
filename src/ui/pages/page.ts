@@ -11,6 +11,8 @@ const q = new URLSearchParams(location.search);
 export const token = q.get('token') ?? '';
 export const windowId = q.get('win') ?? '';
 export const isPrimary = q.get('primary') !== '0';
+// Lua draws titled windows with the content under the title bar (`titled=1`): the page pads its top for it.
+if (q.get('titled') === '1') document.documentElement.classList.add('titled');
 
 function luaPort(): WbHandler | null {
   const w = window as unknown as { webkit?: { messageHandlers?: { wb?: WbHandler } } };
@@ -59,6 +61,11 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
   e.append(...children);
   return e;
+}
+
+/** Fills `{name}` placeholders of a string from strings.ts. */
+export function fill(s: string | undefined, vars: Record<string, string | number>): string {
+  return (s ?? '').replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
 }
 
 /**

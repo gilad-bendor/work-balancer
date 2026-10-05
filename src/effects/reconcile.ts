@@ -62,7 +62,7 @@ export function reconcile(i: ReconcileInput): ReconcileOutput {
     const rev = i.actual[w.id];
     if (rev === w.rev) continue;
     // An update of a window already on screen is not a new effect: never deferred.
-    if (rev === undefined && w.intrusive && !i.shownToday?.has(w.id) && !mayStart(`win:${w.id}`)) continue;
+    if (rev === undefined && w.intrusive && !w.immediate && !i.shownToday?.has(w.id) && !mayStart(`win:${w.id}`)) continue;
     commands.push({ id: `open:${w.id}:${w.rev}`, op: 'window.open', window: w });
   }
   for (const d of dims) {

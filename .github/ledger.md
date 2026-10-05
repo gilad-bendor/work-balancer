@@ -10,11 +10,11 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M9 **done** (2026-10-05; M9 = inactivity dialog, built and tried live, but like every intrusive effect **gated on live** until `liveEffects: true`): **observe mode is live** + the **menubar menu** (Quick note · Show activity summary · Show status notes · Quit) with its windows; notes/feedback recorded in `data/`; `day.rollover` daily; morning review built but **gated on live** (`liveEffects: false`). M7 UI infrastructure (window manager, reconciler, live gate **off**, debug panic-eject **on**). No enforcement UI yet (M9–M10). |
-| **Next** | **M10 — enforcement** (escape hatches first; warn + dim, countdown, block, tokens, bypass, break nudge; dev walk-through; owner approves live enforcement). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
+| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, owner's approval 2026-10-05 ~16:40, D-62): on Sun/Tue/Thu — morning review, inactivity dialog, break nudge, warn + dim → countdown (Save = done for today, D-60) → full-screen block until 04:00 with tokens (10+5+5) and the emergency bypass. Mon/Wed/Fri/Sat: menubar only. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). |
+| **Next** | **M11 — hardening & soak**: the hardening cases, then **one week of live use** (from Tue 2026-10-06; not to be compressed). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Open: Q-12…Q-15. Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes, **observe mode + menu** (Lua 0.5.0 + daemon 0.5.0, 2026-10-05; `liveEffects: false` ⇒ no dialogs/dims/blocks; debug eject ON — ⌃⌥⌘⇧F12 terminates Hammerspoon; `overlayOpacity: 0.7`): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
-| **Active tbd files** | `tbd-05-continue-m10` — the **successor top-level session** (D-58), continuing from M10; it owns the ledger from its launch on. |
+| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.6.0 + daemon 0.7.0, 2026-10-05): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` while a token/bypass runs), the menu, and every intrusive effect on Sun/Tue/Thu. Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Active tbd files** | `tbd-05-continue-m10` — the **successor top-level session** (D-58); M10 done, continuing with M11; it owns the ledger. |
 
 ---
 
@@ -119,6 +119,9 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   - *Quit*: confirm → logged → Lua sets a **`quit` latch** (supervisor stops restarting) → daemon stops, menubar
     removed, gamma restored, windows closed. The latch lives only in memory: the next Hammerspoon module load (login /
     reload) starts everything again. Not reachable while blocked (the block overlay covers the menubar — by design).
+    *(2026-10-05, D-61)* Also not offered (menu item hidden, confirm refused) at `countdown`/`blocked` on an enforcing day
+    with the live gate open — including during a token, when the menubar is visible — unless nothing can be enforced
+    (panic, store write error).
 - **R-UI-FB Feedback form** (reusable component; appears in quick-note, block, countdown, morning review):
   predefined **multi-select choices** (initial: *Too much work · Feeling tired · Anxious · Stuck / frustrated ·
   Productive · Good day · Other*) **+ always a free-text comment**, plus optional energy 1–5. Recorded as a note of kind
@@ -128,7 +131,9 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 - **R-UI-WARN** Warning dialog (dismissible) + **dim pulse** (few seconds; gamma based; always restored).
   Grayscale is a nice-to-have later (no clean public API).
 - **R-UI-COUNTDOWN** Countdown window: "≈ N min of work left today", context-memory box, feedback; not dismissible but
-  can be collapsed to a small pill.
+  can be collapsed to a small pill. *(2026-10-05, owner, D-60)* Its **Save = done for today**: the remaining minutes are
+  given up (`budget.forfeited`) and the block follows until 04:00 (tokens / bypass still work). Cmd+Enter does not save
+  there (review M10#6).
 - **R-UI-BLOCK** Full-screen block on **all screens, all spaces, above the menubar and full-screen apps**, until 04:00:
   kind message, today/week numbers, context-memory box, feedback form, token buttons (remaining counts),
   emergency-bypass flow. Consequential actions (token, bypass) need a two-step confirm (guards against accidental and
@@ -193,6 +198,7 @@ Every line: `{ "v": 1, "ts": <epochMs>, "type": "<type>", ... }`. Unknown types/
 | `policy.transition` | `from`, `to`, `workedMin`, `limitMin`, `weekMin` | Level changes only (not every tick). |
 | `token.used` | `minutes`, `until` | |
 | `bypass.used` | `minutes`, `until`, `reason` | |
+| `budget.forfeited` | `remainingSeconds`, `by` | *(M10, D-60)* countdown Save = done for today → blocked until 04:00. |
 | `effect.shown` / `effect.closed` | `effect`, `windowId`, `by` (`user`, `system`, `rollover`) | Lightweight UX audit. |
 | `note.created` | `noteId`, `kind` (`context`, `feedback`, `note`), `text`, `choices?`, `energy?`, `source` | `source`: `quick`, `countdown`, `block`, `review`, `manager`. |
 | `note.edited` / `note.deleted` / `note.dismissed` / `note.undismissed` | `noteId`, (`text`) | Event-sourced; state = fold over all days. Delete = tombstone (see Q-5). |
@@ -442,13 +448,26 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   Adversarial review: 3 findings + 1 + 2 on the fixes (Hammerspoon-down gaps erasing work, a failing write trapping
   the owner, panic; sleep-with-keypress missed → retroactive detection) — all fixed; version **0.6.0** (D-45). 177 tests.
 
-### M10 — Enforcement: warn, countdown, block, tokens, bypass, break nudge · `todo`
-- [ ] **First verify escape hatches** (panic hotkey, `hs -c`), fail-open on daemon death / page failure.
-- [ ] Warn dialog + dim pulse; countdown window (collapsible); block overlay (all screens/spaces, above menubar);
-      tokens; emergency bypass (phrase typing, paste blocked, reason, two-step); break nudge.
-- [ ] Block persists across daemon restart and Hammerspoon reload; lifts at 04:00 rollover.
+### M10 — Enforcement: warn, countdown, block, tokens, bypass, break nudge · `done`
+- [x] **First verify escape hatches** (panic, `hs -c`), fail-open on daemon death / page failure — live, with consent.
+- [x] Warn dialog + dim pulse; countdown window (collapsible pill); block overlay (all screens/spaces, above menubar,
+      zero-limit explanation first); tokens (two-step); emergency bypass (sentence retyped, paste blocked, reason,
+      two-step); break nudge — `src/enforcement/enforcement.ts`, pages `warn` / `countdown` / `block` / `nudge` + `park.ts`.
+- [x] Block persists across daemon restart and Hammerspoon reload (recomputed from data; re-shown without R-UI-QUIET
+      deferral); lifts at 04:00 rollover.
+- [x] Trial mode for every enforcement page (`/api/test/window {page}`), nothing in `data/`.
 - **AC:** full ladder walk-through in dev with a fake clock, recorded in the session report; owner approves before
   enforcement is enabled on the live instance.
+- **AC verified (2026-10-05):** `scripts/check` 184/184 (`src/enforcement/enforcement.test.ts`: the full Tuesday ladder
+  orange+nudge → warn+dim (once) → countdown (pill; empty Save forfeits nothing; Save → `budget.forfeited` → block) →
+  token (wrong size / reused refused; `⏳10m`) → expiry → block back → bypass (sentence check, reason) → restart while
+  typing → re-shown at once → 04:00 nothing; zero limit; gate closed / Saturday / write error → nothing; nudge rules;
+  trial pages; review regressions). Dev daemon over HTTP with `WB_FAKE_NOW` on seeded fake data (`dev-walk.out`) and
+  screenshots of every page (tbd-05 `report.md` §M10). Escape hatches live first: panic dry run, daemon death (2 s),
+  broken page (21 s), eject labels on both screens. **Owner tried every page live** (block on both screens + token;
+  warn + dim; nudge; countdown + pill) — "All good!", "They looked good"; his changes: countdown Save = done for today
+  (D-60), visible title bars (H-15), a shorter countdown. Adversarial review: 6 findings + 2 on the fixes, all fixed
+  (D-59, D-61). **Owner approved live enforcement → `liveEffects: true`** (D-62). Performance ≈ 19 ms per 5 s beat.
 
 ### M11 — Hardening & soak · `todo`
 - [ ] Sleep/wake across 04:00, lid closed, external monitors hot-plug, DST day, Hammerspoon crash/restart, daemon
@@ -472,6 +491,7 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
 - *(2026-10-05, owner — low priority)* **Statistics on every full-screen effect** (block, zero-limit explanation, any
   overlay): today worked vs limit, this week vs weekly budget, per-day bars Sun–Thu, current stretch, tokens/bypasses
   used; reuse the summary's model. (The block already shows today/week numbers per R-UI-BLOCK — this extends it.)
+  *(2026-10-05: the block and the zero-limit screen now show today/week numbers + a per-day week strip; the rest open.)*
 
 ---
 
@@ -486,7 +506,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-02-copilot-history` | M5 investigation (⟂) | 2026-10-05 answers-reviews-m5 | Copilot history formats, human-vs-automated rules, synthetic fixtures | completed. Report `…/tbd-02-copilot-history/report.md`; topic file `.github/copilot-history-formats.md`; fixtures `test-fixtures/prompt-history/` (generator `…/tbd-02-copilot-history/generate-fixtures.ts`). Delta applied (its D-38 → D-43). |
 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7` | M7 → M11 (top-level handover, D-47) | 2026-10-05 answers-reviews-m5 | Successor top-level session: UI infrastructure and onward | completed: **M7 done** (commit "M7: UI infrastructure …") + debug panic-eject; handed over to tbd-04 (D-51). Report `…/tbd-03-continue-m7/report.md`. |
 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8` | M8 → M11 (top-level handover, D-51) | 2026-10-05 tbd-03-continue-m7 | Successor top-level session: notes, menu, summary, review, and onward | completed: **M8 + M9 done** (commits "M8: …", "M9: …"); handed over to tbd-05 (D-58). Report `…/tbd-04-continue-m8/report.md`. |
-| `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10` | M10 → M11 (top-level handover, D-58) | 2026-10-05 tbd-04-continue-m8 | Successor top-level session: enforcement and onward | launched 2026-10-05 (`--no-wait`); owns the ledger from its launch on. |
+| `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10` | M10 → M11 (top-level handover, D-58) | 2026-10-05 tbd-04-continue-m8 | Successor top-level session: enforcement and onward | launched 2026-10-05 (`--no-wait`); owns the ledger. **M10 done** (commit "M10: …"; live enforcement approved, D-62); continuing with M11. Report `…/tbd-05-continue-m10/report.md`. |
 
 ---
 
@@ -551,6 +571,10 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-56 | 2026-10-05 | **Inactivity dialog = full screen, un-escapable, no timeout; input while it is up does not end the gap** (supersedes R-UI-INACT's corner window / multi-gap list): a gap ends at the owner's first input made while the dialog was **not** on screen (from the `effect.shown`/`effect.closed` audit; a suppressed/closed dialog lets input end it) or at Submit; at most one unanswered gap; inside `[lastInput + grace, end)` only the credit counts. Slider "Worked N min of M" with presets; Submit after a deliberate touch. `overlayOpacity` 0.8. | Owner, live trial 2026-10-05: "This has to be full screen, un-escapable, un-timed-out"; moving the mouse over the dialog is not being back. |
 | D-57 | 2026-10-05 | **Inactivity robustness:** gaps are detected only while Lua's sensors are fresh (≤ 15 s) and never while panicking; a dialog period ends at any close or at a hole in Lua's coverage; human prompts end a gap like input; a gap missed because the Mac slept (the wake heartbeat already carried the key press) is detected **retroactively** within 2 min of the return (hole ≥ grace + 30 s, coverage continuous, locked/asleep inside, dialog allowed throughout); a resolution whose record cannot be written is applied in memory and retried, and no dialog shows while the store has a write error. | Adversarial review M9 (principle 5: never trap; never erase real work). |
 | D-58 | 2026-10-05 | **Top-level handover** after M9: `tbd-04-continue-m8` ends and launches `tbd-05-continue-m10` (`execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait`), the single top-level / ledger-writing session for M10 → M11 under the same rules (D-26, D-27, D-37, D-45, gate D-48, eject D-49, conventions D-55/D-56). | Owner approved at the M9 checkpoint (large context; M10 is the biggest milestone). |
+| D-59 | 2026-10-05 | **M10 enforcement design:** four audited intrusive effects driven by the policy state + today's records (a level *entry* = the latest `policy.transition` into it; `warn` dismissed / `nudge` snoozed = `effect.closed` by user/page, also kept in memory for write errors); one warn dim pulse per entry; block not shown while the store cannot write (fail open); the bypass sentence compared ignoring case/spacing/punctuation; the countdown's typed text carried into the block; nudge ✕/Esc = snooze, "taking a break" = quiet for the stretch; borrowed time shown in the menubar only (`⏳Nm`, no re-warning); a restarted daemon re-shows today's windows without R-UI-QUIET (`shownToday` from the audit); once a token/bypass was used today the block returns **immediately** (`WindowInput.immediate`, R-POL-3a); a view whose screen became primary is rebuilt (tokens/bypass live on the primary instance); failed `policy.transition` writes are retried. Version 0.7.0. | Announced defaults (owner did not object) + adversarial review M10 (6 + 2 findings). |
+| D-60 | 2026-10-05 | **Countdown Save = done for today** (`budget.forfeited` → evaluator `blocked` until 04:00, independent of the latch key; tokens/bypass still work). Only a save that kept something forfeits; Cmd+Enter does not save there. | Owner, after the live trial: "clicking Save should be considered as forfeiting the remaining minutes". |
+| D-61 | 2026-10-05 | **No Quit at countdown/blocked** on an enforcing day with the live gate open (menu item hidden, confirm refused) — unless nothing can be enforced (panic, write error). `hs -c 'WorkBalancer.quit()'`, panic and the eject remain (explicit acts). Non-full windows: opaque title bar via `fullSizeContentView` + page padding (Lua 0.6.0, H-15). | Review M10#5 (a 5-min token opened the way to Quit = the rest of the day unenforced); owner: title bar see-through, hard to drag. |
+| D-62 | 2026-10-05 | **Live enforcement approved by the owner** — the session set `liveEffects: true` with his explicit consent (~16:40, a Monday: first intrusive day Tue 2026-10-06 04:00). The debug eject stays ON until he trusts the blockers. | M10 AC; owner: "Yes — you flip liveEffects to true now". |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -683,3 +707,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. **M5 implemented** (readers, classifier, minute records, dry-run report; review + 2 re-checks; D-44). **M6 done** (pure evaluator, ladder transitions logged, latch; review + re-check; D-45, D-46; version 0.4.0). 133 tests. Handed over to tbd-03 (D-47). | tbd-02, tbd-03 |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/` | Successor top-level session (D-47). **M7 done**: effects contracts/reconciler/manager (live gate D-48), test effect, page serving with type stripping, Lua window manager + dim + fail-open, owner's **debug panic-eject** (R-UI-EJECT, D-49; Esc impossible → F12, H-9) and `overlayOpacity`; live visual checks with consent; review 8 + 2 findings fixed (D-50); `ui-and-tone.md`. 147 tests. Handed over to tbd-04 (D-51). | tbd-04 |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/` | Successor top-level session (D-51). **M9 done** (inactivity dialog, owner's redesign D-56 after a live trial, robustness D-57, 0.6.0, 177 tests); handed over to tbd-05 (D-58). **M8 done**: notes (event-sourced over all days), menu on any click (H-14), quick note + shared feedback form, notes manager, activity summary (4-week history), quit flow, `day.rollover`, morning review (gated live); owner's live visual review + UI conventions (D-55); review 6 findings fixed (token persisted, D-54); D-52…D-55. 164 tests. Backlog: "Feedback & energy" window after M11. | tbd-05 |
+| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/` | Successor top-level session (D-58). **M10 done**: escape hatches verified live; `src/enforcement/` (warn + dim, countdown + pill, block with tokens / bypass / zero-limit explanation / week strip, break nudge), trial pages, Lua 0.6.0 (opaque title bars, primary-view rebuild), daemon 0.7.0; dev walk-through with a fake clock; owner tried every page live → D-60 (countdown Save ends the day), H-15; review 6 + 2 findings fixed (D-59, D-61); **owner approved live enforcement** (D-62). 184 tests. | — |

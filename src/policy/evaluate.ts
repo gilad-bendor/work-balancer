@@ -34,6 +34,8 @@ export interface PolicyInput {
   blockedTodayUnderConfig: string | null;
   /** Hash of the current config. */
   configHash: string | null;
+  /** The owner ended the day himself (countdown "Save" — a `budget.forfeited` record today): blocked until 04:00. */
+  forfeited?: boolean;
 }
 
 export interface PolicyState {
@@ -132,7 +134,7 @@ export function evaluate(input: PolicyInput): PolicyState {
   // Blocked until 04:00: worked time may shrink later (late lock events, a re-resolved inactivity credit) — the block
   // holds unless the config changed since it started.
   const latched = input.blockedTodayUnderConfig !== null && input.blockedTodayUnderConfig === input.configHash;
-  const level: Level = latched ? 'blocked' : ladder.level;
+  const level: Level = latched || input.forfeited === true ? 'blocked' : ladder.level;
   const next = level === 'blocked' ? null : ladder.next;
   return {
     ...base,

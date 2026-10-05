@@ -88,3 +88,38 @@ body.page-inactivity .card { max-width: 1100px; }
 .gap-since { font-size: 26px; margin: 18px 0 10px; }
 .gap-timer { font-variant-numeric: tabular-nums; font-weight: 600; }
 button:disabled { opacity: 0.45; cursor: default; }
+/* M10: warn, countdown (+ pill), block, nudge */
+.row.between { justify-content: space-between; flex-wrap: nowrap; }
+.row.between h1 { margin: 0; }
+body.pill { overflow: hidden; }
+body.pill .card { padding: 14px 18px; border: none; border-radius: 0; width: 100%; max-width: none; height: 100%; display: flex; align-items: center; }
+body.pill .card .row { margin: 0; width: 100%; justify-content: space-between; flex-wrap: nowrap; }
+body.pill h1 { font-size: 24px; margin: 0; font-variant-numeric: tabular-nums; }
+/* The block: room at the bottom for the debug eject label (R-UI-EJECT). */
+body.page-block { padding-bottom: 96px; }
+body.page-block.scroll > main.card { margin: 16px auto; }
+.card.block { max-width: 1440px; padding: 22px 32px; }
+.block-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; margin-top: 10px; }
+.block-numbers { font-size: 24px; font-variant-numeric: tabular-nums; margin: 0; }
+.week-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.week-strip .chip { font-variant-numeric: tabular-nums; }
+.week-strip .chip.today { border-color: currentColor; font-weight: 600; }
+.block-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 40px; align-items: start; }
+@media (max-width: 1150px) { .block-grid { grid-template-columns: 1fr; } }
+.block-grid .park, .block-grid .more { border-top: 1px solid var(--border); margin-top: 14px; }
+.block-grid h2 { margin-top: 14px; }
+.block-grid .feedback h2 { margin-top: 12px; }
+body.page-block .block-grid .park, body.page-block .block-grid .more, body.page-block .feedback { border-color: rgba(255, 255, 255, 0.15); }
+.tokens { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+.token { padding: 10px 18px; }
+.confirm { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; }
+.bypass { margin-top: 18px; }
+.phrase { margin: 10px 0; padding: 10px 16px; border-left: 4px solid var(--accent); font-style: italic; user-select: none; -webkit-user-select: none; }
+.bypass textarea, .bypass input[type=text] { margin-top: 8px; }
+body.page-block textarea, body.page-block input[type=text] { background: rgba(0, 0, 0, 0.25); color: #ece9e2; border-color: rgba(255, 255, 255, 0.2); }
+body.page-block button:not(.primary):not([aria-pressed="true"]) { background: rgba(255, 255, 255, 0.08); color: #ece9e2; border-color: rgba(255, 255, 255, 0.2); }
+/* Titled windows (Lua `titled=1`): the page's background fills the title bar (visible, draggable); content below it. */
+html.titled body { padding-top: 28px; }
+html.titled body.panel > .topbar { border-top: 1px solid var(--border); }
+body.page-countdown.scroll > main.card { margin: 12px auto; padding: 20px 32px; }
+body.page-countdown .park .msg { min-height: 0; margin: 4px 0 0; }

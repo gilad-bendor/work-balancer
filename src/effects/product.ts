@@ -15,6 +15,9 @@ export interface ProductDeps {
   now: () => number;
   config: () => PolicyConfig | null;
   summary: (now: number) => unknown;
+  /** Quit is refused while enforcement is due (countdown / blocked — also during a token): otherwise one cheap token
+   * would open the way to stopping the whole day (review M10#5). Default: allowed. */
+  quitAllowed?: (now: number) => boolean;
 }
 
 /** A note as pages see it. */
@@ -38,6 +41,22 @@ const obj = (p: unknown): Record<string, unknown> => (p && typeof p === 'object'
 const answer = (r: NoteResult, extra: () => Record<string, unknown>): ActionResult =>
   r.ok ? { ok: true, ...extra() } : { ok: false, error: r.error };
 
+type Part = 'saved' | 'failed' | 'none';
+
+/** R-UI-CTX + R-UI-FB (quick note, countdown, block): one `context` note and/or one `feedback` note from
+ * `{ context, feedback: { text, choices, energy } }`. Each part reports saved/failed/none, so the page clears what was
+ * saved and keeps (for a retry) only what failed — never a duplicate. */
+export function submitContextAndFeedback(notes: Notes, source: NoteSource, p: unknown): ActionResult & { context: Part; feedback: Part } {
+  const b = obj(p);
+  const fb = obj(b.feedback);
+  const part = (r: NoteResult): Part => (r.ok ? 'saved' : r.error === 'empty' ? 'none' : 'failed');
+  const context: Part = typeof b.context === 'string' && b.context.trim() ? part(notes.create({ kind: 'context', text: b.context, source })) : 'none';
+  const feedback = part(notes.create({ kind: 'feedback', text: fb.text, choices: fb.choices, energy: fb.energy, source }));
+  if (context === 'none' && feedback === 'none') return { ok: false, error: 'empty', context, feedback };
+  if (context === 'failed' || feedback === 'failed') return { ok: false, error: 'write', context, feedback };
+  return { ok: true, context, feedback };
+}
+
 /** edit / dismiss / undismiss / add — shared by the notes manager and the morning review. */
 function noteActions(notes: Notes, source: NoteSource, view: () => Record<string, unknown>) {
   return {
@@ -59,14 +78,8 @@ export function registerProductEffects(d: ProductDeps): void {
       // R-UI-CTX + R-UI-FB: one `context` note and/or one `feedback` note. Each part reports saved/failed/none, so
       // the page clears what was saved and keeps (for a retry) only what failed — never a duplicate.
       submit(p) {
-        const b = obj(p);
-        const fb = obj(b.feedback);
-        const part = (r: NoteResult): 'saved' | 'failed' | 'none' => (r.ok ? 'saved' : r.error === 'empty' ? 'none' : 'failed');
-        const context = typeof b.context === 'string' && b.context.trim() ? part(d.notes.create({ kind: 'context', text: b.context, source: 'quick' })) : 'none';
-        const feedback = part(d.notes.create({ kind: 'feedback', text: fb.text, choices: fb.choices, energy: fb.energy, source: 'quick' }));
-        if (context === 'none' && feedback === 'none') return { ok: false, error: 'empty', context, feedback };
-        if (context === 'failed' || feedback === 'failed') return { ok: false, error: 'write', context, feedback };
-        return { ok: true, context, feedback, closing: true }; // the page shows "Saved." and closes itself
+        const r = submitContextAndFeedback(d.notes, 'quick', p);
+        return r.ok ? { ...r, closing: true } : r; // the page shows "Saved." and closes itself
       },
     },
   }));
@@ -88,9 +101,9 @@ export function registerProductEffects(d: ProductDeps): void {
   d.effects.register(userWindowEffect({
     name: 'quit',
     look: { path: '/ui/quit.html', title: 'work-balancer — quit', w: 760, h: 420 },
-    model: () => ({}),
+    model: (now) => ({ allowed: d.quitAllowed?.(now) ?? true }),
     // The page then tells Lua to quit (R-UI-MENU-3); the daemon logs `app.quit` when Lua's shutdown request arrives.
-    actions: { confirm: () => ({ ok: true, quit: true }) },
+    actions: { confirm: (_p, now) => ((d.quitAllowed?.(now) ?? true) ? { ok: true, quit: true } : { ok: false, error: 'enforcing' }) },
   }));
 
   d.effects.register(createReviewEffect(d));

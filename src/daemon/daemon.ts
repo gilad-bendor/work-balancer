@@ -98,7 +98,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     },
     overlayOpacity: () => policy.state().config?.overlayOpacity ?? 1,
   });
-  const testEffect = createTestEffect({ env: env.name, now: () => clock.now(), log: (m, f) => log.info(m, f) });
+  const testEffect = createTestEffect({ env: env.name, now: () => clock.now(), log: (m, f) => log.info(m, f), config: () => policy.state().config });
   effects.register(testEffect.effect);
   let lastSeq: { loadId: string; seq: number } | null = null;
   let panicLatched = false;
@@ -125,7 +125,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
       spec = { ...fallbackMenubar(), warning: 'internal error (see daemon log)' };
     }
     const w = warnings();
-    return { ...spec, menu: strings.menu.map((m) => ({ ...m })), ...(w ? { warning: [spec.warning, w].filter(Boolean).join('\n') } : {}) };
+    return { ...spec, menu: spec.menu ?? strings.menu.map((m) => ({ ...m })), ...(w ? { warning: [spec.warning, w].filter(Boolean).join('\n') } : {}) };
   };
 
   const routes: Route[] = [

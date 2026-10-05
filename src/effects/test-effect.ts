@@ -1,17 +1,96 @@
 // Test windows and dim pulses (M7): explicitly requested, time-limited fixtures that exercise every window mode.
 // Dev: free to use. Live: only with `live: true` in the request — reserved for tests the owner consented to in the
 // session (instructions §10); they bypass the live gate but not panic or R-UI-QUIET, and are never logged to data/.
-import type { DimSpec, Effect, Placement, WindowInput, WindowMode } from '../core/effects.ts';
+import type { ActionResult, DimSpec, Effect, Placement, WindowInput, WindowMode } from '../core/effects.ts';
 import type { Route } from '../bridge/server.ts';
+import type { PolicyConfig } from '../policy/config.ts';
+import { dayKey, dayKeysBetween, weekday, weekStartKey } from '../core/time.ts';
+import { blockModel, MIN_REASON, phraseMatches, WINDOWS, type WeekInfo } from '../enforcement/enforcement.ts';
 
 const MODES: readonly WindowMode[] = ['normal', 'floating', 'overlay'];
 const PLACEMENTS: readonly Placement[] = ['center', 'top-right', 'bottom-right', 'full'];
 const MAX_TTL_S = 120;
 const MAX_WINDOWS = 4;
+/** Product pages the owner can try over synthetic numbers (`page` in `POST /api/test/window`). */
+export const TRIAL_PAGES = ['inactivity', 'block', 'countdown', 'warn', 'nudge'] as const;
+type TrialPage = (typeof TRIAL_PAGES)[number];
 
-export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number; log?: (msg: string, f: Record<string, unknown>) => void }): { effect: Effect; routes: Route[] } {
+interface Trial {
+  page: TrialPage;
+  gapFrom: number;
+  zeroLimit: boolean;
+}
+
+/** A plausible week for the block trial: earlier days a bit under 9 h (zero limit: the weekly budget used up),
+ * today as worked. */
+function trialWeek(c: PolicyConfig, now: number, todayWorked: number, zeroLimit: boolean): WeekInfo {
+  const today = dayKey(now);
+  const keys = dayKeysBetween(weekStartKey(today), today);
+  const earlier = Math.max(1, keys.length - 1);
+  const days = keys.map((k, i) => {
+    const dp = c.days[weekday(k)];
+    const isToday = k === today;
+    const past = zeroLimit ? Math.ceil((c.weeklyBudgetMin * 60 + 600) / earlier) : (8 * 60 + 10 + 7 * i) * 60;
+    return { day: k, weekday: weekday(k), workedSeconds: isToday ? todayWorked : past, budgetSeconds: dp.dailyBudgetMin !== null ? dp.dailyBudgetMin * 60 : null, isToday };
+  });
+  return { workedSeconds: days.reduce((x, d) => x + d.workedSeconds, 0), budgetSeconds: c.weeklyBudgetMin * 60, days };
+}
+
+export function createTestEffect(deps: {
+  env: 'live' | 'dev';
+  now: () => number;
+  log?: (msg: string, f: Record<string, unknown>) => void;
+  /** The policy (trial pages show its tokens, bypass sentence and feedback choices). */
+  config?: () => PolicyConfig | null;
+}): { effect: Effect; routes: Route[] } {
   /** `trial`: a product page shown over synthetic data (the owner tries the real thing; nothing reaches data/). */
-  const windows = new Map<string, { input: WindowInput; until: number; trial?: { page: 'inactivity'; gapFrom: number } }>();
+  const windows = new Map<string, { input: WindowInput; until: number; trial?: Trial }>();
+  const config = (): PolicyConfig | null => deps.config?.() ?? null;
+  const trialModel = (t: Trial, now: number): unknown => {
+    const c = config();
+    if (t.page === 'inactivity') return { now, gaps: [{ gapId: 'trial', from: t.gapFrom, to: null, maxMinutes: Math.floor((now - t.gapFrom) / 60_000) }] };
+    if (!c) return null;
+    if (t.page === 'warn') return { now, remainingSeconds: c.ladder.warnBeforeMin * 60, countdownBeforeMin: c.ladder.countdownBeforeMin };
+    if (t.page === 'countdown') return { now, remainingSeconds: 7 * 60, feedbackChoices: c.feedbackChoices, draft: '' };
+    if (t.page === 'nudge') return { now, stretchSeconds: (c.breakNudge.afterMin + 2) * 60, snoozeMin: c.breakNudge.snoozeMin };
+    const limit = t.zeroLimit ? 0 : 9 * 3600;
+    const worked = t.zeroLimit ? 25 * 60 : limit;
+    const day = dayKey(now);
+    return blockModel(c, { zeroLimit: t.zeroLimit, workedSeconds: worked, limitSeconds: limit, tokensLeft: [...c.tokensMin], bypassesUsed: 0, day }, trialWeek(c, now, worked, t.zeroLimit), now, '');
+  };
+  /** Trial answers are logged (never their text) and never recorded. */
+  const trialAction = (id: string, w: { input: WindowInput; trial?: Trial }, action: string, payload: unknown): ActionResult => {
+    const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+    const done = (extra: Record<string, unknown> = {}): ActionResult => {
+      deps.log?.('trial action (not recorded)', { id, page: w.trial?.page, action, ...extra });
+      return { ok: true };
+    };
+    switch (action) {
+      case 'save': return { ...done(), context: typeof p.context === 'string' && p.context.trim() ? 'saved' : 'none', feedback: 'saved' };
+      case 'draft': return { ok: true };
+      case 'collapse':
+      case 'expand':
+        w.input = { ...WINDOWS.countdown(action === 'collapse'), id, title: w.input.title };
+        return done();
+      case 'token':
+        windows.delete(id);
+        return { ...done({ minutes: p.minutes }), close: true };
+      case 'bypass': {
+        const c = config();
+        if (!c || !phraseMatches(p.phrase, c.bypass.phrase)) return { ok: false, error: 'phrase' };
+        if (typeof p.reason !== 'string' || p.reason.trim().length < MIN_REASON) return { ok: false, error: 'reason' };
+        windows.delete(id);
+        return { ...done(), close: true };
+      }
+      case 'resolve':
+      case 'snooze':
+      case 'break':
+        windows.delete(id);
+        return { ...done(), close: true };
+      default:
+        return { ok: false, error: `unknown action ${action}` };
+    }
+  };
   let dims: { spec: DimSpec; until: number }[] = [];
   let n = 0;
 
@@ -30,9 +109,7 @@ export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number;
     model(id, now) {
       const w = windows.get(id);
       if (!w) return null;
-      if (w.trial) {
-        return { now, gaps: [{ gapId: 'trial', from: w.trial.gapFrom, to: null, maxMinutes: Math.floor((now - w.trial.gapFrom) / 60_000) }] };
-      }
+      if (w.trial) return trialModel(w.trial, now);
       return { mode: w.input.mode, perScreen: !!w.input.perScreen, focus: !!w.input.focus, secondsLeft: Math.max(0, Math.round((w.until - now) / 1000)) };
     },
     action(id, action, payload) {
@@ -40,11 +117,8 @@ export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number;
         windows.delete(id);
         return { ok: true, close: true };
       }
-      if (action === 'resolve' && windows.get(id)?.trial) {
-        deps.log?.('trial answered (not recorded)', { id, payload: payload as Record<string, unknown> });
-        windows.delete(id);
-        return { ok: true, close: true };
-      }
+      const w = windows.get(id);
+      if (w?.trial) return trialAction(id, w, action, payload);
       if (action === 'echo') {
         const text = payload && typeof payload === 'object' && typeof (payload as { text?: unknown }).text === 'string' ? (payload as { text: string }).text : '';
         return { ok: true, echo: text };
@@ -69,14 +143,18 @@ export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number;
         const mode = MODES.includes(b.mode as WindowMode) ? (b.mode as WindowMode) : 'normal';
         const placement = PLACEMENTS.includes(b.placement as Placement) ? (b.placement as Placement) : mode === 'overlay' ? 'full' : 'center';
         const id = `test:${++n}`;
-        if (b.page === 'inactivity') {
-          // The real full-screen inactivity dialog over a synthetic gap of `gapMinutes` (default 12).
+        if (b.page !== undefined) {
+          // A real product page over synthetic numbers: `inactivity` (`gapMinutes`, default 12), `block` (`zeroLimit`),
+          // `countdown`, `warn`, `nudge`. Same window shape as the real one.
+          if (!TRIAL_PAGES.includes(b.page as TrialPage)) return { status: 400, json: { error: `page must be one of ${TRIAL_PAGES.join(', ')}` } };
+          const page = b.page as TrialPage;
+          if (page !== 'inactivity' && !config()) return { status: 409, json: { error: 'no valid policy' } };
           const gapMin = typeof b.gapMinutes === 'number' ? Math.min(240, Math.max(1, b.gapMinutes)) : 12;
-          const input: WindowInput = {
-            id, path: '/ui/inactivity.html', mode: 'overlay', placement: 'full', perScreen: true, focus: true, closable: false,
-            title: 'work-balancer — welcome back (trial)', intrusive: true,
-          };
-          windows.set(id, { input, until: deps.now() + ttl(b), trial: { page: 'inactivity', gapFrom: deps.now() - gapMin * 60_000 } });
+          const base: WindowInput = page === 'inactivity'
+            ? { id, path: '/ui/inactivity.html', mode: 'overlay', placement: 'full', perScreen: true, focus: true, closable: false, title: 'work-balancer — welcome back', intrusive: true }
+            : page === 'countdown' ? WINDOWS.countdown(false) : WINDOWS[page]();
+          const input: WindowInput = { ...base, id, title: `${base.title} (trial)` };
+          windows.set(id, { input, until: deps.now() + ttl(b), trial: { page, gapFrom: deps.now() - gapMin * 60_000, zeroLimit: b.zeroLimit === true } });
           return { json: { ok: true, id } };
         }
         const input: WindowInput = {

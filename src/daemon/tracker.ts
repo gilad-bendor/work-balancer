@@ -15,6 +15,7 @@ import { createNotes } from '../notes/notes.ts';
 import { noteView, registerProductEffects } from '../effects/product.ts';
 import { createHistory } from './history.ts';
 import { createInactivity } from '../inactivity/inactivity.ts';
+import { createEnforcement, type WeekInfo } from '../enforcement/enforcement.ts';
 
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
 export const GAP_MIN_MS = 30_000;
@@ -136,6 +137,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       activeToday: (work.getRangeInfo(dayStart(today), now)?.firstActivityAt ?? null) !== null,
       blockedTodayUnderConfig: typeof lastBlocked?.configHash === 'string' ? lastBlocked.configHash : null,
       configHash: latchKey(),
+      forfeited: records.some((r) => r.type === 'budget.forfeited'),
     });
   }
 
@@ -202,7 +204,34 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
 
   if (deps.effects) {
     deps.effects.register(inactivity.effect);
-    registerProductEffects({ effects: deps.effects, notes, store, now: () => clock.now(), config: () => policy.state().config, summary });
+    registerProductEffects({ effects: deps.effects, notes, store, now: () => clock.now(), config: () => policy.state().config, summary, quitAllowed });
+    const enforcement = createEnforcement({
+      store, log, now: () => clock.now(), notes, config: () => policy.state().config,
+      state: (now) => (policy.state().config ? policyState(now) : null),
+      week: weekInfo,
+      currentStretch: () => work.currentStretch(),
+    });
+    for (const e of enforcement.effects) deps.effects.register(e);
+  }
+
+  /** No Quit while enforcement is due on the live-enabled instance (review M10#5): the countdown or the block —
+   * including a token's minutes, when the menubar is reachable. */
+  function quitAllowed(now: number): boolean {
+    // Nothing is enforced while the block cannot show (store write error — fail open; panic): Quit stays (review M10b#1).
+    if (!deps.effects?.gateOpen() || deps.effects.suppressed() || store.health().writeError || !policy.state().config) return true;
+    const st = policyState(now);
+    return !(st.enforcing && (st.level === 'countdown' || st.level === 'blocked'));
+  }
+
+  /** This week's days up to today vs their budgets (the block's numbers, R-UI-BLOCK). */
+  function weekInfo(now: number): WeekInfo {
+    const c = policy.state().config;
+    const today = dayKey(now);
+    const days = dayKeysBetween(weekStartKey(today), today).map((k) => {
+      const dp = c?.days[weekday(k)];
+      return { day: k, weekday: weekday(k), workedSeconds: work.daySeconds(k), budgetSeconds: dp?.dailyBudgetMin != null ? dp.dailyBudgetMin * 60 : null, isToday: k === today };
+    });
+    return { workedSeconds: days.reduce((s, x) => s + x.workedSeconds, 0), budgetSeconds: c ? c.weeklyBudgetMin * 60 : null, days };
   }
 
   return {
@@ -229,13 +258,16 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       const st = policyState(now);
       // The tick may straddle 04:00 (flush/poll take time): never file a transition into the next day.
       if (st.level !== lastLevel && dayKey(clock.now()) === st.day) {
-        store.append({
+        const written = store.append({
           type: 'policy.transition', from: lastLevel, to: st.level, configHash: latchKey(), workedMin: Math.floor(st.workedSeconds / 60),
           limitMin: st.limitSeconds === null ? null : Math.floor(st.limitSeconds / 60),
           weekMin: Math.floor(weekNumbers(now).weekSeconds / 60),
         });
-        log.info('policy level', { from: lastLevel, to: st.level });
-        lastLevel = st.level;
+        // Not written (disk error): retried next tick — a level entry is what the warn/countdown key on.
+        if (written) {
+          log.info('policy level', { from: lastLevel, to: st.level });
+          lastLevel = st.level;
+        }
       }
       const today = dayKey(now);
       if (today !== lastPruneDay) {
@@ -262,14 +294,22 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       }
       const st = policyState(now);
       const base = st.limitSeconds ?? st.referenceSeconds;
+      const gate = deps.effects?.gateOpen() ?? false;
+      const grantLeft = st.grant ? Math.max(0, st.grant.until - now) / 1000 : null;
       const lines = [
         wd === 'sat' ? strings.tooltipShabbat : wd === 'fri' ? strings.tooltipFriday : strings.tooltipToday(todaySeconds, st.limitSeconds, st.referenceSeconds),
         ...(wd === 'sat' || wd === 'fri' ? [strings.tooltipToday(todaySeconds, null, null)] : []),
         strings.tooltipWeek(weekSeconds, c.weeklyBudgetMin * 60),
         strings.tooltipStretch(stretch ? stretch.seconds : null),
-        strings.observeMode,
+        ...(st.grant ? [strings.tooltipGrant(st.grant.until)] : []),
+        ...(st.enforcing && gate ? [strings.tooltipTokens(st.tokensLeft)] : []),
+        ...(gate ? [] : [strings.observeMode]),
       ];
-      return { title: strings.menubarTitle(todaySeconds, base), colour: st.colour, tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds) };
+      const menu = quitAllowed(now) ? undefined : strings.menu.filter((m) => m.id !== 'quit' && m.id !== '-');
+      return {
+        title: strings.menubarTitle(todaySeconds, base, grantLeft), colour: st.colour, tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds),
+        ...(menu ? { menu: menu.map((m) => ({ ...m })) } : {}),
+      };
     },
 
     status(now) {

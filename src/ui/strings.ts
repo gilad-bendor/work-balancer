@@ -2,8 +2,16 @@
 // kind, neutral, never shaming).
 import { formatHM } from '../core/time.ts';
 
+const clockFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+const clockTime = (ms: number): string => clockFmt.format(new Date(ms));
+
 export const strings = {
-  menubarTitle: (worked: number, base: number | null): string => (base === null ? `⏱ ${formatHM(worked)}` : `⏱ ${formatHM(worked)} / ${formatHM(base)}`),
+  /** `grantLeft`: seconds of borrowed time left (a token or the bypass), shown as `⏳7m`. */
+  menubarTitle: (worked: number, base: number | null, grantLeft: number | null = null): string =>
+    (base === null ? `⏱ ${formatHM(worked)}` : `⏱ ${formatHM(worked)} / ${formatHM(base)}`) + (grantLeft === null ? '' : ` ⏳${Math.ceil(grantLeft / 60)}m`),
+  tooltipGrant: (until: number): string => `Borrowed time until ${clockTime(until)} — then the screen rests until 04:00.`,
+  tooltipTokens: (left: readonly number[]): string =>
+    left.length ? `Postpone tokens left today: ${left.map((m) => `${m} min`).join(', ')}.` : 'No postpone tokens left today.',
 
   tooltipToday(worked: number, limit: number | null, reference: number | null): string {
     if (limit !== null) {
@@ -145,5 +153,57 @@ export const pageStrings = {
   quitConfirm: 'Stop it',
   quitCancel: 'Keep it running',
   quitBye: 'Stopping…',
+  quitRefused: "Not now — today's budget is used up, so stopping is off until 04:00.",
+  // Placeholders: {n} {m} {k} {t} are filled in by the page (page.ts `fill`).
+  // Warn (R-UI-WARN)
+  warnTitle: 'About {n} minutes of work left today.',
+  warnBody: 'A good moment to start landing what you are on. When {m} minutes are left, a small countdown appears; at the end of the budget the screen rests until 04:00.',
+  warnOk: 'Got it',
+  // Countdown (R-UI-COUNTDOWN)
+  countdownTitle: '≈ {n} min of work left today.',
+  countdownDone: 'That is about it for today.',
+  countdownIntro: 'Time to park where you are. Write down the next step — it will be waiting for you tomorrow. Saving ends the day: the screen rests until 04:00.',
+  countdownSave: 'Save — done for today',
+  countdownSaved: 'Saved. That is today — well done.',
+  countdownCmdEnter: 'Saving ends the day — press the button when you are ready.',
+  countdownCollapse: 'Make it small',
+  countdownExpand: 'Open',
+  countdownPill: '≈ {n} min left',
+  savedForTomorrow: 'Saved. It will be waiting for you tomorrow.',
+  // Block (R-UI-BLOCK)
+  blockTitle: "That's today's budget.",
+  blockBody: 'Friday-you will thank you. The screen rests until 04:00.',
+  blockZeroTitle: "This week's budget is already used.",
+  blockZeroBody: 'So today has no budget of its own — that is how Friday and Shabbat stay yours. The screen rests until 04:00. If something truly cannot wait, a postpone token or the emergency bypass is on the next screen.',
+  blockZeroContinue: 'I understand',
+  blockToday: 'Today',
+  blockWeek: 'This week',
+  blockOf: 'of',
+  blockLifts: 'The screen is yours again at',
+  blockPark: 'Park the thought',
+  blockMoreTitle: 'Need a few more minutes?',
+  blockMoreHint: 'A postpone token lifts the screen for a few minutes. Tokens do not carry over to tomorrow.',
+  blockToken: '{m} min',
+  blockTokenLeft: '{k} left',
+  blockNoTokens: 'No postpone tokens left today.',
+  blockTokenConfirm: 'Use the {m}-minute token now?',
+  blockTokenYes: 'Yes, use it',
+  blockNotNow: 'Not now',
+  blockBypass: 'Emergency bypass…',
+  blockBypassIntro: 'For a real emergency: type the sentence below (pasting is off), and say why. It lifts the screen for {m} minutes.',
+  blockBypassType: 'Type it here',
+  blockBypassReason: 'Why now? (a few words)',
+  blockBypassContinue: 'Continue',
+  blockBypassMismatch: 'Not quite the same sentence yet.',
+  blockBypassConfirm: 'Borrow {m} minutes from Friday?',
+  blockBypassYes: 'Yes, borrow {m} minutes',
+  blockBypassUsed: 'Emergency bypasses used today: {k}',
+  blockFailed: "That didn't go through — try again in a moment.",
+  blockOtherScreen: 'Notes and options are on the main screen.',
+  // Break nudge (R-POL-5)
+  nudgeTitle: '{t} of work without a real break.',
+  nudgeBody: 'A few minutes away from the screen helps — stand up, drink some water, look out of a window.',
+  nudgeBreak: 'Taking a break now',
+  nudgeSnooze: 'Remind me in {m} min',
 } as const;
 

@@ -1,7 +1,7 @@
 // Quit (menu → "Quit work-balancer…", R-UI-MENU-3): confirm, then Lua stops everything until the next module load.
 import { act, boot, closeOnEscape, closeWindow, el, tellLua } from './page.ts';
 
-void boot(({ strings: s }) => {
+void boot<{ allowed?: boolean } | null>(({ strings: s, model }) => {
   closeOnEscape(s.escUnsaved!);
   const msg = el('p', { class: 'msg', role: 'status' });
   const stop = el('button', { class: 'primary' }, s.quitConfirm!);
@@ -14,6 +14,10 @@ void boot(({ strings: s }) => {
         msg.textContent = s.quitBye!;
         tellLua('quit');
         return;
+      }
+      if (r.error === 'enforcing') {
+        msg.textContent = s.quitRefused!;
+        return; // stays disabled
       }
     } catch {
       // the daemon is unreachable: Lua can still stop (it confirms on its own when the daemon is down)
@@ -29,5 +33,9 @@ void boot(({ strings: s }) => {
     msg,
     el('div', { class: 'row end' }, keep, stop),
   ));
+  if (model?.allowed === false) {
+    msg.textContent = s.quitRefused!;
+    stop.disabled = true;
+  }
   keep.focus();
 });

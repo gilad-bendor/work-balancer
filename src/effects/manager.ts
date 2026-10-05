@@ -66,10 +66,16 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
   const openAudited = new Set<string>();
   {
     const today = dayKey(deps.now());
+    shownDay = today;
     for (const r of deps.store.readDays?.(addDays(today, -1), today) ?? []) {
       if (typeof r.windowId !== 'string') continue;
       if (r.type === 'effect.shown') openAudited.add(r.windowId);
       else if (r.type === 'effect.closed') openAudited.delete(r.windowId);
+      // Shown today and not closed on purpose since: a restarted daemon re-shows it without R-UI-QUIET (the block
+      // must not lift for up to maxDefer because the daemon restarted while the owner was typing).
+      if (dayKey(r.ts) !== today) continue;
+      if (r.type === 'effect.shown') shownToday.add(r.windowId);
+      else if (r.type === 'effect.closed' && (r.by === 'user' || r.by === 'page' || r.by === 'system' || r.by === 'panic')) shownToday.delete(r.windowId);
     }
   }
 
