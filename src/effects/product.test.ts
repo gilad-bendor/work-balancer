@@ -9,6 +9,7 @@ import { fixedClock } from '../core/clock.ts';
 import { REPO_ROOT } from '../core/env.ts';
 import { silentLogger } from '../core/log.ts';
 import { local, makeTmpDir } from '../testing/tmp.ts';
+import { gateClosedPolicy } from '../testing/config.ts';
 import { createEffectsManager } from './manager.ts';
 import { DEFAULT_QUIET } from './reconcile.ts';
 import type { ActualUi, UiCommand } from '../core/effects.ts';
@@ -21,7 +22,9 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; 
   const store = createStore({ dataDir: join(tmp.dir, 'data'), clock, log: silentLogger });
   opts.seed?.(store, clock);
   clock.set(start);
-  const policy = createPolicyLoader({ path: join(REPO_ROOT, 'config', 'policy.ts'), snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
+  // Live-env tests are about the closed gate: the owner's policy with liveEffects false (whatever his file says).
+  const configPath = opts.env === 'live' ? gateClosedPolicy(tmp.dir) : join(REPO_ROOT, 'config', 'policy.ts');
+  const policy = createPolicyLoader({ path: configPath, snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
   const effects = createEffectsManager({

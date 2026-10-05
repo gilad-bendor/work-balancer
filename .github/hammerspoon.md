@@ -28,6 +28,9 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 | H-12 | `os.exit(0)` (= `hs._exit`) | Terminates Hammerspoon at once (every module stops); the detached daemon keeps running and is adopted on relaunch (`open -g -a Hammerspoon`). | Owner pressed the eject combo over a live test overlay, 2026-10-05 |
 | H-13 | `print` inside an `hs.eventtap` callback | While an `hs -c` call is in flight, `print` is routed to the IPC client and raises `ipc.lua:402: attempt to index a nil value` (and the CLI times out). Diagnostics from callbacks: write to a file. | 2026-10-05 |
 | H-15 | `hs.webview` **title bar** | The webview window is not opaque: a plain `titled` window's title bar is see-through (whatever is behind shows; the owner found it hard to see and drag). With `windowMasks.fullSizeContentView` the page renders under the title bar, so the page's background fills it (the page pads its top by 28 px; traffic lights + title stay on top, dragging works). | Screen-region snapshots before/after + owner dragged a live countdown trial, 2026-10-05 (Lua 0.6.0) |
+| H-16 | `hs.webview:delete()` → `windowCallback("closing")` | The `closing` callback of a deleted view arrives **asynchronously** (after `delete()` returned — a guard flag set around the call is already reset). ⇒ ignore callbacks of views that are no longer current (`rec.views[key] ~= v`); a `closing` on a non-closable window is never a user act (drop + rebuild). Before the fix, unplugging a monitor under a per-screen overlay made Lua report the whole window closed `by user` (the block would have been lifted for up to 2 min). | Scratch webview with a logging callback; live trial-block hot-plug before/after (owner unplugged/replugged L24q-10), 2026-10-05, Lua 0.6.2 |
+| H-17 | Screen hot-plug | Unplugging the primary monitor makes the remaining screen primary; per-screen views are keyed by screen UUID, so a view whose `primary` flag changed is rebuilt (the page shows the controls only when `primary=1`). Verified: plug → controls on L24q-10, unplug → back on the laptop, block never lifted; ~5–15 s per transition. | Live trial, 2026-10-05 |
+| H-18 | Hammerspoon killed (`kill -9`) under a block | Relaunch (`open -g -a Hammerspoon`) → the module adopts the daemon and the block is back on both screens with eject labels within ~5 s. | Live trial, 2026-10-05 |
 | H-14 | `hs.menubar:setMenu(fn)` | With a menu set, **both left and right click** open it (the function builds the items at click time). | Owner clicked both, 2026-10-05 (Lua 0.5.0) |
 
 ### Still to verify (do it before relying on it)
@@ -42,7 +45,8 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 - **Supervisor = heartbeat loop.** Every 5 s: read `var/live/daemon.json` (port, token) → `POST /bridge/heartbeat`.
   One heartbeat in flight at most; a 15 s watchdog + generation counter makes late `asyncPost` callbacks no-ops.
   Failure → grey menubar `⏱ –:––`; `not running` / `no daemon.json` → spawn (grace 8 s, then exponential backoff
-  2 → 60 s, reset once a daemon has lived > 60 s). Only `not running` / `no daemon.json` spawn (any HTTP answer means a
+  2 → 60 s, reset once a daemon has lived > 60 s). After 3 spawns without a 200 the grey menubar gets a ⚠︎ "The daemon
+  failed to start N times — nothing is enforced meanwhile" (M11; verified live with `run-daemon` made non-executable). Only `not running` / `no daemon.json` spawn (any HTTP answer means a
   daemon is there). `503` = daemon still starting: samples stay in the outbox, nothing else happens. After 4
   consecutive `timeout`s the daemon is considered hung: `ps -o command= -p <pid>` must show `<repo>/src/main.ts`, then
   `kill -TERM`, 3 s later `kill -KILL`, then spawn (plain short `hs.task`s — H-6 safe). Backlog fast-drain (0.1 s) only

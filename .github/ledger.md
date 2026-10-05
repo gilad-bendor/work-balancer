@@ -11,9 +11,9 @@ update at session end. Keep "Current status" correct at a glance.
 | | |
 |---|---|
 | **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, owner's approval 2026-10-05 ~16:40, D-62): on Sun/Tue/Thu — morning review, inactivity dialog, break nudge, warn + dim → countdown (Save = done for today, D-60) → full-screen block until 04:00 with tokens (10+5+5) and the emergency bypass. Mon/Wed/Fri/Sat: menubar only. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). |
-| **Next** | **M11 — hardening & soak**: the hardening cases, then **one week of live use** (from Tue 2026-10-06; not to be compressed). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Open: Q-12…Q-15. Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
+| **Next** | **M11 — one week of live use** (Tue 2026-10-06 → Mon 2026-10-12; hardening cases done 2026-10-05); then collect feedback and tune. Owner is drafting new tasks in `_PRIVATE-SCRATCH.md` (Task 1: a day-timeline component) — **start only on his go**. Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Open: Q-12…Q-15. Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.6.0 + daemon 0.7.0, 2026-10-05): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` while a token/bypass runs), the menu, and every intrusive effect on Sun/Tue/Thu. Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.6.2 + daemon 0.7.0, 2026-10-05): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` while a token/bypass runs), the menu, and every intrusive effect on Sun/Tue/Thu. Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | `tbd-05-continue-m10` — the **successor top-level session** (D-58); M10 done, continuing with M11; it owns the ledger. |
 
 ---
@@ -469,10 +469,15 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   (D-60), visible title bars (H-15), a shorter countdown. Adversarial review: 6 findings + 2 on the fixes, all fixed
   (D-59, D-61). **Owner approved live enforcement → `liveEffects: true`** (D-62). Performance ≈ 19 ms per 5 s beat.
 
-### M11 — Hardening & soak · `todo`
-- [ ] Sleep/wake across 04:00, lid closed, external monitors hot-plug, DST day, Hammerspoon crash/restart, daemon
-      crash loops (backoff + visible warning), disk full / unwritable data dir (fail open + warning), config errors.
-- [ ] One week of live use; collect owner feedback; tune defaults (decisions logged).
+### M11 — Hardening & soak · `in-progress — awaiting one week of live use` (from Tue 2026-10-06)
+- [x] Sleep/wake across 04:00, lid closed, external monitors hot-plug, DST day, Hammerspoon crash/restart, daemon
+      crash loops (backoff + visible warning), disk full / unwritable data dir (fail open + warning), config errors —
+      verified 2026-10-05 (table in tbd-05 `report.md` §M11): tests (sleep through 04:00 while blocked, DST 23 h day
+      with a token clipped to 04:00, broken policy cold start), live trials with the owner (monitor hot-plug ×2 — found
+      and fixed H-16; `kill -9` Hammerspoon under a block — back in ~5 s), live crash loop (⚠︎ after 3 spawns, recovery
+      ~25 s), dev unwritable data dir under a block (fail open + warning). Lua 0.6.2. Review: 0 traps, 3 lows fixed.
+- [ ] One week of live use (Tue 2026-10-06 → Mon 2026-10-12, Sun/Tue/Thu intrusive); collect owner feedback; tune
+      defaults (decisions logged). **Not to be compressed or simulated.**
 
 ---
 
@@ -575,6 +580,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-60 | 2026-10-05 | **Countdown Save = done for today** (`budget.forfeited` → evaluator `blocked` until 04:00, independent of the latch key; tokens/bypass still work). Only a save that kept something forfeits; Cmd+Enter does not save there. | Owner, after the live trial: "clicking Save should be considered as forfeiting the remaining minutes". |
 | D-61 | 2026-10-05 | **No Quit at countdown/blocked** on an enforcing day with the live gate open (menu item hidden, confirm refused) — unless nothing can be enforced (panic, write error). `hs -c 'WorkBalancer.quit()'`, panic and the eject remain (explicit acts). Non-full windows: opaque title bar via `fullSizeContentView` + page padding (Lua 0.6.0, H-15). | Review M10#5 (a 5-min token opened the way to Quit = the rest of the day unenforced); owner: title bar see-through, hard to drag. |
 | D-62 | 2026-10-05 | **Live enforcement approved by the owner** — the session set `liveEffects: true` with his explicit consent (~16:40, a Monday: first intrusive day Tue 2026-10-06 04:00). The debug eject stays ON until he trusts the blockers. | M10 AC; owner: "Yes — you flip liveEffects to true now". |
+| D-63 | 2026-10-05 | **Lua hot-plug robustness:** a `closing` callback is a user close only for the view that is still current and only on a closable window; otherwise the view is dropped and `reassert` rebuilds (per-screen, and a non-per-screen window's lost `main` view). Crash-loop warning after 3 spawns without a daemon that lived ≥ 60 s. Tests pin `liveEffects: false` where they test the gate (`src/testing/config.ts`). | Live hot-plug trial (H-16: the block vanished, reported `by user`); review M11. |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -708,3 +714,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/` | Successor top-level session (D-47). **M7 done**: effects contracts/reconciler/manager (live gate D-48), test effect, page serving with type stripping, Lua window manager + dim + fail-open, owner's **debug panic-eject** (R-UI-EJECT, D-49; Esc impossible → F12, H-9) and `overlayOpacity`; live visual checks with consent; review 8 + 2 findings fixed (D-50); `ui-and-tone.md`. 147 tests. Handed over to tbd-04 (D-51). | tbd-04 |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/` | Successor top-level session (D-51). **M9 done** (inactivity dialog, owner's redesign D-56 after a live trial, robustness D-57, 0.6.0, 177 tests); handed over to tbd-05 (D-58). **M8 done**: notes (event-sourced over all days), menu on any click (H-14), quick note + shared feedback form, notes manager, activity summary (4-week history), quit flow, `day.rollover`, morning review (gated live); owner's live visual review + UI conventions (D-55); review 6 findings fixed (token persisted, D-54); D-52…D-55. 164 tests. Backlog: "Feedback & energy" window after M11. | tbd-05 |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/` | Successor top-level session (D-58). **M10 done**: escape hatches verified live; `src/enforcement/` (warn + dim, countdown + pill, block with tokens / bypass / zero-limit explanation / week strip, break nudge), trial pages, Lua 0.6.0 (opaque title bars, primary-view rebuild), daemon 0.7.0; dev walk-through with a fake clock; owner tried every page live → D-60 (countdown Save ends the day), H-15; review 6 + 2 findings fixed (D-59, D-61); **owner approved live enforcement** (D-62). 184 tests. | — |
+| 2026-10-05 | (same tmp-folder, tbd-05) | **M11 hardening done** (sleep across 04:00, DST, hot-plug — bug H-16 found live and fixed, Hammerspoon kill, crash-loop warning, unwritable data, config errors; Lua 0.6.2; review 3 lows fixed; D-63); M11 now awaits one week of live use. 187 tests. | — |

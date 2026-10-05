@@ -89,3 +89,21 @@ view resets the readiness check. 184 tests.
 ### Live enforcement (D-62)
 Owner approved; the session set `liveEffects: true` (~16:40 Monday — nothing intrusive on Mondays). Verified: config
 reloaded (`config.loaded f16eb7d057d4`), gate open, nothing desired today. First intrusive day: Tue 2026-10-06 04:00.
+
+Commit: `e7ce3e4` "M10: enforcement — …".
+
+## M11 checkpoint (hardening — the week of live use starts Tue 2026-10-06)
+
+| Case | How verified | Result |
+|---|---|---|
+| Sleep/wake across 04:00 while blocked | test `M11: the Mac sleeps through 04:00 …` | new day: no block, one `day.rollover`, no `monitor.gap` |
+| Lid closed / sleep = not a gap | tracker tests (M4) + the test above | ok |
+| DST day (23 h, spring forward) while blocked | test `M11: DST spring-forward …` | blocked until the real 04:00; a token clipped to it |
+| External monitor hot-plug under the block | **live trial with the owner** (2× plug/unplug of L24q-10) | first run found a bug (H-16: the async `closing` callback of a deleted view was taken for a user close → the block vanished); fixed in Lua 0.6.2; second run: controls follow the primary screen, block never lifted, token from the primary worked |
+| Hammerspoon crash (`kill -9`) under the block | **live trial**, relaunch `open -g -a Hammerspoon` | block back on both screens with eject labels in ~5 s (H-18) |
+| Daemon crash loop | **live**: `scripts/run-daemon` made non-executable, daemon stopped | backoff spawns; after 3 the menubar shows `⚠︎ ⏱ –:––` + tooltip "failed to start N times — nothing is enforced meanwhile"; restored → recovered in ~25 s, warning cleared, no false `monitor.gap` |
+| Disk full / unwritable data dir while blocked | dev daemon, data dir `chmod a-w` (`scratch/dev-diskfull.out`) | block steps aside (fail open), menubar warning names the error, note save → "write" (text kept), token refused cleanly |
+| Config errors | test `M11: cold start with a broken policy …` + config tests (M2) | tracking only, nothing enforced, menubar says so, Quit allowed; hot-reload keeps the previous policy |
+| Daemon death / page failure under an overlay | live at the start of M10 | fail open in 2 s / 21 s |
+
+Also: tests no longer depend on the owner's `liveEffects` (`src/testing/config.ts`). 187 tests.

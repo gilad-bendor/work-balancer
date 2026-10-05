@@ -2,6 +2,7 @@ process.env.TZ = 'Asia/Jerusalem';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { createTracker } from '../daemon/tracker.ts';
 import { createStore, type Store } from '../store/store.ts';
 import { createPolicyLoader } from '../policy/config.ts';
@@ -9,6 +10,7 @@ import { fixedClock } from '../core/clock.ts';
 import { REPO_ROOT } from '../core/env.ts';
 import { silentLogger } from '../core/log.ts';
 import { local, makeTmpDir } from '../testing/tmp.ts';
+import { gateClosedPolicy } from '../testing/config.ts';
 import { createEffectsManager } from '../effects/manager.ts';
 import { DEFAULT_QUIET } from '../effects/reconcile.ts';
 import { createTestEffect } from '../effects/test-effect.ts';
@@ -25,14 +27,16 @@ function seedWork(store: Store, from: number, to: number): void {
   for (let m = from; m < to; m += MIN) store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m } });
 }
 
-async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; seed?: (store: Store) => void; quietInput?: boolean; writeError?: () => string | null } = {}) {
+async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; seed?: (store: Store) => void; quietInput?: boolean; writeError?: () => string | null; configPath?: string } = {}) {
   const tmp = opts.dir ? { dir: opts.dir, cleanup() {} } : makeTmpDir('enforcement');
   const clock = fixedClock(start);
   const real = createStore({ dataDir: join(tmp.dir, 'data'), clock, log: silentLogger });
   opts.seed?.(real);
   const store: Store = { ...real, health: () => (opts.writeError?.() ? { ...real.health(), writeError: opts.writeError() } : real.health()) };
   clock.set(start);
-  const policy = createPolicyLoader({ path: join(REPO_ROOT, 'config', 'policy.ts'), snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
+  // Live-env tests are about the closed gate: the owner's policy with liveEffects false (whatever his file says).
+  const configPath = opts.configPath ?? (opts.env === 'live' ? gateClosedPolicy(tmp.dir) : join(REPO_ROOT, 'config', 'policy.ts'));
+  const policy = createPolicyLoader({ path: configPath, snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
   const effects = createEffectsManager({
@@ -314,4 +318,50 @@ test('review M10: block back at once after a grant (no R-UI-QUIET); dismissals k
   assert.ok(w.tracker.menubar(w.clock.now()).menu === undefined, 'Quit stays at warn');
   w.action('warn', 'close');
   assert.equal(w.win('warn'), undefined, 'dismissed even before (or without) the effect.closed record');
+});
+
+test('M11: the Mac sleeps through 04:00 while blocked — on wake a new day: no block, one rollover, no monitor gap', async (t) => {
+  const s = await setup(local(2026, 10, 6, 17, 0), { seed: (st) => seedWork(st, local(2026, 10, 6, 8, 0), local(2026, 10, 6, 17, 0)) });
+  t.after(s.cleanup);
+  s.work(local(2026, 10, 6, 17, 1));
+  assert.deepEqual(s.ids(), ['block']);
+  // Asleep 23:00 → Wed 08:00 (Lua's wake heartbeat carries both events, then normal beats resume).
+  s.tracker.ingest({ inputs: [], apps: [], system: [{ event: 'sleep', at: local(2026, 10, 6, 23, 0) }], locked: false, since: s.clock.now() }, local(2026, 10, 6, 23, 0));
+  s.clock.set(local(2026, 10, 7, 8, 0));
+  s.tracker.ingest({ inputs: [], apps: [], system: [{ event: 'wake', at: local(2026, 10, 7, 8, 0) }], locked: false, since: local(2026, 10, 6, 23, 0) }, s.clock.now());
+  s.tracker.tick(s.clock.now());
+  assert.deepEqual(s.ids(), [], 'Wednesday: nothing');
+  assert.equal(s.store.readDay('2026-10-07').filter((r) => r.type === 'day.rollover').length, 1);
+  assert.equal(s.records('monitor.gap').length, 0, 'a sleep is not a gap');
+});
+
+test('M11: DST spring-forward Thursday (a 23 h day) — blocked until the real 04:00, a token is clipped to it', async (t) => {
+  // 2026-03-27 02:00 → 03:00 (Friday morning): day 2026-03-26 ends at Fri 04:00, 23 h after it began.
+  const s = await setup(local(2026, 3, 26, 17, 5), { seed: (st) => seedWork(st, local(2026, 3, 26, 8, 0), local(2026, 3, 26, 17, 5)) });
+  t.after(s.cleanup);
+  s.work(local(2026, 3, 26, 17, 6));
+  assert.deepEqual(s.ids(), ['block']);
+  s.clock.set(local(2026, 3, 27, 3, 55));
+  s.tracker.tick(s.clock.now());
+  assert.deepEqual(s.ids(), ['block'], 'after the jump, still the same day');
+  assert.equal(s.model('block').liftsAt, local(2026, 3, 27, 4, 0));
+  const tk = s.action('block', 'token', { minutes: 10 });
+  assert.equal(tk.until, local(2026, 3, 27, 4, 0), 'clipped to the day end (unclipped: 04:05)');
+  s.clock.set(local(2026, 3, 27, 4, 0, 30));
+  s.tracker.tick(s.clock.now());
+  assert.deepEqual(s.ids(), [], 'Friday: nothing');
+});
+
+test('M11: cold start with a broken policy and no snapshot — tracking only: nothing enforced, the menubar says so', async (t) => {
+  const tmp = makeTmpDir('enforcement-cfg');
+  t.after(tmp.cleanup);
+  const bad = join(tmp.dir, 'policy.ts');
+  writeFileSync(bad, 'export default { this is not valid');
+  const s = await setup(local(2026, 10, 6, 17, 5), { configPath: bad, seed: (st) => seedWork(st, local(2026, 10, 6, 7, 0), local(2026, 10, 6, 17, 5)) });
+  t.after(s.cleanup);
+  s.work(local(2026, 10, 6, 17, 6));
+  assert.deepEqual(s.ids(), []);
+  assert.match(s.tracker.menubar(s.clock.now()).tooltip, /tracking only/);
+  assert.equal(s.records('policy.transition').length, 0);
+  assert.equal(s.model('quit').allowed, true, 'Quit stays possible');
 });

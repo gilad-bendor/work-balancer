@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.6.0"
+local VERSION = "0.6.2"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -16,6 +16,7 @@ local PANIC_HOLD = 1.5         -- seconds to hold the panic hotkey
 local MAX_OUTBOX = 50000       -- per sample kind; oldest dropped beyond this (≈ 14 h of continuous input)
 local BATCH = 5000             -- max samples per kind in one heartbeat
 local HUNG_AFTER = 4           -- consecutive heartbeat timeouts before a hung daemon is killed and respawned
+local CRASH_LOOP_AFTER = 3     -- spawns without a healthy daemon in between: a visible crash-loop warning (M11)
 
 if WorkBalancer and WorkBalancer._unload then pcall(WorkBalancer._unload) end
 
@@ -48,6 +49,7 @@ local S = {
   lastError = nil,
   spawnedAt = nil,
   backoff = 2,
+  spawnsSinceOk = 0,    -- spawns since the last 200 (crash loop ⇒ menubar warning)
   daemon = nil,         -- last daemon.json content
   adopted = nil,        -- true if the first healthy daemon was already running when we loaded
   dayKey = nil,
@@ -102,6 +104,7 @@ local function spawnDaemon()
   end, { "-c", cmd })
   S.spawnTask:start()
   S.spawnedAt = hs.timer.secondsSinceEpoch()
+  S.spawnsSinceOk = S.spawnsSinceOk + 1
 end
 
 -- ───────────────────────────── menubar ─────────────────────────────
@@ -135,11 +138,18 @@ local function applyMenubar(spec)
 end
 
 local function downMenubar(why)
+  local warning = nil
+  if S.protocolMismatch then
+    warning = "Protocol mismatch — run scripts/reload-hammerspoon."
+  elseif S.spawnsSinceOk >= CRASH_LOOP_AFTER then
+    -- Fail open, visibly: nothing is tracked or enforced while the daemon keeps failing (samples wait in the outbox).
+    warning = string.format("The daemon failed to start %d times — nothing is enforced meanwhile. See var/live/logs/daemon.out.log.", S.spawnsSinceOk)
+  end
   applyMenubar({
     title = "⏱ –:––",
     colour = "grey",
     tooltip = "work-balancer: the daemon is not answering (" .. why .. ") — restarting it.",
-    warning = S.protocolMismatch and "Protocol mismatch — run scripts/reload-hammerspoon." or nil,
+    warning = warning,
   })
 end
 
@@ -348,6 +358,8 @@ local function pageUrl(spec, key, primary)
     spec.mode == "overlay" and "0" or "1")
 end
 
+local deleteView, reassert -- forward (createView's close handler rebuilds views)
+
 local function createView(rec, key, target)
   local spec = rec.spec
   local url = pageUrl(spec, key, target.primary)
@@ -373,10 +385,21 @@ local function createView(rec, key, target)
   if opacity then v:alpha(math.max(0.2, math.min(opacity, 1))) end
   local id = spec.id
   v:windowCallback(function(action)
-    if action == "closing" and not rec.closing and not S.internalDelete then
-      rec.userClosed = true
-      later(0, function() if S.wins[id] == rec then closeWindow(id, "user"); sendHeartbeat() end end)
+    -- A "closing" of a view we replaced or deleted can arrive after deleteView (screens changed): never a user act.
+    if action ~= "closing" or rec.closing or S.internalDelete or rec.views[key] ~= v then return end
+    if not spec.closable then
+      -- No close button (block, countdown, full-screen dialogs): the system took this view away (its screen went).
+      -- Drop it and let reassert rebuild what the screens need — never reported as dismissed (M11 hot-plug).
+      later(0, function()
+        if S.wins[id] == rec and rec.views[key] == v then
+          deleteView(rec, key)
+          reassert(false)
+        end
+      end)
+      return
     end
+    rec.userClosed = true
+    later(0, function() if S.wins[id] == rec then closeWindow(id, "user"); sendHeartbeat() end end)
   end)
   v:navigationCallback(function(action, _, _, err)
     if action == "didFailNavigation" or action == "didFailProvisionalNavigation" then
@@ -404,7 +427,7 @@ local function createView(rec, key, target)
   end)
 end
 
-local function deleteView(rec, key)
+deleteView = function(rec, key)
   if rec.views[key] then
     S.internalDelete = true
     pcall(function() rec.views[key]:delete() end)
@@ -459,7 +482,7 @@ local function openWindow(spec)
 end
 
 --- Screens changed / space switched / every beat: per-screen instances follow the screens, overlays stay on top.
-local function reassert(screensChanged)
+reassert = function(screensChanged)
   for _, rec in pairs(S.wins) do
     local spec = rec.spec
     local targets = targetScreens(spec)
@@ -474,6 +497,9 @@ local function reassert(screensChanged)
           createView(rec, key, target)
         end
       end
+    elseif next(rec.views) == nil and targets.main then
+      rec.ready = false
+      createView(rec, "main", targets.main) -- its only view went away with its screen
     end
     for key, v in pairs(rec.views) do
       local target = targets[key]
@@ -678,6 +704,8 @@ end
 
 local function onSuccess(reply, info, sentPanicAt)
   S.failures = 0
+  -- Like the backoff: only a daemon that stayed up a minute ends a crash loop (one that answers once, then dies, does not).
+  if not S.spawnedAt or (info.startedAt and nowMs() - info.startedAt > 60000) then S.spawnsSinceOk = 0 end
   S.starting = 0
   S.timeouts = 0
   S.lastError = nil
@@ -1018,7 +1046,7 @@ function M.status()
   return {
     version = VERSION, repo = REPO, daemon = daemonState(), daemonInfo = S.daemon and { pid = S.daemon.pid, port = S.daemon.port } or nil,
     adopted = S.adopted, failures = S.failures, lastError = S.lastError, backoff = S.backoff, seq = S.seq,
-    latches = M.latches, dayKey = S.dayKey,
+    latches = M.latches, dayKey = S.dayKey, spawnsSinceOk = S.spawnsSinceOk,
     outbox = { inputs = #S.outbox.inputs, apps = #S.outbox.apps, system = #S.outbox.system },
   }
 end
