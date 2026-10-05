@@ -75,8 +75,8 @@ larger second count wins).
 | Field | Meaning |
 |---|---|
 | `prompts`, `answers` | Human prompts / human answers to agent questions (`ask_user`, VS Code question carousels). |
-| `unclassified` | Undecidable interactions (retries, `github/cli`, runner follow-ups without corroboration, missing turn rows, cancelled asks) — never counted as human. |
-| `automated` | Runner, subagent, system and other non-human prompts (insight only). |
+| `unclassified` | Undecidable interactions (retries, runner follow-ups without corroboration, missing turn rows, cancelled asks) — never counted as human. Before daemon 0.7.1 (ledger D-64) `github/cli` prompts were counted here; since then they are `automated`. |
+| `automated` | Runner, subagent, system, `github/cli` (since 0.7.1) and other non-human prompts (insight only). |
 | `at` | Offsets (ms from `minute`) of the human prompts and answers — activity instants for the `work` digest (each counts like an input instant). VS Code answers read on a catch-up scan carry their request's time (a lower bound). |
 | `bySource` | Human interactions per store: `{ "cli": n, "vscode": n }`. |
 

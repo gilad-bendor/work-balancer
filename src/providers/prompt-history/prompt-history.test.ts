@@ -95,8 +95,8 @@ test('minute records: counts and human times only (no text); human times are wor
   const all = [...byMinute.values()].map((r) => decodePromptMinute(r.data));
   assert.equal(all.reduce((n, m) => n + m.prompts, 0), 9);
   assert.equal(all.reduce((n, m) => n + m.answers, 0), 4);
-  assert.equal(all.reduce((n, m) => n + m.unclassified, 0), 6);
-  assert.equal(all.reduce((n, m) => n + m.automated, 0), 9);
+  assert.equal(all.reduce((n, m) => n + m.unclassified, 0), 5);
+  assert.equal(all.reduce((n, m) => n + m.automated, 0), 10);
   const raw = readFileSync(s.store.filePath('2026-01-11'), 'utf8');
   assert.doesNotMatch(raw, /prompt text|placeholder|WORKING AGREEMENT/, 'no text ever reaches data/');
   // 08:00:02 is the first human prompt (session …0001).

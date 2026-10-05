@@ -34,7 +34,8 @@ export function classifyCliPrompt(p: CliPrompt, ctx: CliContext): Decision {
   if (typeof ctx.turn === 'string' && !ctx.turn.startsWith('request_')) return { cls: 'automated', rule: 'C4' };
   if (p.retryOfPrev) return { cls: 'unclassified', rule: 'C5' };
   if (typeof ctx.turn === 'string') return { cls: 'human', rule: 'C6' };
-  if (p.clientName === 'github/cli') return { cls: 'unclassified', rule: 'C7' };
+  // Owner (Q-14): `github/cli` sessions are headless tool calls launched by other processes — not him.
+  if (p.clientName === 'github/cli') return { cls: 'automated', rule: 'C7' };
   if (!p.firstMain && ctx.turn === undefined) {
     if (ctx.sessionRunner === undefined) return 'pending';
     if (ctx.sessionRunner) {

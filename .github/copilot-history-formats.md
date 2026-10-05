@@ -162,7 +162,7 @@ format**.
 | C4 | turn id from S-AH exists and does **not** start with `request_` | `automated` (non-UI client); mark the session if first | high |
 | C5 | same content (compare hashes in memory) as the previous main prompt of the same session, < 15 min earlier | `unclassified` (retry: `copilot-retry-watcher` or a manual retry) | medium |
 | C6 | turn id starts with `request_` | **`human`** | **high** |
-| C7 | `client_name: github/cli` | `unclassified` (mostly headless `copilot -p` calls from the owner's tools — `copilot-llm.ts`: find-topics rerank, confluence rerank, diagnosis-graph rerank, describe-image) | medium |
+| C7 | `client_name: github/cli` | `automated` *(owner, 2026-10-05, Q-14: launched headless by other processes — ignored)* (mostly headless `copilot -p` calls from the owner's tools — `copilot-llm.ts`: find-topics rerank, confluence rerank, diagnosis-graph rerank, describe-image) | medium |
 | C8 | session is *runner-launched* (C3/C4 on its first message) and there is no turn index | `human` only if `interactive` recorded input in the preceding 60 s (configurable), else `unclassified` | medium |
 | C9 | `client_name: vscode-agent-host` but no turn row yet | wait up to ~5 min (the row may land after the event — *inferred*, timing not measured), then `unclassified` | — |
 | C10 | otherwise (`vscode`, `copilot-intellij`, no turn index, no markers) | **`human`** | medium |
@@ -280,8 +280,8 @@ shrinks to one `kind:0` line. A byte cursor alone is unsafe:
    window covers it.
 3. **Permission approvals** (`permission.requested/completed`) never appear in agent-host sessions. Elsewhere they
    are mostly auto-approved within 2 s, so they are not counted as answers.
-4. **`github/cli` sessions are ambiguous** (C7). Headless tool calls cannot be told apart structurally from the owner
-   typing in a terminal. The owner works in VS Code (R-INFO-4), so they stay `unclassified`.
+4. **`github/cli` sessions** (C7) are headless tool calls launched by other processes (owner, Q-14): `automated`. A
+   prompt the owner might type in a terminal CLI session would not be counted — he works in VS Code (R-INFO-4).
 5. **Format drift.** Field names come from unversioned internals (Copilot agent `copilotVersion: "0.0.0"`; VS Code
    op-log `version: 3`; S-AH schema without a version). Readers must skip unknown shapes, never crash, and surface a
    "prompt-history: no records parsed today" warning when a day's activity suddenly drops to zero.

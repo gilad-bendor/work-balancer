@@ -24,7 +24,7 @@ export interface PromptMinute {
   /** Human prompts / human answers to agent questions. */
   prompts: number;
   answers: number;
-  /** Not decidable (retries, github/cli, …) — never counted as human. */
+  /** Not decidable (retries, runner follow-ups without corroboration, …) — never counted as human. */
   unclassified: number;
   /** Agent/subagent/runner/system traffic (insight only). */
   automated: number;

@@ -12,7 +12,7 @@
       { "session": "00000000-0000-4000-8000-000000000003", "ts": "2026-01-11T08:40:01.000Z", "class": "automated", "rule": "C3 runner marker" },
       { "session": "00000000-0000-4000-8000-000000000004", "ts": "2026-01-11T08:50:01.000Z", "class": "automated", "rule": "C4 non-UI agent-host turn (bare UUID)" },
       { "session": "00000000-0000-4000-8000-000000000004", "ts": "2026-01-11T08:56:00.000Z", "class": "automated", "rule": "C4 non-UI agent-host turn (bare UUID)" },
-      { "session": "00000000-0000-4000-8000-000000000005", "ts": "2026-01-11T09:00:01.000Z", "class": "unclassified", "rule": "C7 github/cli headless" },
+      { "session": "00000000-0000-4000-8000-000000000005", "ts": "2026-01-11T09:00:01.000Z", "class": "automated", "rule": "C7 github/cli headless (owner, Q-14)" },
       { "session": "00000000-0000-4000-8000-000000000006", "ts": "2026-01-11T08:00:02.000Z", "class": "skip", "rule": "C0 duplicate event id (copied from session …0001)" },
       { "session": "00000000-0000-4000-8000-000000000006", "ts": "2026-01-11T09:10:05.000Z", "class": "human", "rule": "C10 no turn index, client vscode (medium confidence)" },
       { "session": "00000000-0000-4000-8000-000000000007", "ts": "2026-01-11T09:20:01.000Z", "class": "automated", "rule": "C3 runner marker" },
