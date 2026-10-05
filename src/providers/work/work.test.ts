@@ -41,7 +41,7 @@ test('a continuous run [a, b] is busy until b + grace; separate windows give bre
   assert.equal(r.lastActivityAt, T + 41 * MIN);
 });
 
-test('screen lock cuts the grace window short; unlock does not resume it without new input', () => {
+test('screen lock cuts the grace window; after unlock the rest of the window counts again (R-INFO-3: union − locked)', () => {
   const { p } = provider({ runs: [[T, T]], blocked: [[T + 2 * MIN, T + 3 * MIN]], now: T + 60 * MIN });
   assert.deepEqual(p.busy(T, T + 60 * MIN), [[T, T + 2 * MIN], [T + 3 * MIN, T + 5 * MIN]]);
 });

@@ -73,7 +73,7 @@ export function validatePolicy(x: unknown): ValidationResult {
     }
   }
   if (!Array.isArray(x.tokensMin)) errors.push('tokensMin must be an array of minutes');
-  else x.tokensMin.forEach((t, i) => num(t, `tokensMin[${i}]`, 1, 240));
+  else for (let i = 0; i < x.tokensMin.length; i++) num(x.tokensMin[i], `tokensMin[${i}]`, 1, 240); // also catches holes
   if (!isObj(x.bypass)) errors.push('bypass must be an object');
   else {
     num(x.bypass.minutes, 'bypass.minutes', 1, 240);
@@ -84,7 +84,7 @@ export function validatePolicy(x: unknown): ValidationResult {
     num(x.breakNudge.afterMin, 'breakNudge.afterMin', 1, 24 * 60);
     num(x.breakNudge.snoozeMin, 'breakNudge.snoozeMin', 1, 24 * 60);
   }
-  if (!Array.isArray(x.feedbackChoices) || x.feedbackChoices.some((c) => typeof c !== 'string' || !c.trim())) {
+  if (!Array.isArray(x.feedbackChoices) || Array.from(x.feedbackChoices).some((c) => typeof c !== 'string' || !c.trim())) {
     errors.push('feedbackChoices must be an array of non-empty strings');
   }
   if (!isObj(x.days)) errors.push('days must be an object with sun..sat');
@@ -173,9 +173,16 @@ export function createPolicyLoader(opts: { path: string; snapshotPath: string; l
       }
       if (seenMtime === mtime) return false;
       seenMtime = mtime;
-      const r = mtime < 0 ? { ok: false as const, errors: [`${opts.path} does not exist`] } : await importFile(mtime);
+      let r: ValidationResult = mtime < 0 ? { ok: false, errors: [`${opts.path} does not exist`] } : await importFile(mtime);
+      let hash = '';
       if (r.ok) {
-        const hash = configHash(r.config);
+        try {
+          hash = configHash(r.config); // e.g. a circular extra field passes validation but cannot be hashed
+        } catch (e) {
+          r = { ok: false, errors: [`cannot use ${opts.path}: ${(e as Error).message}`] };
+        }
+      }
+      if (r.ok) {
         const changed = hash !== state.hash || state.source !== 'file' || state.errors.length > 0;
         state = { config: r.config, source: 'file', hash, errors: [] };
         writeSnapshot(r.config);

@@ -104,11 +104,25 @@ describe('normaliseInitLua', () => {
     assert.equal(r.text, `a()\r\n${REQUIRE_LINE}\r\nb()\r\n`);
   });
 
-  it('does not treat comments or other modules as the line', () => {
-    const text = `-- ${REQUIRE_LINE}\nrequire("work-balancer-other")\nrequire("not-work-balancer")\n`;
+  it('does not treat other modules as the line', () => {
+    const text = `require("work-balancer-other")\nrequire("not-work-balancer")\n`;
     const r = normaliseInitLua(text);
     assert.equal(r.text, `${text}${REQUIRE_LINE}\n`);
     assert.ok(r.added);
+  });
+
+  it('a commented-out line means the owner disabled the module: nothing is added', () => {
+    const text = `require("x")\n-- ${REQUIRE_LINE}\n`;
+    const r = normaliseInitLua(text);
+    assert.equal(r.text, text);
+    assert.equal(r.changed, false);
+    assert.ok(r.disabled);
+  });
+
+  it('recognises the paren-less form require "work-balancer"', () => {
+    const r = normaliseInitLua(`require "work-balancer"\n`);
+    assert.equal(r.text, `${REQUIRE_LINE}\n`);
+    assert.ok(r.normalised);
   });
 });
 
@@ -322,6 +336,52 @@ describe('CLI (spawned wrapper, --hammerspoon-dir only)', () => {
     assert.equal(readFileSync(join(dir, 'init.lua'), 'utf8'), `require("one")\n\n-- note\n${REQUIRE_LINE}\nrequire("two")`);
     const [bak] = backups(dir);
     assert.equal(readFileSync(join(dir, bak), 'utf8'), original);
+  });
+
+  it('a disabled module (commented-out line) exits 3, visibly, without touching init.lua', () => {
+    const dir = newDir();
+    const text = `-- ${REQUIRE_LINE}\n`;
+    writeFileSync(join(dir, 'init.lua'), text);
+    const r = run(['--hammerspoon-dir', dir, '--quiet']);
+    assert.equal(r.status, 0, 'with --hammerspoon-dir there is no reload; the exit code is about installing files');
+    assert.match(r.stderr, /DISABLED/);
+    assert.equal(readFileSync(join(dir, 'init.lua'), 'utf8'), text);
+  });
+
+  it('a symlinked init.lua stays a symlink; the target keeps its mode', () => {
+    const dir = newDir();
+    const realDir = newDir();
+    writeFileSync(join(realDir, 'init.lua'), 'require("x")\n', { mode: 0o600 });
+    symlinkSync(join(realDir, 'init.lua'), join(dir, 'init.lua'));
+    const r = run(['--hammerspoon-dir', dir]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(lstatSync(join(dir, 'init.lua')).isSymbolicLink());
+    assert.equal(readFileSync(join(realDir, 'init.lua'), 'utf8'), `require("x")\n${REQUIRE_LINE}\n`);
+    assert.equal(lstatSync(join(realDir, 'init.lua')).mode & 0o777, 0o600);
+  });
+
+  it('keeps non-UTF-8 bytes of other lines byte-identical', () => {
+    const dir = newDir();
+    const original = Buffer.from([0x2d, 0x2d, 0x20, 0xe9, 0x0a]); // "-- \xE9\n" (Latin-1)
+    writeFileSync(join(dir, 'init.lua'), original);
+    const r = run(['--hammerspoon-dir', dir]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(readFileSync(join(dir, 'init.lua')), Buffer.concat([original, Buffer.from(`${REQUIRE_LINE}\n`)]));
+  });
+
+  it('refuses to re-point a symlink that targets another checkout unless --force', () => {
+    const dir = newDir();
+    const other = join(newDir(), 'other-checkout', 'hammerspoon');
+    mkdirSync(other, { recursive: true });
+    writeFileSync(join(other, 'work-balancer.lua'), '-- other\n');
+    symlinkSync(join(other, 'work-balancer.lua'), join(dir, 'work-balancer.lua'));
+    const r = run(['--hammerspoon-dir', dir]);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /another checkout/);
+    assert.equal(readlinkSync(join(dir, 'work-balancer.lua')), join(other, 'work-balancer.lua'));
+    const forced = run(['--hammerspoon-dir', dir, '--force']);
+    assert.equal(forced.status, 0, forced.stderr);
+    assert.equal(readlinkSync(join(dir, 'work-balancer.lua')), target);
   });
 
   it('prints the old target when fixing a wrong symlink', () => {

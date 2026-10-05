@@ -3,7 +3,7 @@
 // when late samples change it (readers take the last record per minute).
 import type { PerMinuteInfoProvider, TimeRangeInfoProvider } from '../../core/registry.ts';
 import { clip, normalize, overlap, subtract, type Interval } from '../../core/intervals.ts';
-import { MINUTE_MS, minuteKey, type MinuteKey } from '../../core/time.ts';
+import { dayKey, MINUTE_MS, minuteKey, type MinuteKey } from '../../core/time.ts';
 import type { Logger } from '../../core/log.ts';
 import type { Store } from '../../store/store.ts';
 import { isMinuteRecord, type AnyRecord, type SystemEvent } from '../../store/records.ts';
@@ -16,6 +16,11 @@ export const RUN_JOIN_MS = 2000;
 /** A minute is written once it is this old (lets the heartbeat carrying its last samples arrive). */
 export const FINALIZE_AFTER_MS = 70_000;
 const APP_MIN_SECONDS = 5;
+/** Input/unlock this long after an unmatched sleep event means the wake event was missed. */
+export const SYNTHETIC_WAKE_AFTER_MS = 60_000;
+/** The heartbeat's `locked` flag lags real lock/unlock events (the immediate push after an unlock still says
+ * locked): it only repairs the timeline when the newest lock/unlock event is older than this. */
+export const LOCK_FLAG_GRACE_MS = 10_000;
 const TOP_APPS = 3;
 
 export interface TopApp {
@@ -117,6 +122,8 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
   let dirtyFrom = Infinity;
   let version = 0;
   let blockedCache: { version: number; locked: Interval[]; asleep: Interval[] } | null = null;
+  /** System events whose write failed — retried on the next flush (never lose a lock/sleep). */
+  let unsaved: TimelineEvent[] = [];
 
   const runs = (from: number, to: number): Interval[] =>
     padded.filter(([a, pb]) => pb - RUN_JOIN_MS >= from && a < to).map(([a, pb]) => [a, pb - RUN_JOIN_MS] as const);
@@ -140,7 +147,6 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
   }
 
   const isLockedAt = (t: number): boolean => timelines().locked.some(([a, b]) => a <= t && t < b);
-  const isAsleepAt = (t: number): boolean => timelines().asleep.some(([a, b]) => a <= t && t < b);
 
   function addEvent(e: TimelineEvent, persist: boolean): void {
     const key = `${e.event}@${e.at}`;
@@ -150,12 +156,16 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     events.sort((x, y) => x.at - y.at);
     version++;
     dirtyFrom = Math.min(dirtyFrom, e.at);
-    if (persist) store.append({ type: 'system', ts: e.at, event: e.event });
+    if (persist && !store.append({ type: 'system', ts: e.at, event: e.event })) unsaved.push(e);
   }
 
   function compute(m: MinuteKey): InteractiveMinute {
     const end = m + MINUTE_MS;
-    const { locked, asleep } = timelines();
+    // Open lock/sleep intervals run to Infinity: never count the future (a partial minute flushed at shutdown).
+    const now = opts.now();
+    const { locked: allLocked, asleep: allAsleep } = timelines();
+    const locked = clip(allLocked, -Infinity, now);
+    const asleep = clip(allAsleep, -Infinity, now);
     const blocked = normalize([...clip(locked, m, end), ...clip(asleep, m, end)]);
     const inMinute = runs(m, end).map(([a, b]) => [Math.max(a, m), Math.min(b, end - 1)] as [number, number]);
     const seconds = new Set<number>();
@@ -221,10 +231,18 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     ingest(samples, cover, receivedAt) {
       for (const e of samples.system) addEvent({ event: e.event, at: e.at }, true);
       // The heartbeat's `locked` flag repairs a missed lock/unlock event (e.g. across a reload).
-      if (samples.locked !== isLockedAt(receivedAt)) addEvent({ event: samples.locked ? 'lock' : 'unlock', at: receivedAt }, true);
-      // A heartbeat proves we're awake — unless it is the one carrying the sleep event (sent just before sleeping).
-      const sleptInBatch = samples.system.some((e) => e.event === 'sleep');
-      if (!sleptInBatch && isAsleepAt(receivedAt)) addEvent({ event: 'wake', at: receivedAt }, true);
+      const lastLockEvent = events.filter((e) => e.event === 'lock' || e.event === 'unlock').at(-1);
+      const flagSettled = !lastLockEvent || receivedAt - lastLockEvent.at > LOCK_FLAG_GRACE_MS;
+      if (flagSettled && samples.locked !== isLockedAt(receivedAt)) addEvent({ event: samples.locked ? 'lock' : 'unlock', at: receivedAt }, true);
+      // Repair a missed wake only on evidence of the owner (an input or an unlock after the sleep): a heartbeat alone
+      // proves nothing — Lua keeps sending ~1 s after "will sleep" (H-8), and dark wakes run Hammerspoon briefly
+      // without any wake event (2026-10-04 19:08).
+      const openSleep = timelines().asleep.at(-1);
+      if (openSleep && openSleep[1] === Infinity) {
+        const after = openSleep[0] + SYNTHETIC_WAKE_AFTER_MS;
+        const evidence = [...samples.inputs.filter((t) => t > after), ...samples.system.filter((e) => e.event === 'unlock' && e.at > after).map((e) => e.at)];
+        if (evidence.length) addEvent({ event: 'wake', at: Math.min(...evidence) }, true);
+      }
       if (samples.inputs.length) {
         padded = normalize([...padded, ...samples.inputs.map((t) => [t, t + RUN_JOIN_MS] as const)]);
         dirtyFrom = Math.min(dirtyFrom, ...samples.inputs);
@@ -251,22 +269,39 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     },
 
     flushMinutes(now, flushOpts) {
+      // While a day's file cannot be written, one attempt per day per tick (no retry flood); other days go on.
+      const failedDays = new Set<string>();
+      unsaved = unsaved.filter((e) => {
+        if (failedDays.has(dayKey(e.at))) return true;
+        if (store.append({ type: 'system', ts: e.at, event: e.event })) return false;
+        failedDays.add(dayKey(e.at));
+        return true;
+      });
       if (dirtyFrom === Infinity) return 0;
       const last = flushOpts?.all ? minuteKey(now) : minuteKey(now - FINALIZE_AFTER_MS) - MINUTE_MS;
       let n = 0;
+      let failedFrom = Infinity;
       let m = minuteKey(dirtyFrom);
       for (; m <= last; m += MINUTE_MS) {
         if (!covered(m) || fullyAsleep(m)) continue;
+        if (failedDays.has(dayKey(m))) {
+          failedFrom = Math.min(failedFrom, m); // that day's file is failing: retry next tick
+          continue;
+        }
         const rec = compute(m);
         const prev = written.get(m);
         if (!prev && skippable(m, rec)) continue;
         if (prev && JSON.stringify(encodeMinute(prev)) === JSON.stringify(encodeMinute(rec))) continue;
-        store.append({ type: 'minute', provider: PROVIDER, minute: m, data: encodeMinute(rec) });
+        if (!store.append({ type: 'minute', provider: PROVIDER, minute: m, data: encodeMinute(rec) })) {
+          failedFrom = Math.min(failedFrom, m); // stays dirty: retried on the next flush
+          failedDays.add(dayKey(m));
+          continue;
+        }
         written.set(m, rec);
         n++;
       }
       // The partial minute flushed with `all` stays dirty: a later daemon re-emits it in full.
-      dirtyFrom = flushOpts?.all ? minuteKey(now) : Math.max(m, minuteKey(dirtyFrom));
+      dirtyFrom = Math.min(failedFrom, flushOpts?.all ? minuteKey(now) : Math.max(m, minuteKey(dirtyFrom)));
       if (n) log.debug('interactive minutes written', { n });
       return n;
     },

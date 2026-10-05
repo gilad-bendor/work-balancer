@@ -23,6 +23,10 @@ export function resolveEnv(env: NodeJS.ProcessEnv, repoRoot: string = REPO_ROOT)
   const raw = (env.WB_ENV ?? 'live').trim();
   if (raw !== 'live' && raw !== 'dev') throw new Error(`WB_ENV must be "live" or "dev", got ${JSON.stringify(raw)}`);
   const name: EnvName = raw;
+  // The live instance writes the owner's data/: no knobs that could make a second, misconfigured live daemon
+  // (its own port → no mutex; a fake clock → fake timestamps in append-only data).
+  if (name === 'live' && env.WB_PORT && Number(env.WB_PORT) !== DEFAULT_PORTS.live) throw new Error('WB_PORT cannot be changed for the live env (use WB_ENV=dev)');
+  if (name === 'live' && env.WB_FAKE_NOW) throw new Error('WB_FAKE_NOW is for the dev env only');
   const port = env.WB_PORT ? Number(env.WB_PORT) : DEFAULT_PORTS[name];
   if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error(`WB_PORT invalid: ${env.WB_PORT}`);
   if (env.WB_VAR_DIR && name === 'live') throw new Error('WB_VAR_DIR is for dev/test instances only');

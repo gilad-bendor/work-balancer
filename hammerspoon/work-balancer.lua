@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.3.0"
+local VERSION = "0.3.2"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -15,6 +15,7 @@ local LIVE_PORT_DEFAULT = 47621
 local PANIC_HOLD = 1.5         -- seconds to hold the panic hotkey
 local MAX_OUTBOX = 50000       -- per sample kind; oldest dropped beyond this (≈ 14 h of continuous input)
 local BATCH = 5000             -- max samples per kind in one heartbeat
+local HUNG_AFTER = 4           -- consecutive heartbeat timeouts before a hung daemon is killed and respawned
 
 if WorkBalancer and WorkBalancer._unload then pcall(WorkBalancer._unload) end
 
@@ -27,6 +28,7 @@ local selfPath = hs.fs.pathToAbsolute(debug.getinfo(1, "S").source:sub(2)) or ""
 local REPO = selfPath:match("^(.*)/hammerspoon/work%-balancer%.lua$")
 local VAR = REPO and (REPO .. "/var/live") or nil
 local DAEMON_JSON = VAR and (VAR .. "/daemon.json") or nil
+local PANIC_JSON = VAR and (VAR .. "/panic.json") or nil -- the panic latch survives reloads (R-UI-ESC)
 
 local M = {
   version = VERSION,
@@ -50,16 +52,21 @@ local S = {
   adopted = nil,        -- true if the first healthy daemon was already running when we loaded
   dayKey = nil,
   panicBy = nil,
-  panicDay = nil,
+  panicAt = nil,
+  timeouts = 0,
+  recovering = false,
   protocolMismatch = false,
   menu = nil,
   timers = {},
   hotkeys = {},
   previews = {},
   outbox = { inputs = {}, apps = {}, system = {} }, -- sensor samples not yet acknowledged by the daemon
+  headDrops = {},       -- per kind: oldest samples dropped (outbox full) while a heartbeat was in flight
+  lostUntil = nil,      -- samples before this were dropped: coverage restarts here (the daemon records a gap)
   loadedAt = nil,       -- coverage starts here for the first heartbeat …
   ackedSentAt = nil,    -- … and at the last acknowledged heartbeat's sentAt afterwards
   lastInputAt = nil,
+  prevIdle = nil,
   app = nil,            -- current foreground app { id, name, from }
   sensors = { watchers = {} },
 }
@@ -143,8 +150,9 @@ local function buildHeartbeat()
     apps = { table.unpack(o.apps, 1, counts.apps) },
     system = { table.unpack(o.system, 1, counts.system) },
     locked = S.sensors.isLocked and S.sensors.isLocked() or false,
-    since = S.ackedSentAt or S.loadedAt or sentAt,
+    since = math.max(S.ackedSentAt or S.loadedAt or sentAt, S.lostUntil or 0),
   }
+  S.headDrops = {}
   if S.sensors.openAppInterval then
     local open = S.sensors.openAppInterval()
     if open then table.insert(samples.apps, open) end
@@ -155,14 +163,15 @@ local function buildHeartbeat()
     seq = S.seq,
     sentAt = sentAt,
     samples = samples,
-    ui = { windows = {}, dimmed = false, latches = M.latches, panicBy = S.panicBy },
+    ui = { windows = {}, dimmed = false, latches = M.latches, panicBy = S.panicBy, panicAt = S.panicAt },
     acks = {},
   }
-  return hs.json.encode(body), counts, sentAt
+  return hs.json.encode(body), counts, sentAt, S.panicAt
 end
 
 local function dropSent(counts)
-  for k, n in pairs(counts) do
+  for k, sent in pairs(counts) do
+    local n = math.max(0, sent - (S.headDrops[k] or 0)) -- the front shifted by that many since the beat was built
     local list = S.outbox[k]
     if n >= #list then S.outbox[k] = {} else
       local rest = {}
@@ -172,34 +181,74 @@ local function dropSent(counts)
   end
 end
 
+-- A daemon that accepts connections but never answers (blocked event loop) holds the port: SIGTERM cannot be handled
+-- by a blocked loop, so TERM, then KILL — but only after checking the pid really is our daemon (pids get reused).
+-- Every hs.task here is a plain, short command (no backgrounding — H-6).
+local function recoverHung(pid)
+  if S.recovering or not pid or not REPO then return end
+  S.recovering = true
+  local done = function()
+    S.recovering = false
+    S.timeouts = 0
+  end
+  S.psTask = hs.task.new("/bin/ps", function(code, out)
+    local cmd = out or ""
+    if code ~= 0 or not cmd:find(REPO .. "/src/main.ts", 1, true) then
+      log("hung daemon: pid %s is not our daemon (%s) — not killing", tostring(pid), cmd:gsub("%s+$", ""))
+      done()
+      return
+    end
+    log("daemon pid %d does not answer — terminating it", pid)
+    S.termTask = hs.task.new("/bin/kill", nil, { "-TERM", tostring(pid) })
+    S.termTask:start()
+    S.timers.kill = hs.timer.doAfter(3, function()
+      S.killTask = hs.task.new("/bin/kill", function()
+        done()
+        if not M.latches.quit then spawnDaemon() end
+      end, { "-KILL", tostring(pid) })
+      S.killTask:start()
+    end)
+  end, { "-o", "command=", "-p", tostring(pid) })
+  S.psTask:start()
+end
+
 local function onFailure(why)
   S.failures = S.failures + 1
   S.lastError = why
   downMenubar(why)
   if M.latches.quit then return end
   local now = hs.timer.secondsSinceEpoch()
-  if why == "timeout" then return end -- a hung daemon still holds the port; spawning would not help
+  if why == "timeout" then
+    S.timeouts = S.timeouts + 1
+    if S.timeouts >= HUNG_AFTER then recoverHung(S.daemon and S.daemon.pid) end
+    return
+  end
+  -- Spawn only when nothing answers on the port; any HTTP answer means a daemon is running.
+  if why ~= "not running" and why ~= "no daemon.json" then return end
   if S.spawnedAt and now - S.spawnedAt < math.max(SPAWN_GRACE, S.backoff) then return end
   if S.spawnedAt then S.backoff = math.min(S.backoff * 2, BACKOFF_MAX) end
   log("daemon unavailable (%s) — spawning", why)
   spawnDaemon()
 end
 
-local function onSuccess(reply, info)
+local function onSuccess(reply, info, sentPanicAt)
   S.failures = 0
+  S.timeouts = 0
   S.lastError = nil
   S.lastOkAt = hs.timer.secondsSinceEpoch()
   S.protocolMismatch = false
   if S.adopted == nil then S.adopted = (S.spawnedAt == nil) end
   if info.startedAt and (nowMs() - info.startedAt) > 60000 then S.backoff = 2 end
-  if reply.dayKey then
-    if M.latches.panic and S.panicDay and reply.dayKey ~= S.panicDay then
-      M.latches.panic = false -- the panic latch lasts until the next 04:00 rollover (R-UI-ESC)
-      S.panicBy = nil
-      log("panic latch cleared by the 04:00 rollover")
-    end
-    S.dayKey = reply.dayKey
+  -- Only the latch this heartbeat reported: a panic pressed while it was in flight has a newer panicAt.
+  if reply.panicExpired and M.latches.panic and S.panicAt == sentPanicAt then
+    -- The daemon decides: the panic latch lasts until the next 04:00 (R-UI-ESC).
+    M.latches.panic = false
+    S.panicBy = nil
+    S.panicAt = nil
+    if PANIC_JSON then os.remove(PANIC_JSON) end
+    log("panic latch cleared by the 04:00 rollover")
   end
+  if reply.dayKey then S.dayKey = reply.dayKey end
   if reply.menubar then applyMenubar(reply.menubar) end
 end
 
@@ -209,11 +258,18 @@ local function finish(gen)
   if gen ~= S.gen then return false end
   S.inflight = false
   if S.watchdog then S.watchdog:stop(); S.watchdog = nil end
-  if S.pushPending or #S.outbox.inputs > BATCH or #S.outbox.apps > BATCH or #S.outbox.system > BATCH then
+  if S.pushPending then
     S.pushPending = false
     S.timers.push = hs.timer.doAfter(0.1, function() sendHeartbeat() end)
   end
   return true
+end
+
+-- After a 200 only (never after a failure: that would retry 10×/s on the main thread): drain a backlog faster.
+local function drainBacklog()
+  if #S.outbox.inputs > BATCH or #S.outbox.apps > BATCH or #S.outbox.system > BATCH then
+    S.timers.push = hs.timer.doAfter(0.1, function() sendHeartbeat() end)
+  end
 end
 
 sendHeartbeat = function()
@@ -225,7 +281,7 @@ sendHeartbeat = function()
   S.seq = S.seq + 1
   S.gen = S.gen + 1
   local gen = S.gen
-  local body, counts, sentAt = buildHeartbeat()
+  local body, counts, sentAt, sentPanicAt = buildHeartbeat()
   S.inflight = true
   S.watchdog = hs.timer.doAfter(HEARTBEAT_TIMEOUT, function()
     if gen == S.gen and S.inflight then
@@ -243,13 +299,16 @@ sendHeartbeat = function()
       if ok and type(reply) == "table" then
         dropSent(counts)
         S.ackedSentAt = sentAt
-        onSuccess(reply, info)
+        onSuccess(reply, info, sentPanicAt)
+        drainBacklog()
       else
         onFailure("bad reply")
       end
     elseif status == 409 then
       S.protocolMismatch = true
       onFailure("protocol mismatch")
+    elseif status == 503 then
+      S.lastError = "starting" -- daemon not ready yet; samples stay in the outbox
     elseif status == 401 then
       onFailure("token rejected") -- daemon.json is re-read on the next beat
     elseif status == -1 then
@@ -265,16 +324,28 @@ function M.pushNow() sendHeartbeat() end
 
 -- ───────────────────────────── sensors ─────────────────────────────
 
+local function sampleTime(item) return type(item) == "number" and item or item.to or item.at end
+
 local function pushSample(kind, item)
   local list = S.outbox[kind]
   list[#list + 1] = item
-  if #list > MAX_OUTBOX then table.remove(list, 1) end
+  if #list > MAX_OUTBOX then
+    local dropped = table.remove(list, 1)
+    S.lostUntil = math.max(S.lostUntil or 0, sampleTime(dropped) + 1)
+    if S.inflight then S.headDrops[kind] = (S.headDrops[kind] or 0) + 1 end
+  end
 end
 
--- Input instants. hs.host.idleTime() is whole seconds (H-1): sample every second; a new instant only when the
--- derived last-input time moved forward (jitter < 0.5 s is the same input).
+-- Input instants. hs.host.idleTime() is whole seconds (H-1), sampled every second. Only a *reset* of the idle
+-- counter (0, or lower than the previous sample) is an input: while locked with the display asleep the counter runs
+-- slower than the wall clock, so `now − idle` creeps forward without any input (H-7). The derived instant must also
+-- move forward by > 0.5 s (same input otherwise).
 local function sampleIdle()
-  local t = nowMs() - hs.host.idleTime() * 1000
+  local idle = hs.host.idleTime()
+  local prev = S.prevIdle
+  S.prevIdle = idle
+  if prev ~= nil and idle ~= 0 and idle >= prev then return end
+  local t = nowMs() - idle * 1000
   if not S.lastInputAt or t > S.lastInputAt + 500 then
     S.lastInputAt = t
     pushSample("inputs", t)
@@ -331,10 +402,20 @@ end
 
 -- ───────────────────────────── escape hatch ─────────────────────────────
 
+local function savePanic()
+  if not PANIC_JSON then return end
+  local f = io.open(PANIC_JSON, "w")
+  if f then
+    f:write(hs.json.encode({ by = S.panicBy, at = S.panicAt }))
+    f:close()
+  end
+end
+
 function M.panic(by)
   M.latches.panic = true
   S.panicBy = by or "cli"
-  S.panicDay = S.dayKey
+  S.panicAt = nowMs()
+  savePanic()
   hs.screen.restoreGamma()
   for _, w in pairs(S.previews) do pcall(function() w:delete() end) end
   S.previews = {}
@@ -346,7 +427,8 @@ end
 function M.resume()
   M.latches.panic = false
   S.panicBy = nil
-  S.panicDay = nil
+  S.panicAt = nil
+  if PANIC_JSON then os.remove(PANIC_JSON) end
   sendHeartbeat()
   return "panic latch cleared"
 end
@@ -440,6 +522,21 @@ S.hotkeys.panic = hs.hotkey.bind({ "ctrl", "alt", "cmd", "shift" }, "escape",
   function()
     if S.timers.panicHold then S.timers.panicHold:stop(); S.timers.panicHold = nil end
   end)
+
+-- Restore a panic latch from before a reload; the daemon expires it at the next 04:00.
+if PANIC_JSON then
+  local f = io.open(PANIC_JSON, "r")
+  if f then
+    local ok, p = pcall(hs.json.decode, f:read("a"))
+    f:close()
+    if ok and type(p) == "table" and p.at then
+      M.latches.panic = true
+      S.panicBy = p.by or "unknown"
+      S.panicAt = p.at
+      log("panic latch restored (set by %s)", S.panicBy)
+    end
+  end
+end
 
 if not REPO then
   log("ERROR: cannot locate the repo from %s", selfPath)

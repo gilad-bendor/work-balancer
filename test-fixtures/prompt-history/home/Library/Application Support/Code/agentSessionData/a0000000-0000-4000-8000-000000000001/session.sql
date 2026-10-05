@@ -1,0 +1,12 @@
+CREATE TABLE session_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
+CREATE TABLE turns (id TEXT PRIMARY KEY NOT NULL, event_id TEXT, checkpoint_ref TEXT);
+CREATE INDEX idx_turns_event_id ON turns(event_id);
+INSERT INTO session_metadata VALUES ('defaultChatProviderData', '{"sdkSessionId":"00000000-0000-4000-8000-000000000001","model":{"id":"model-x","config":{"thinkingLevel":"high"}}}');
+INSERT INTO session_metadata VALUES ('configValues', '{"autoApprove":"default","mode":"interactive","isolation":"folder","branch":"main"}');
+INSERT INTO session_metadata VALUES ('customTitleSource', 'auto');
+INSERT INTO session_metadata VALUES ('titleGenerationStrategy', 'deferred');
+INSERT INTO session_metadata VALUES ('peerChats', '[]');
+INSERT INTO turns VALUES ('request_r1000000-0000-4000-8000-000000000001', 'e0000001-0000-4000-8000-000000000005', NULL);
+INSERT INTO turns VALUES ('request_r1000000-0000-4000-8000-000000000002', 'e0000001-0000-4000-8000-000000000017', NULL);
+INSERT INTO turns VALUES ('request_r1000000-0000-4000-8000-000000000003', 'e0000001-0000-4000-8000-000000000025', NULL);
+INSERT INTO turns VALUES ('request_r1000000-0000-4000-8000-000000000004', NULL, NULL);

@@ -7,7 +7,7 @@ import type { Server } from 'node:http';
 import type { Clock } from '../core/clock.ts';
 import type { RuntimeEnv } from '../core/env.ts';
 import type { Logger } from '../core/log.ts';
-import { dayKey } from '../core/time.ts';
+import { addDays, dayKey } from '../core/time.ts';
 import { createStore, type Store } from '../store/store.ts';
 import { createPolicyLoader, type PolicyLoader } from '../policy/config.ts';
 import { createBridgeServer, type Route } from '../bridge/server.ts';
@@ -78,6 +78,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
   let tracker: Tracker | null = null;
   let lastSeq: { loadId: string; seq: number } | null = null;
   let panicLatched = false;
+  /** `at` of the last logged panic: an expired latch that was never logged (daemon unreachable until after 04:00)
+   * is still recorded once, as panic + resume. */
+  let lastLoggedPanicAt: number | null = null;
   let lastHeartbeatAt: number | null = null;
 
   const fallbackMenubar = (): MenubarSpec => ({ title: '⏱', colour: 'none', tooltip: 'work-balancer: observing', warning: null });
@@ -117,19 +120,36 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
           return { status: 400, json: { error: (e as Error).message } };
         }
         if (hb.protocol !== PROTOCOL_VERSION) return { status: 409, json: { error: 'protocol mismatch', protocol: PROTOCOL_VERSION } };
+        // Not ready: a 200 would make Lua drop samples that nobody ingested. Lua keeps its outbox and retries.
+        if (!tracker) return { status: 503, json: { error: 'starting' } };
         const duplicate = lastSeq !== null && lastSeq.loadId === hb.loadId && hb.seq <= lastSeq.seq;
         if (!duplicate) {
           lastSeq = { loadId: hb.loadId, seq: hb.seq };
           lastHeartbeatAt = now;
-          if (hb.ui.latches.panic && !panicLatched) store.append({ type: 'panic', by: hb.ui.panicBy ?? 'unknown' });
-          panicLatched = hb.ui.latches.panic;
+          // Expiry first, so a stale latch is never logged as a new panic (review: panic/resume pairs after 04:00).
+          const expired = hb.ui.latches.panic && hb.ui.panicAt !== null && dayKey(hb.ui.panicAt + clock.offsetMs) !== dayKey(now);
+          const luaPanic = hb.ui.latches.panic && !expired;
+          const logPanic = (): void => {
+            store.append({ type: 'panic', by: hb.ui.panicBy ?? 'unknown', at: hb.ui.panicAt ?? now });
+            lastLoggedPanicAt = hb.ui.panicAt;
+          };
+          if (luaPanic && !panicLatched) logPanic();
+          if (expired && !panicLatched && hb.ui.panicAt !== lastLoggedPanicAt) {
+            logPanic();
+            store.append({ type: 'resume', by: 'rollover' });
+          }
+          if (!luaPanic && panicLatched) store.append({ type: 'resume', by: expired ? 'rollover' : 'cli' });
+          if (expired) lastLoggedPanicAt = hb.ui.panicAt; // this latch is fully accounted for
+          panicLatched = luaPanic;
           try {
             tracker?.ingest(shiftSamples(hb.samples, clock.offsetMs), now);
           } catch (e) {
             log.error('ingest failed', { error: e as Error });
           }
         }
-        const reply: HeartbeatReply = { protocol: PROTOCOL_VERSION, serverNow: now, dayKey: dayKey(now), menubar: menubar(now), commands: [], duplicate };
+        // The latch lasts until the next 04:00 (R-UI-ESC); Lua clears it when told so.
+        const panicExpired = hb.ui.latches.panic && hb.ui.panicAt !== null && dayKey(hb.ui.panicAt + clock.offsetMs) !== dayKey(now);
+        const reply: HeartbeatReply = { protocol: PROTOCOL_VERSION, serverNow: now, dayKey: dayKey(now), menubar: menubar(now), commands: [], duplicate, panicExpired };
         return { json: reply };
       },
     },
@@ -178,6 +198,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
 
   store.append({ type: 'daemon.started', pid: process.pid, version: DAEMON_VERSION, env: env.name, reason: 'start' });
   await policy.refresh();
+  // Latest panic state (yesterday + today: a panic from last night is still latched until its rollover is logged),
+  // so a restart neither re-logs an active panic nor misses its resume.
+  const today = dayKey(clock.now());
+  for (const r of store.readDays(addDays(today, -1), today)) {
+    if (r.type === 'panic') {
+      panicLatched = true;
+      lastLoggedPanicAt = typeof r.at === 'number' ? r.at : null;
+    }
+    else if (r.type === 'resume') panicLatched = false;
+  }
   tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt })) ?? null;
   log.info('daemon started', { env: env.name, port, pid: process.pid, dataDir: env.dataDir });
 

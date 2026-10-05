@@ -407,6 +407,10 @@ The owner works on this same Mac while sessions develop this project. **Never di
   `hs -c 'WorkBalancer.panic()'` that tear down all overlays, restore gamma and log a `panic` event. A milestone that
   introduces the block must verify these first.
 - Do not commit or push unless the owner asks. Never commit secrets, real prompt text, or `var/`.
+- **Before every commit, run an adversarial review subagent** (`task`, agent type `code-review`) on the change: tell it to
+  read this file and the ledger first, to try hard to break the change (live-machine safety, data loss, the normative
+  arithmetic, DST), and to report concrete failing scenarios. Triage every finding — fix it, or record why not (report /
+  ledger) — before committing (ledger D-37).
 
 ---
 
@@ -420,5 +424,5 @@ sub-folders other than `tmp/`). Each starts with a one-paragraph "when to read m
 | [ledger.md](./ledger.md) | Always | exists |
 | [data-format.md](./data-format.md) | Touching the store, any event type, or any reader of `data/` | exists (schema v1) |
 | [hammerspoon.md](./hammerspoon.md) | Touching `work-balancer.lua`, bridge, windows, sensors | exists (verified API facts) |
-| `copilot-history-formats.md` | Touching the `prompt-history` provider | to be created (milestone M5) |
+| [copilot-history-formats.md](./copilot-history-formats.md) | Touching the `prompt-history` provider | exists (tbd-02, 2026-10-05) |
 | `ui-and-tone.md` | Touching any page, wording, or effect | to be created (milestone M7) |

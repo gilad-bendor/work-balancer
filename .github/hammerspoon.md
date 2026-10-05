@@ -19,6 +19,8 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 | H-4 | `hs.caffeinate.sessionProperties()` | Unlocked session: has no `CGSSessionScreenIsLocked` key (expected `true` while locked — confirm when observed). | `hs -c`, 2026-10-04 |
 | H-5 | `hs.reload()` from the CLI | `hs -c 'hs.timer.doAfter(0.2, hs.reload)'` returns cleanly; the new Lua state is up within ~1–2 s; globals from the old state are gone. | 2026-10-04 |
 | H-6 | `hs.task` **termination handler** | When the task's process exits, `hs.task` reads its remaining stdout **synchronously on the main thread** until EOF. If any surviving process still holds the stdout/stderr pipe (e.g. `sh -c 'a && b & echo $!'` — the `&` backgrounds a *subshell* that keeps the pipe), **all of Hammerspoon freezes** (every module; `hs` CLI → "send/receive timeout"). Fix: background only a simple command with `</dev/null >>file 2>&1`. Diagnose with `sample <HammerspoonPID> 1` (main thread in `__create_task_block_invoke_2 → readDataOfLength`); unfreeze by killing the pipe holder. | Happened live 2026-10-04 at the first M3 reload; fixed within minutes. |
+| H-7 | `hs.host.idleTime()` **while locked + display asleep** | The counter grows *slower than the wall clock* (~11 s per 12 s), so `now − idle` creeps forward with no input. Only treat a **reset** (idle `0`, or lower than the previous sample) as an input. | Live data 2026-10-04 (phantom inputs re-emitting minutes up to 60×); fixed in Lua 0.3.1. |
+| H-8 | `hs.caffeinate.watcher` `systemWillSleep` | Lua timers still fire for ~1 s after it (a regular heartbeat followed the one carrying `sleep`). | Live data 2026-10-04 (17:30:07 sleep → heartbeat 1.2 s later). |
 
 ### Still to verify (do it before relying on it)
 
@@ -34,14 +36,19 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 - **Supervisor = heartbeat loop.** Every 5 s: read `var/live/daemon.json` (port, token) → `POST /bridge/heartbeat`.
   One heartbeat in flight at most; a 15 s watchdog + generation counter makes late `asyncPost` callbacks no-ops.
   Failure → grey menubar `⏱ –:––`; `not running` / `no daemon.json` → spawn (grace 8 s, then exponential backoff
-  2 → 60 s, reset once a daemon has lived > 60 s). `timeout` never spawns (a hung daemon still holds the port).
+  2 → 60 s, reset once a daemon has lived > 60 s). Only `not running` / `no daemon.json` spawn (any HTTP answer means a
+  daemon is there). `503` = daemon still starting: samples stay in the outbox, nothing else happens. After 4
+  consecutive `timeout`s the daemon is considered hung: `ps -o command= -p <pid>` must show `<repo>/src/main.ts`, then
+  `kill -TERM`, 3 s later `kill -KILL`, then spawn (plain short `hs.task`s — H-6 safe). Backlog fast-drain (0.1 s) only
+  after a 200, never after a failure.
 - **Spawn** (D-24): `hs.task` running `/bin/sh -c "mkdir -p …; WB_ENV=live nohup scripts/run-daemon >>var/live/logs/daemon.out.log 2>&1 </dev/null &"`.
   The daemon outlives `hs.reload()`; the next load **adopts** it (`health()` shows `adopted=true`). See H-6 before
   touching this line.
 - **Outbox:** sensor samples (M4) stay queued until a heartbeat carrying them returns 200; the daemon's ingest is
   idempotent, so a re-send after a lost reply is harmless.
-- **Latches:** `panic` (hotkey: hold ⌃⌥⌘⇧Esc 1.5 s, or `WorkBalancer.panic()`; cleared by the 04:00 day-key change
-  in a reply or `WorkBalancer.resume()`), `quit` (`WorkBalancer.quit()`: shutdown request, menubar removed, no
+- **Latches:** `panic` (hotkey: hold ⌃⌥⌘⇧Esc 1.5 s, or `WorkBalancer.panic()`; persisted in `var/live/panic.json`
+  so a reload keeps it; heartbeats carry `panicAt` and the daemon answers `panicExpired` after the next 04:00, or
+  `WorkBalancer.resume()`), `quit` (`WorkBalancer.quit()`: shutdown request, menubar removed, no
   respawn until the next module load).
 - **Sensors (M4):** a 1 s timer samples `hs.host.idleTime()` → an input instant `now − idle` whenever it moves
   forward by > 0.5 s; `hs.application.watcher` (activated) closes the previous app interval `{id = bundleID, name,

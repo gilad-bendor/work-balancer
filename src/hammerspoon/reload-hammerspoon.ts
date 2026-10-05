@@ -13,6 +13,7 @@ import {
   readlinkSync,
   realpathSync,
   renameSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -24,7 +25,9 @@ import { parseArgs } from 'node:util';
 
 export const REQUIRE_LINE = 'require("work-balancer")';
 export const MODULE_FILE = 'work-balancer.lua';
-const REQUIRE_RE = /^\s*require\s*\(\s*(["'])work-balancer\1\s*\)\s*;?\s*$/;
+const REQUIRE_RE = /^\s*require\s*(?:\(\s*(["'])work-balancer\1\s*\)|(["'])work-balancer\2)\s*;?\s*$/;
+/** The owner disabled the module by commenting its line out: respect it (never re-add, never reload). */
+const DISABLED_RE = /^\s*--.*\brequire\b.*["']work-balancer["']/;
 
 // ───────────────────────────── init.lua ─────────────────────────────
 
@@ -38,6 +41,8 @@ export interface NormaliseResult {
   normalised: boolean;
   /** Number of duplicate lines dropped. */
   removed: number;
+  /** No active require line, but a commented-out one: left untouched. */
+  disabled: boolean;
 }
 
 /** Make `text` contain exactly one canonical require line; every other line stays byte-identical. */
@@ -68,12 +73,13 @@ export function normaliseInitLua(text: string): NormaliseResult {
   }
   let result = out.join('');
   let added = false;
-  if (matches === 0) {
+  const disabled = matches === 0 && segments.some((seg) => DISABLED_RE.test(seg));
+  if (matches === 0 && !disabled) {
     added = true;
     if (result !== '' && !result.endsWith('\n')) result += '\n';
     result += REQUIRE_LINE + '\n';
   }
-  return { text: result, changed: result !== text, matches, added, normalised, removed };
+  return { text: result, changed: result !== text, matches, added, normalised, removed, disabled };
 }
 
 export interface InitLuaResult {
@@ -94,7 +100,7 @@ export function ensureInitLua(
   let original = '';
   let created = false;
   try {
-    original = readFileSync(path, 'utf8');
+    original = readFileSync(path, 'latin1'); // byte-transparent: other lines stay byte-identical whatever their encoding
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     created = true;
@@ -103,7 +109,11 @@ export function ensureInitLua(
   let backupPath: string | null = null;
   if (detail.changed && !opts.dryRun) {
     if (!created) backupPath = writeBackup(path, (opts.now ?? Date.now)());
-    writeFileSync(path, detail.text);
+    // Write next to the real file (init.lua may be a dotfiles symlink) and keep its mode.
+    const real = created ? path : realpathSync(path);
+    const tmp = `${real}.tmp-${process.pid}`;
+    writeFileSync(tmp, detail.text, { encoding: 'latin1', mode: created ? 0o644 : statSync(real).mode & 0o7777 });
+    renameSync(tmp, real);
   }
   return { path, created, changed: detail.changed, backupPath, detail };
 }
@@ -206,6 +216,9 @@ export function makeHsRunner(hsPath: string): HsRunner {
   };
 }
 
+/** Exit code when the owner disabled the module in init.lua (files fine, but nothing is loaded). */
+export const EXIT_DISABLED = 3;
+
 export const RELOAD_COMMAND = 'hs.timer.doAfter(0.2, hs.reload)';
 // Set before the reload: the fresh Lua state after the reload has no such global, so an `ok` that is
 // answered by the old instance (before the reload actually happened) is never mistaken for success.
@@ -269,11 +282,13 @@ Installs the work-balancer Hammerspoon module and reloads Hammerspoon:
      (a backup init.lua.bak.<epochMs> is written before any change)
   3. Hammerspoon is running and the \`hs\` CLI answers
   4. Hammerspoon is reloaded and WorkBalancer.health() answers "ok ..." (timeout ~15 s)
-Idempotent: a second run changes nothing. Exit code 0 = healthy, non-zero = failure.
+Idempotent: a second run changes nothing. Exit code 0 = healthy, 1 = failure, 2 = usage, 3 = the owner disabled
+the module (its require line in init.lua is commented out; nothing is changed or reloaded).
 
 Options:
   --check                    Read-only: report the symlink and the init.lua line; exit 1 if not installed.
   --hammerspoon-dir <dir>    Operate on <dir> instead of ~/.hammerspoon (implies no reload; for tests).
+  --force                    Re-point the symlink even if it points to another work-balancer checkout.
   --quiet                    Print only warnings and errors.
   --help                     This help.
 `;
@@ -328,7 +343,10 @@ export function checkInstall(dir: string, target: string, log: Logger): boolean 
     else log.error(conflictMessage(s));
   }
   const init = ensureInitLua(dir, { dryRun: true });
-  if (!init.changed) log.info(`init.lua ok: exactly one ${REQUIRE_LINE}`);
+  if (init.detail.disabled) {
+    ok = false;
+    log.error('init.lua: work-balancer is disabled (its require line is commented out)');
+  } else if (!init.changed) log.info(`init.lua ok: exactly one ${REQUIRE_LINE}`);
   else {
     ok = false;
     log.error(`init.lua needs a change: ${describeInit(init)}${init.created ? ' (file does not exist)' : ''}`);
@@ -337,12 +355,18 @@ export function checkInstall(dir: string, target: string, log: Logger): boolean 
 }
 
 /** Ensure files, returns false on a refusal. */
-export function installFiles(dir: string, target: string, log: Logger): boolean {
+export function installFiles(dir: string, target: string, log: Logger, opts: { force?: boolean } = {}): boolean {
   if (!existsSync(target)) {
     log.error(`error: ${target} does not exist (nothing to link to)`);
     return false;
   }
   mkdirSync(dir, { recursive: true });
+  const before = inspectSymlink(dir, target);
+  if (before.state === 'wrong' && !opts.force && existsSync(resolve(dir, before.oldTarget!)) && before.oldTarget!.endsWith(`/hammerspoon/${MODULE_FILE}`)) {
+    // Another live checkout: switching would also move where the live daemon writes data/.
+    log.error(`refusing: ${before.path} points to another checkout (${before.oldTarget}). Re-run with --force to switch to ${target}.`);
+    return false;
+  }
   const s = ensureSymlink(dir, target);
   if (s.state === 'conflict') {
     log.error(conflictMessage(s));
@@ -357,7 +381,9 @@ export function installFiles(dir: string, target: string, log: Logger): boolean 
   } else log.info(`symlink ok: ${s.path}`);
 
   const init = ensureInitLua(dir);
-  if (init.changed) {
+  if (init.detail.disabled) {
+    log.error(`init.lua: work-balancer is DISABLED (its require line is commented out) — leaving it so; nothing is loaded`);
+  } else if (init.changed) {
     log.info(
       `updated ${init.path}: ${describeInit(init)}` +
         (init.backupPath ? ` (backup: ${init.backupPath})` : init.created ? ' (new file)' : ''),
@@ -408,6 +434,7 @@ export async function main(argv: string[]): Promise<number> {
         'hammerspoon-dir': { type: 'string' },
         quiet: { type: 'boolean' },
         help: { type: 'boolean' },
+        force: { type: 'boolean' },
       },
       strict: true,
       allowPositionals: false,
@@ -426,8 +453,9 @@ export async function main(argv: string[]): Promise<number> {
   const target = join(repoRoot(), 'hammerspoon', MODULE_FILE);
 
   if (values.check) return checkInstall(dir, target, log) ? 0 : 1;
-  if (!installFiles(dir, target, log)) return 1;
+  if (!installFiles(dir, target, log, { force: values.force === true })) return 1;
   if (customDir !== undefined) return 0;
+  if (ensureInitLua(dir, { dryRun: true }).detail.disabled) return EXIT_DISABLED; // nothing loaded: not "healthy"
 
   const hsPath = findHs();
   if (hsPath === null) {

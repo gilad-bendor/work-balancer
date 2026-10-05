@@ -75,14 +75,16 @@ test('out-of-order and repeated minute records: last one per (provider, minute) 
   assert.equal(idx.get(m2)!.data.n, 3);
 });
 
-test('write errors never throw; they surface through health() and clear after a good write', (t) => {
+test('write errors never throw: append returns null; health() shows the error for 10 minutes', (t) => {
   const s = setup(local(2026, 10, 4, 12, 0));
   t.after(() => { chmodSync(s.dir, 0o755); s.cleanup(); });
   chmodSync(s.dir, 0o500);
-  s.store.append({ type: 'x' });
+  assert.equal(s.store.append({ type: 'x' }), null);
   assert.match(s.store.health().writeError ?? '', /cannot write/);
   chmodSync(s.dir, 0o755);
-  s.store.append({ type: 'x' });
+  assert.notEqual(s.store.append({ type: 'x' }), null);
+  assert.match(s.store.health().writeError ?? '', /cannot write/, 'still visible right after');
+  s.clock.advance(10 * 60_000);
   assert.equal(s.store.health().writeError, null);
 });
 
@@ -93,4 +95,22 @@ test('readDays spans day files in order', (t) => {
   s.store.append({ type: 'minute', provider: 'p', minute: local(2026, 10, 1, 12, 0), data: null });
   s.store.append({ type: 'minute', provider: 'p', minute: local(2026, 10, 4, 12, 0), data: null });
   assert.deepEqual(s.store.readDays('2026-09-30', '2026-10-04').map((r) => r.minute), [local(2026, 10, 1, 12, 0), local(2026, 10, 3, 12, 0), local(2026, 10, 4, 12, 0)]);
+});
+
+test('a day file replaced by different content (e.g. git checkout) is re-read, not served from the cache', (t) => {
+  const s = setup(local(2026, 10, 4, 12, 0));
+  t.after(s.cleanup);
+  const path = s.store.filePath('2026-10-04');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, '{"v":1,"ts":1,"type":"a"}\n');
+  assert.deepEqual(s.store.readDay('2026-10-04').map((r) => r.type), ['a']);
+  writeFileSync(path, '{"v":1,"ts":1,"type":"b"}\n{"v":1,"ts":2,"type":"c"}\n');
+  assert.deepEqual(s.store.readDay('2026-10-04').map((r) => r.type), ['b', 'c']);
+});
+
+test('an explicit ts: undefined does not erase the timestamp', (t) => {
+  const s = setup(local(2026, 10, 4, 12, 0));
+  t.after(s.cleanup);
+  s.store.append({ type: 'note.created', ts: undefined, text: 'x' });
+  assert.equal(s.store.readDay('2026-10-04')[0]!.ts, local(2026, 10, 4, 12, 0));
 });

@@ -2,7 +2,7 @@ process.env.TZ = 'Asia/Jerusalem';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInteractiveProvider, decodeMinute, type InteractiveMinute } from './index.ts';
-import { createStore } from '../../store/store.ts';
+import { createStore, type Store } from '../../store/store.ts';
 import { fixedClock } from '../../core/clock.ts';
 import { silentLogger } from '../../core/log.ts';
 import { lastWinsByMinute } from '../../store/records.ts';
@@ -138,4 +138,71 @@ test('Q-11/D-31: no record for an idle minute that was entirely locked; partial 
   const r = s.p.getRangeInfo(T, T + 4 * MIN)!;
   assert.equal(r.lockedSeconds, 3 * 60 + 30, 'locked totals come from the timeline, not from minute records');
   assert.equal(r.monitoredMinutes, 2);
+});
+
+test('no fake wake from heartbeats alone (after-sleep timer beat, dark wake); an unlock/input after the sleep repairs a missed wake', (t) => {
+  const s = setup();
+  t.after(s.cleanup);
+  s.p.ingest(s.samples({ system: [{ event: 'lock', at: T - 10 * S }, { event: 'sleep', at: T }], locked: true }), { since: T - MIN, until: T + 100 }, T + 100);
+  s.p.ingest(s.samples({ locked: true }), { since: T + 100, until: T + 1200 }, T + 1200); // 2026-10-04 live: false wake here
+  // A dark wake: Hammerspoon runs briefly, a display-wake/-sleep pair, no wake event, no input.
+  s.p.ingest(s.samples({ system: [{ event: 'display-wake', at: T + 90 * MIN }, { event: 'display-sleep', at: T + 90 * MIN + 1500 }], locked: true }),
+    { since: T + 1200, until: T + 90 * MIN + 2000 }, T + 90 * MIN + 2000);
+  const wakes = () => s.store.readDay('2026-10-04').filter((r) => r.type === 'system' && r.event === 'wake').map((r) => r.ts);
+  assert.deepEqual(wakes(), []);
+  // Morning: the wake event got lost, but the owner unlocks and types.
+  const M = T + 8 * 60 * MIN;
+  s.p.ingest(s.samples({ system: [{ event: 'unlock', at: M }], inputs: [M + S], locked: false }), { since: T + 90 * MIN, until: M + 5 * S }, M + 5 * S);
+  assert.deepEqual(wakes(), [M]);
+  assert.deepEqual(s.p.blocked(T - MIN, M + MIN), [[T - 10 * S, M]]);
+});
+
+test('review M4#1: the immediate push after an unlock still says locked=true — no fake lock/unlock pair', (t) => {
+  const s = setup();
+  t.after(s.cleanup);
+  s.p.ingest(s.samples({ system: [{ event: 'lock', at: T }], locked: true }), { since: T - MIN, until: T + S }, T + S);
+  const U = T + 5 * MIN;
+  s.p.ingest(s.samples({ system: [{ event: 'unlock', at: U }], locked: true }), { since: T + S, until: U + 28 }, U + 28);
+  s.p.ingest(s.samples({ locked: false }), { since: U + 28, until: U + 3 * S }, U + 3 * S);
+  assert.deepEqual(s.p.blocked(T - MIN, T + 10 * MIN), [[T, U]]);
+  const sys = s.store.readDay('2026-10-04').filter((r) => r.type === 'system').map((r) => r.event);
+  assert.deepEqual(sys, ['lock', 'unlock']);
+});
+
+test('review M4#3: a partial minute flushed at shutdown does not count future locked seconds', (t) => {
+  const s = setup();
+  t.after(s.cleanup);
+  s.p.ingest(s.samples({ inputs: [T + 2 * S], system: [{ event: 'lock', at: T + 5 * S }], locked: true }), { since: T, until: T + 10 * S }, T + 10 * S);
+  s.clock.set(T + 10 * S);
+  s.p.flushMinutes(s.clock.now(), { all: true });
+  assert.equal(decodeMinute(s.minutes().get(T)!.data).lockedSeconds, 5);
+});
+
+test('review M1#1: a failed write is retried, not marked as written', (t) => {
+  const s = setup();
+  t.after(s.cleanup);
+  let failing = true;
+  const flaky: Store = { ...s.store, append: (r) => (failing ? null : s.store.append(r)) };
+  const p = createInteractiveProvider({ store: flaky, log: silentLogger, now: () => s.clock.now() });
+  p.ingest(s.samples({ inputs: [T + S], system: [{ event: 'lock', at: T + 30 * S }], locked: true }), { since: T, until: T + MIN }, T + MIN);
+  s.clock.set(T + 3 * MIN);
+  assert.equal(p.flushMinutes(s.clock.now()), 0);
+  assert.equal(s.lines(), 0);
+  failing = false;
+  s.clock.advance(5 * S);
+  assert.equal(p.flushMinutes(s.clock.now()), 1);
+  assert.deepEqual([...s.minutes().keys()], [T]);
+  assert.deepEqual(s.store.readDay('2026-10-04').filter((r) => r.type === 'system').map((r) => r.event), ['lock']);
+});
+
+test('one unwritable (older) day file does not stall writing today', (t) => {
+  const s = setup();
+  t.after(s.cleanup);
+  const Y = local(2026, 10, 4, 3, 58); // belongs to day 2026-10-03
+  const flaky: Store = { ...s.store, append: (r) => (typeof r.minute === 'number' && r.minute < local(2026, 10, 4, 4, 0) ? null : s.store.append(r)) };
+  const p = createInteractiveProvider({ store: flaky, log: silentLogger, now: () => s.clock.now() });
+  p.ingest(s.samples({ inputs: [Y + S, T + S] }), { since: Y, until: T + MIN }, T + MIN);
+  s.clock.set(T + 3 * MIN);
+  p.flushMinutes(s.clock.now());
+  assert.ok(s.minutes().has(T), "today's minute was written although yesterday's file failed");
 });

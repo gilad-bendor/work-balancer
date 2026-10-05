@@ -42,11 +42,13 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 | `bypass.used` | `minutes`, `until`, `reason` | planned (M10) | |
 | `effect.shown` / `effect.closed` | `effect`, `windowId`, `by` (`user` · `system` · `rollover`) | planned (M7) | |
 | `note.created` | `noteId`, `kind` (`context` · `feedback` · `note`), `text`, `choices?`, `energy?`, `source` | planned (M8) | `source`: `quick` · `countdown` · `block` · `review` · `manager`. |
-| `note.edited` / `note.deleted` / `note.dismissed` / `note.undismissed` | `noteId`, (`text`) | planned (M8) | Event-sourced; state = fold over all days. Delete = tombstone. |
+| `note.edited` / `note.dismissed` / `note.undismissed` | `noteId`, (`text`) | planned (M8) | Event-sourced; state = fold over all days. No delete (ledger D-36): "removing" a note = dismissing it. |
 | `config.loaded` | `hash`, `source` (`file` · `snapshot`) | written (M3) | |
 | `config.invalid` | `errors` | written (M3) | |
 | `day.rollover` | `fromDay`, `toDay` | planned (M8) | |
-| `app.quit` / `panic` | `by` | `panic`: written (M3); `app.quit`: planned (M8) | |
+| `panic` | `by` (`hotkey` · `cli` · `unknown`), `at` (when the latch was set) | written (M3) | Logged once per latch transition (a restarted daemon restores today's state from these records). |
+| `resume` | `by` (`cli` · `rollover`) | written (2026-10-05) | The panic latch was cleared: `WorkBalancer.resume()`, or the daemon expired it at 04:00. |
+| `app.quit` | `by` | planned (M8) | |
 
 ### 3.1 `minute` data per provider
 

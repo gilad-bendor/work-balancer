@@ -11,9 +11,9 @@ update at session end. Keep "Current status" correct at a glance.
 | | |
 |---|---|
 | **Phase** | M1–M4 **done** (2026-10-04): **observe mode is live** — tracking into `data/`, menubar `⏱ worked / limit` with colours. No enforcement, no dialogs. |
-| **Next** | **M5 — `prompt-history` provider** (§3; its investigation is a ⟂ tbd candidate). Then M6 (policy engine) → … → M10 (enforcement). Also: watch the first real lock/unlock and sleep/wake records in `data/` (not yet observed live). |
+| **Next** | **M5 — `prompt-history` provider**: investigation done (tbd-02 → [copilot-history-formats.md](./copilot-history-formats.md), fixtures in `test-fixtures/prompt-history/`); next: reader + classifier + minute records + live dry-run report. Then M6 (policy engine). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.3.0 + daemon 0.3.0 since 2026-10-04 17:08): Lua samples input/app/lock/sleep, supervises the live daemon (port 47621, `var/live/`), which writes `data/YYYY-MM/YYYY-MM-DD.jsonl` and drives the menubar. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`. The owner allows Copilot to change and reload Hammerspoon **freely, without asking** (D-26). |
+| **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.3.2 + current daemon, 2026-10-05): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | None (see §5). |
 
 ---
@@ -72,13 +72,15 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   | Day | Track | Menubar | Daily budget | Inactivity dialog | Break nudge | Warn → countdown → **block** | Morning review at 04:00 |
   |---|---|---|---|---|---|---|---|
   | Sun | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
-  | Mon | ✅ | ✅ | — (reference 9 h for colour only) | ✅ | ✅ | ❌ | ✅ |
+  | Mon | ✅ | ✅ | — (reference 9 h for colour only) | ❌ | ❌ | ❌ | ❌ |
   | Tue | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
-  | Wed | ✅ | ✅ | — (reference 9 h for colour only) | ✅ | ✅ | ❌ | ✅ |
+  | Wed | ✅ | ✅ | — (reference 9 h for colour only) | ❌ | ❌ | ❌ | ❌ |
   | Thu | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
-  | Fri | ✅ | ✅ | — | ✅ | ✅ | ❌ | ❌ (protects the private day) |
+  | Fri | ✅ | ✅ | — | ❌ | ❌ | ❌ | ❌ (protects the private day) |
   | Sat | ✅ | ✅ (no colours) | — | ❌ | ❌ | ❌ | ❌ (Shabbat: **no popups at all**) |
 
+  - *(2026-10-05, D-35)* **Only Sun/Tue/Thu have anything intrusive** (dialogs, dims, nudges, morning review, block).
+    Mon/Wed/Fri/Sat: menubar status only.
   - **Weekly budget 44 h** (all days of the week count, R-TIME-3).
   - On enforcing days: **effective daily limit = min(daily budget, weekly budget − worked earlier this week)**, floor 0.
     A heavy week therefore shortens Thursday — protecting Friday. (If the effective limit is 0, see open question Q-3.)
@@ -106,12 +108,14 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 ### 1.6 UI effects
 - **R-UI-MENU-1** Menubar item: compact status (worked today vs effective limit, e.g. `5:12 / 9:00`), colour-coded
   (green / orange / red; grey = not monitored / Saturday / daemon down; a warning glyph on errors). Tooltip: week total.
-- **R-UI-MENU-2** **Left-click** → *quick note* window: context-memory textbox + feedback form (R-UI-FB), submit.
-- **R-UI-MENU-3** **Right-click** → menu: **Show activity summary** · **Show status notes** · **Quit**.
+- **R-UI-MENU-2** *(changed 2026-10-05, D-32)* **Any click** (left or right) opens one menu. Its first item
+  **Quick note…** opens the *quick note* window: context-memory textbox + feedback form (R-UI-FB), submit.
+- **R-UI-MENU-3** The menu: **Quick note…** · **Show activity summary** · **Show status notes** · **Quit**.
   - *Show activity summary*: today (worked, effective limit, remaining, state, tokens left, bypasses, prompts, top apps,
     longest stretch, breaks, unmonitored gaps), this week per day vs budgets, recent feedback; last 4 weeks trend.
   - *Show status notes* (= notes manager): **non-dismissed first, then dismissed**, each with its **date**; actions:
-    **edit, delete, dismiss, un-dismiss, add new**.
+    **edit, dismiss, un-dismiss, add new**. *(2026-10-05, D-36: no delete and no purge — notes are temporary
+    reminders, not book-keeping; "removing" a note = dismissing it.)*
   - *Quit*: confirm → logged → Lua sets a **`quit` latch** (supervisor stops restarting) → daemon stops, menubar
     removed, gamma restored, windows closed. The latch lives only in memory: the next Hammerspoon module load (login /
     reload) starts everything again. Not reachable while blocked (the block overlay covers the menubar — by design).
@@ -133,6 +137,8 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   window stating the **last activity time** and the **time elapsed since** (live). Buttons:
   **"I am back to work!"** (default busy rule applies) · **"I was working the whole time"** (whole gap credited) ·
   **"Worked some of the time"** with a slider (0 … gap length) crediting that many minutes from the gap start.
+  *(2026-10-05, D-33)* The dialog is preceded by a **~10 s noticeable pre-warning** (a gentle screen dim): any input
+  during it cancels the dialog (the owner was just reading); otherwise the dialog appears.
   Multiple unresolved gaps are listed in the same window. It **disappears automatically at 04:00** (unresolved =
   default rule). Not shown on Saturday or while blocked. Gaps are clipped to their day.
   **Credit arithmetic (normative):** a gap is `[lastInput, nextInput)`. "Whole" credits the entire gap **including
@@ -142,6 +148,9 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 - **R-UI-REVIEW Morning review at 04:00** (on rollover into Sun–Thu; if the Mac sleeps at 04:00, on first wake after):
   a window listing **all non-dismissed notes** (context-memory + feedback + free notes), **pre-filled/editable**, each
   with a **Dismiss** button. Closing the window does not dismiss anything. Thursday's notes therefore surface on Sunday.
+- **R-UI-QUIET** *(2026-10-05, D-34)* **No visual effect starts within 10 s of user input** (typing / mouse): a
+  due effect (warn, dim, countdown, block, nudge, dialog) waits for 10 s without input, so it never lands
+  mid-keystroke or mid-click. Bounded by a maximum deferral (Q-13), otherwise continuous typing would postpone it forever.
 - **R-UI-ESC** Escape hatches (must exist before the block): panic hotkey (long-press combo) and
   `hs -c 'WorkBalancer.panic()'` → set a Lua-side **`panic` latch** (reconciler cannot override it): remove overlays,
   restore gamma, suppress all enforcement windows/dims **until the next 04:00 rollover** or
@@ -296,8 +305,8 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   sleep across minute boundaries, 04:00 split); **observe mode is live** (tracking + menubar only) on the owner's
   machine (with his consent from M1).
 - **AC verified (2026-10-04):** `scripts/check` 86/86. `src/providers/work/work.test.ts` (one instant = 5 min;
-  overlapping grace windows not double counted; run `[a,b]` → `b + grace`; breaks/longest stretch; lock cut-off without
-  resumption on unlock; credits count while locked; per-minute projection at second precision; sleep across minute
+  overlapping grace windows not double counted; run `[a,b]` → `b + grace`; breaks/longest stretch; lock cut-off (after unlock
+  the rest of the grace window counts again — R-INFO-3 union − locked); credits count while locked; per-minute projection at second precision; sleep across minute
   boundaries; 04:00 split 03:58 → 2 min + 3 min; clipped to *now*; current stretch). `src/core/intervals.test.ts`.
   `src/providers/interactive/interactive.test.ts` (every monitored minute; runs joined ≤ 2 s; apps ≥ 5 s top 3,
   locked time excluded; lock persisted with event time; idempotent re-send; late samples re-emit; sleep batch does
@@ -311,20 +320,20 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   console clean, no `monitor.gap` across a Hammerspoon reload. Not yet observed live: lock/unlock, sleep/wake records.
 
 ### M5 — `prompt-history` provider · `todo`
-- [ ] ⟂ Investigation (record results in `.github/copilot-history-formats.md`): both stores (F-COP-1..5), how to tell
-      human prompts from automated launches/subagents, how answers to agent questions appear in each store, VS Code
-      Insiders paths, file growth/rotation.
+- [x] ⟂ Investigation → [copilot-history-formats.md](./copilot-history-formats.md) (tbd-02, 2026-10-05): three stores
+      (CLI `events.jsonl`, agent-host turn index `agentSessionData/*/session.db`, VS Code native op-logs), no
+      cross-store double counting, copied sessions deduped by event id; classification C0–C10 / A1–A2 / V1–V5 / VA1;
+      Insiders not installed.
 - [ ] Incremental reader: scan changed files by mtime every ~30 s; per-file byte cursors in `var/<env>/`; only from today's
       day start on startup; robust to partial lines and format drift (skip unknown, never crash).
-- [ ] Human filter — **heuristic, and say so**: prefer deterministic **whole-session provenance** where the
-      investigation finds a signal (e.g. a field such as `delivery`, the runner's outcome-protocol text in the first
-      message, `parentAgentTaskId` for subagents); answers to `ask_user` count as human even inside runner-launched
-      sessions (the owner answers them); later `user.message`s in a runner-launched session count only if
-      **corroborated** by `interactive` input within the preceding ~60 s (configurable). Anything undecidable is
-      counted in a separate `unclassified` bucket, never silently as human.
+- [ ] Human filter per [copilot-history-formats.md](./copilot-history-formats.md) §3: agent-host prompts classified
+      deterministically by the `agentSessionData` turn id (`request_*` = VS Code UI = human; bare UUID = runner/AHP
+      client) and runner markers; subagents by `agentId`/`source`; `ask_user` answers (outcome answered / elicitation
+      accept) count as human everywhere; `interactive` corroboration (~60 s) only for runner-launched sessions without a
+      turn index (C8); retries, `github/cli`, missing turn rows, cancelled asks → `unclassified` (never silently human).
 - [ ] Minute records `{ prompts, answers, bySource }` (no text) + range aggregates (count, per hour, first/last,
       longest silence). Prompts count as input in the `work` digest.
-- [ ] Sanitized fixtures for both formats.
+- [x] Synthetic fixtures for all stores + `expected.json` (tbd-02): `test-fixtures/prompt-history/`.
 - **AC:** fixture tests; a live dry-run report over today's real history (counts only) shown to the owner for a sanity
   check.
 
@@ -398,6 +407,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | tbd stem | Milestone/task | Created by (session) | Purpose | Outcome / report |
 |---|---|---|---|---|
 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/tbd-01-reload-hammerspoon` | M1 `scripts/reload-hammerspoon` | 2026-10-04 kickoff-m1-m4 | Implement + test the install/reload script | completed (2nd launch; 1st opened in the wrong VS Code window — runner bug, fixed by the owner). Report: `…/tbd-01-reload-hammerspoon/report.md`; its ledger delta applied (F-HS-7 corrected: `getConsole()` returns a string via `hs -c`). |
+| `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-02-copilot-history` | M5 investigation (⟂) | 2026-10-05 answers-reviews-m5 | Copilot history formats, human-vs-automated rules, synthetic fixtures | completed. Report `…/tbd-02-copilot-history/report.md`; topic file `.github/copilot-history-formats.md`; fixtures `test-fixtures/prompt-history/` (generator `…/tbd-02-copilot-history/generate-fixtures.ts`). Delta applied (its D-38 → D-43). |
 
 ---
 
@@ -417,7 +427,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-10 | 2026-10-04 | Camera provider deferred; architecture must support it. | Owner. |
 | D-11 | 2026-10-04 | Inactivity = no input (incl. scroll) for 5 min; dialog with back / whole / some(slider); auto-close 04:00. | Owner. |
 | D-12 | 2026-10-04 | All activity on this computer is work (no app filtering); top-3 apps (≥ 5 s/min) recorded for insight. | Owner: personal work happens on another computer. |
-| D-13 | 2026-10-04 | Morning review skipped on Fri/Sat mornings; Thursday's notes surface Sunday 04:00. No popups on Saturday at all. | Protect private day and Shabbat. |
+| D-13 | 2026-10-04 | Morning review skipped on Fri/Sat mornings; Thursday's notes surface Sunday 04:00. No popups on Saturday at all. | Protect private day and Shabbat. | *(Review schedule superseded by D-35.)*
 | D-14 | 2026-10-04 | Quit is a simple confirm + logged gap; unreachable during a block because the overlay covers the menubar. | Owner. |
 | D-15 | 2026-10-04 | Fail open on internal errors; panic escape hatch is a prerequisite of the block. | Never trap the user because of a bug. |
 | D-16 | 2026-10-04 | Prompt-history stores counts/timestamps only; never text. | Data is git-able; privacy. |
@@ -435,6 +445,18 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-29 | 2026-10-04 | `interactive` stores input as **runs** (instants ≤ 2 s apart joined); minute records omit zero/empty fields; fully asleep minutes are not written. Daemon crash ⇒ up to ~70 s of unflushed minutes may be lost (recorded as a `daemon-down` gap). | Exact busy union with compact files (≈ 1 short line per awake minute). |
 | D-30 | 2026-10-04 | `work` digest = pluggable `WorkSource`s (activity runs, blocked, credited) and is clipped to *now*; M4's menubar limit/colour lives in `src/policy/observe.ts` (`effectiveLimit`, `statusColour`) for M6 to build on. All user-facing strings in `src/ui/strings.ts`. | M5/M9 plug in without touching `work`; one place to review tone. |
 | D-31 | 2026-10-04 | Each raw provider decides which minutes deserve a record. `interactive` writes none for a minute **without input that was entirely locked/asleep** (supersedes the "fully asleep" part of D-29 and the "every monitored minute" wording of §2/M4). Locked/asleep totals come from the `system` timeline; locked/asleep time is never a `monitor.gap`. | Owner (Q-11): less data, no information lost. |
+| D-32 | 2026-10-05 | One menubar menu on **any** click; first item *Quick note…* (supersedes left-click = quick note; F-HS-4 no longer matters). | Owner (Q-1). |
+| D-33 | 2026-10-05 | Inactivity dialog preceded by a ~10 s pre-warning dim; input cancels it. | Owner (Q-2): reading ≠ away. |
+| D-34 | 2026-10-05 | R-UI-QUIET: effects never start within 10 s of input (bounded deferral, Q-13). | Owner (Q-3): never land mid-keystroke. |
+| D-35 | 2026-10-05 | Only Sun/Tue/Thu are intrusive; Mon/Wed/Fri/Sat menubar only (no inactivity dialog, break nudge or morning review there; supersedes D-13's review schedule: notes now surface on Sun/Tue/Thu mornings). Consequence: no inactivity credits on Mon/Wed/Fri, so off-computer work on those days is not counted toward the weekly budget. | Owner (Q-4). |
+| D-36 | 2026-10-05 | Notes: no delete, no purge — dismiss/un-dismiss only; `note.deleted` dropped from the data model. | Owner (Q-5): notes are temporary reminders. |
+| D-37 | 2026-10-05 | **Before every commit, an adversarial review subagent checks the change**; findings are triaged (fixed, or recorded why not) before committing. M1–M4 commits were reviewed retroactively. | Owner. |
+| D-38 | 2026-10-05 | Sensors: an input is only an idle-counter **reset** (H-7); a synthetic `wake` only > 60 s after an unmatched sleep; the heartbeat's `locked` flag repairs the timeline only when the newest lock/unlock event is > 10 s old. | Live data 2026-10-04 (phantom inputs, false wake) + review M4#1 (fake lock/unlock pair on every unlock). |
+| D-39 | 2026-10-05 | The panic latch is persisted (`var/live/panic.json`); Lua sends `panicAt`, the daemon decides the 04:00 expiry (`panicExpired`) and logs `panic`/`resume` once per transition (state restored from today's records). | Review M3#4/#5/#7: a reload must not bring a block back; no day logic in Lua. |
+| D-40 | 2026-10-05 | Supervisor: heartbeat → `503` until the tracker is ready (Lua keeps samples); spawn only on connection-refused / missing `daemon.json`; a daemon that times out 4× in a row is verified by command line and killed (TERM → KILL) and respawned; fast backlog drain only after a 200. | Review M3#1/#2/#3/#6. |
+| D-41 | 2026-10-05 | `store.append` returns null on failure; `interactive` retries failed minute/system writes; a write error stays visible ≥ 10 min. Other records (gaps, daemon/config events) are logged-only on failure (rare, low value). | Review M1#1. |
+| D-42 | 2026-10-05 | Live env refuses `WB_PORT` (≠ 47621) and `WB_FAKE_NOW`. `reload-hammerspoon`: a commented-out require line = owner disabled it (never re-added); refuses to re-point to another checkout without `--force`; byte-transparent (latin1) atomic write. | Review M1#2/#6/#8. |
+| D-43 | 2026-10-05 | `prompt-history` provenance: the agent-host turn-id format (`request_*` vs bare UUID) is the primary signal, runner boilerplate markers outrank it, subagents by `agentId`/`source`; undecidable cases (retries, `github/cli`, runner follow-ups without corroboration, missing turn rows, cancelled asks) go to `unclassified`. Text is read in memory only; nothing derived from text (not even hashes) is persisted. | Deterministic for the owner's main mode; verified on ground-truth sessions (tbd-02). |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -443,18 +465,21 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 
 | # | Question | Current default | Status |
 |---|---|---|---|
-| Q-1 | Should the right-click menu be reachable if `hs.menubar` cannot distinguish right-click? | **Fallback: Ctrl-click or an eventtap on `rightMouseDown` within `menubar:frame()`; last resort: left-click menu whose first item is "Quick note…".** | open (verify in M8) |
-| Q-2 | Inactivity dialog appears while the owner is *reading* (5 min without input). Annoying? | **Keep 5 min (owner's call); revisit after soak.** | open |
-| Q-3 | Effective limit ≤ 0 on an enforcing day (weekly budget exhausted): is blocking at the first worked second (R-POL-2 ladder arithmetic) too harsh? | **Yes it blocks, after a kind explanation screen; tokens/bypass available.** Consider a floor (e.g. 2 h) after soak. | open |
-| Q-4 | Should non-enforcing days (Mon/Wed/Fri) show the warn dialog at 9 h without blocking? | **No — colours only.** | open |
-| Q-5 | Note deletion is a tombstone; the text remains in an older day file (and in git history). Need a real purge tool? | **Tombstone; a manual `scripts/purge-note` later if wanted.** | open |
-| Q-6 | Should using a token require writing a context-memory first? | **No — scarcity is the friction.** | open |
-| Q-7 | Saturday-night (after Shabbat) work belongs to the ending week (Sat day key). Fine? | **Yes, per R-TIME-2.** | open |
-| Q-8 | Synthetic input from `copilot-retry-watcher` likely resets HID idle time → phantom busy minutes. Filter? | **Accept for now (rare); revisit if visible in data.** | open |
-| Q-9 | Auto-commit `data/` daily? | **No; owner commits manually.** | open |
-| Q-10 | Fixed port `47621` acceptable? | **Yes; dev = `47622`; both overridable via env.** | open |
+| Q-1 | Should the right-click menu be reachable if `hs.menubar` cannot distinguish right-click? | **Fallback: Ctrl-click or an eventtap on `rightMouseDown` within `menubar:frame()`; last resort: left-click menu whose first item is "Quick note…".** | Owner: any click (left or right) opens the menu. **closed → D-32** (2026-10-05) |
+| Q-2 | Inactivity dialog appears while the owner is *reading* (5 min without input). Annoying? | **Keep 5 min (owner's call); revisit after soak.** | Owner: 5 min is OK; add a ~10 s pre-warning dim, input cancels. **closed → D-33** (2026-10-05) |
+| Q-3 | Effective limit ≤ 0 on an enforcing day (weekly budget exhausted): is blocking at the first worked second (R-POL-2 ladder arithmetic) too harsh? | **Yes it blocks, after a kind explanation screen; tokens/bypass available.** Consider a floor (e.g. 2 h) after soak. | Owner: OK as designed; plus no effect within 10 s of input. **closed → D-34** (2026-10-05) |
+| Q-4 | Should non-enforcing days (Mon/Wed/Fri) show the warn dialog at 9 h without blocking? | **No — colours only.** | Owner: no — only Sun/Tue/Thu are intrusive at all; other days menubar only. **closed → D-35** (2026-10-05) |
+| Q-5 | Note deletion is a tombstone; the text remains in an older day file (and in git history). Need a real purge tool? | **Tombstone; a manual `scripts/purge-note` later if wanted.** | Owner: never purge; no delete — dismiss only. **closed → D-36** (2026-10-05) |
+| Q-6 | Should using a token require writing a context-memory first? | **No — scarcity is the friction.** | Owner: no. **closed** (2026-10-05) |
+| Q-7 | Saturday-night (after Shabbat) work belongs to the ending week (Sat day key). Fine? | **Yes, per R-TIME-2.** | Owner: yes. **closed** (2026-10-05) |
+| Q-8 | Synthetic input from `copilot-retry-watcher` likely resets HID idle time → phantom busy minutes. Filter? | **Accept for now (rare); revisit if visible in data.** | Owner: ignore (rare). **closed** (2026-10-05) |
+| Q-9 | Auto-commit `data/` daily? | **No; owner commits manually.** | Owner: no. **closed** (2026-10-05) |
+| Q-10 | Fixed port `47621` acceptable? | **Yes; dev = `47622`; both overridable via env.** | Owner: yes. **closed** (2026-10-05) |
 | Q-11 | The Mac rarely sleeps (copilot-retry-watcher holds the display awake during chats), so `interactive` writes ≈ 1 line per minute even while locked (≈ 100–250 KB/day in `data/`). Acceptable, or skip fully-locked idle minutes? | Owner: *"The specific info provider decides. In our case — yes, skip."* | **closed → D-31** |
 | Q-12 | Menubar colours: green `(0.20,0.66,0.33)`, orange `(0.93,0.55,0.05)`, red `(0.86,0.22,0.18)`, grey; title `⏱ h:mm / h:mm`. Owner's visual check pending. | **As implemented.** Owner noticed clicks show no menu; asked about an interim menu → **no, keep menus in M8 as planned** (2026-10-04). | open (colours) |
+| Q-13 | R-UI-QUIET: maximum deferral of a due effect while the owner keeps typing? | **2 min** — then the effect starts anyway (otherwise an absorbed owner typing non-stop could postpone a block forever). | open |
+| Q-14 | `github/cli` sessions (mostly headless `copilot -p` tool calls, sometimes possibly the owner in a terminal)? | **unclassified** | open |
+| Q-15 | copilot-retry-watcher clicks are visible only in the Hammerspoon console; give work-balancer a hook to classify retries exactly? | **No — retries stay unclassified; revisit if the bucket grows.** | open |
 
 ---
 
@@ -502,6 +527,11 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
   `hs.styledtext.defaultFonts.menuBar` = `.AppleSystemUIFont` 13 pt. Hyper hotkeys show as `✧` in `getHotkeys()`.
 - **F-HS-11** Live sensors (2026-10-04): continuous typing yields one input instant per second; the owner's Playwright
   browser shows up as app `com.google.chrome.for.testing` ("Google Chrome for Testing") when it takes the foreground.
+- **F-HS-12** *(2026-10-05, live data)* While locked with the display asleep, `hs.host.idleTime()` grows **slower than
+  the wall clock** (~11 s per 12 s): `now − idle` creeps forward → phantom inputs, and each re-emitted the same minute
+  (up to 60 records/minute; 2 596 lines for 91 minutes on 2026-10-04). Fix: only an idle-counter *reset* is an input
+  (`hammerspoon.md` H-7). Also: Lua keeps heartbeating ~1 s after `systemWillSleep` → a synthetic wake must not be
+  inferred from that (fixed: only > 60 s after the sleep).
 - **F-HS-8** `hs.reload()` **kills direct `hs.task` children**; a grandchild backgrounded by an `hs.task` shell survives
   (→ D-24). Details and method: [hammerspoon.md](./hammerspoon.md) §1.
 
@@ -511,9 +541,11 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
   current main mode**), `vscode`, `github/cli`, `copilot-intellij`. So "VS Code only" still means this store too.
 - **F-COP-2** `events.jsonl` lines: `{type, data, id, timestamp (ISO), parentId}`. Human prompts: `type:"user.message"`;
   `data` keys include `content`, `transformedContent`, `attachments`, `delivery`, `interactionId`, `turnId`,
-  `parentAgentTaskId` (→ subagent traffic when set). Agent question answers: `tool.execution_start` with
+  `parentAgentTaskId` — set on **every** `user.message` (human ones too): it does **not** mark subagents (corrected
+  2026-10-05). Subagent traffic: top-level `agentId` + `data.source = "agent-<parent sessionId>"`. Agent question answers: `tool.execution_start` with
   `data.toolName:"ask_user"` + matching `tool.execution_complete` (`data.toolCallId`) whose
-  `toolTelemetry.properties.outcome == "answered"` and result like `"User selected: …"`.
+  `toolTelemetry.properties.outcome == "answered"` and result like `"User selected: …"` (or
+  `elicitation_action == "accept"` in `github/cli`).
 - **F-COP-3** Sessions launched by `execute-copilot-session` (and test harness runs) also appear here; their first
   `user.message` is the prompt file — **not** human input. Must be filtered (M5).
 - **F-COP-4** VS Code native chat: `~/Library/Application Support/Code/User/workspaceStorage/<hash>/chatSessions/*.jsonl`
@@ -521,8 +553,24 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
   (`v.requests`), `kind:1` = set at path `k`, `kind:2` = push at path `k` (e.g. `k:["requests"]` pushes a request with
   `timestamp` (epoch ms), `message.text`, `hiddenFromTranscript`, `modeInfo`, …). Files can be several MB → incremental
   reading required.
-- **F-COP-5** Sample of the CLI/agent store: in the 90 days before 2026-10-04 only ~290 `user.message`s were found there
-  (most of the owner's history is presumably in F-COP-4 and/or agent-host sessions). Re-measure in M5.
+- **F-COP-5** *(re-measured 2026-10-05)* The owner moved from the VS Code native agent to VS Code agent-host sessions
+  around 2026-09-24. In the 45 days before 2026-10-05 the CLI store had 206 `user.message`s (152 of 202 sessions are
+  `github/cli` — mostly headless `copilot -p` tool calls) and VS Code native had 1 648 requests. 2026-09-27 → 10-04:
+  no activity.
+- **F-COP-6** VS Code agent-host turn index: `~/Library/Application Support/Code/agentSessionData/<ahId>/session.db` —
+  `session_metadata.defaultChatProviderData` (or `agentHost.chatProviderData`) `.sdkSessionId` → CLI session id;
+  `turns(id, event_id)` maps each main-agent `user.message` id to its turn. Turn ids `request_<uuid>` come from the
+  VS Code UI, bare `<uuid>` from `execute-copilot-session`/other AHP clients. Several dbs may share one sdkSessionId → merge.
+- **F-COP-7** Agent-host sessions are **not** mirrored into VS Code's `chatSessions` store (no cross-store double
+  counting). Inside the CLI store, continued sessions are copied with the same event ids and timestamps → dedupe by
+  event id. `events.jsonl` is append-only (51/52 resume offsets exact).
+- **F-COP-8** VS Code native chat op-log: kind 0 initial / 1 set / 2 push (`i` = truncate to i first; no `v` = pure
+  truncate) / 3 delete; after > 512 entries the file is **rewritten** as a single kind:0. Requests: `timestamp` epoch
+  ms, `isSystemInitiated` for VS Code-initiated ones; `vscode_askQuestions` answers = `questionCarousel` parts with
+  `isUsed` + `data`, no timestamp.
+- **F-COP-9** `execute-copilot-session` appends fixed boilerplate to every prompt (`WORKING AGREEMENT: …` since
+  2026-09-09, `TASK OUTCOME: …`, and before 2026-09-09 `the very LAST thing you do MUST be to rename the prompt file`).
+  VS Code Insiders is not installed; `~/.copilot/session-store.db` is a stale index (last write 2026-09-25).
 
 ---
 
@@ -533,3 +581,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-04 | Design session (ran from `~/gits/GILAD-PRIVATE-BRANCH`; no tmp-folder in this repo) | Problem analysis with the owner; requirements, policy, architecture; created `copilot-instructions.md` and this ledger; independent design review applied (D-17…D-23). | — |
 | 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4, all done; **observe mode live**. M1 scaffolding + reload-hammerspoon (tbd-01) + live install; M2 core/store/config; M3 daemon/bridge/supervisor (incident: hs.task pipe freeze, H-6); M4 interactive/work/menubar. Facts F-HS-6..11, F-ENV-5..6; decisions D-24..D-30. | tbd-01 |
 | 2026-10-04 | (same tmp-folder, follow-up) | Q-11 → D-31 (skip idle fully-locked/asleep minutes; locked time never a gap); moved reload-hammerspoon logic + tests to `src/hammerspoon/` (owner's TODO); Q-12: no interim menu. 88 tests. | — |
+| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. | tbd-02 |

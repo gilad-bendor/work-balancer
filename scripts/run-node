@@ -6,8 +6,15 @@
 #   scripts/run-node --bin-dir          print the bin dir
 set -euo pipefail
 bin_dir=""
-for d in $(ls -d "$HOME"/.nvm/versions/node/v26.*/bin 2>/dev/null | sort -t. -k2,2n -k3,3n); do
-  [[ -x "$d/node" ]] && bin_dir="$d"
+newest=""
+shopt -s nullglob
+for d in "$HOME"/.nvm/versions/node/v26.*/bin; do
+  [[ -x "$d/node" ]] || continue
+  v="$(basename "$(dirname "$d")")"
+  # sort -V compares versions numerically (v26.10 > v26.9).
+  if [[ -z "$newest" || "$(printf '%s\n%s\n' "$newest" "$v" | sort -V | tail -1)" == "$v" ]]; then
+    newest="$v"; bin_dir="$d"
+  fi
 done
 if [[ -z "$bin_dir" ]]; then
   echo "run-node: no Node 26 found under ~/.nvm/versions/node/v26.*/bin — install it with: nvm install 26" >&2

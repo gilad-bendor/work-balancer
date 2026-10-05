@@ -1,0 +1,13 @@
+id: 00000000-0000-4000-8000-000000000004
+cwd: /fixture/repo
+git_root: /fixture/repo
+branch: main
+client_name: vscode-agent-host
+name: |-
+  prompt text placeholder (the first prompt is copied here)
+  second line placeholder
+user_named: false
+summary_count: 0
+fork_count: 0
+created_at: 2026-01-11T08:50:00.000Z
+updated_at: 2026-01-11T08:50:00.000Z

@@ -10,13 +10,22 @@ info="$repo/var/$env_name/daemon.json"
 if [[ ! -f "$info" ]]; then echo "no $info — daemon not running"; exit 1; fi
 pid="$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$info")"
 port="$(sed -n 's/.*"port": *\([0-9]*\).*/\1/p' "$info")"
+cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+if [[ "$cmd" != *"$repo/src/main.ts"* ]]; then
+  echo "pid $pid from $info is not this repo's daemon (${cmd:-not running}) — not killing it" >&2
+  exit 1
+fi
 echo "stopping $env_name daemon pid $pid"
 kill -TERM "$pid"
 for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$pid" 2>/dev/null; then
+  echo "pid $pid ignored SIGTERM for 5 s (hung?) — sending SIGKILL"
+  kill -KILL "$pid"
+fi
 [[ "$env_name" == "dev" ]] && exit 0
 for _ in $(seq 1 30); do
   sleep 1
-  if health="$(curl -s --max-time 1 "http://127.0.0.1:$port/health")" && [[ "$health" == *'"ok":true'* && "$health" != *"\"pid\":$pid"* ]]; then
+  if health="$(curl -s --max-time 1 "http://127.0.0.1:$port/health")" && [[ "$health" == *'"ok":true'* && "$health" != *"\"pid\":$pid}"* ]]; then
     echo "respawned: $health"; exit 0
   fi
 done

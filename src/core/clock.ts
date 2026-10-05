@@ -25,6 +25,7 @@ export function fixedClock(start: number): Clock & { set(t: number): void; advan
 
 /** Parses WB_FAKE_NOW: epoch ms, or anything `Date.parse` accepts (e.g. `2026-10-04T21:30` = local time). */
 export function parseFakeNow(value: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) throw new Error(`WB_FAKE_NOW: give a time too (e.g. ${value.trim()}T10:00 = local time); a bare date is read as UTC midnight`);
   const asNumber = Number(value);
   const t = Number.isFinite(asNumber) && /^\d+$/.test(value.trim()) ? asNumber : Date.parse(value);
   if (!Number.isFinite(t)) throw new Error(`WB_FAKE_NOW: cannot parse ${JSON.stringify(value)}`);

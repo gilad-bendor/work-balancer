@@ -21,6 +21,11 @@ test("the owner's config/policy.ts is valid and matches R-POL-2", () => {
   assert.equal(ownersPolicy.days.sat.colours, false);
   assert.equal(ownersPolicy.days.sat.inactivityDialog, false);
   assert.equal(ownersPolicy.days.fri.morningReview, false);
+  // D-35: only Sun/Tue/Thu are intrusive at all.
+  const intrusive = Object.entries(ownersPolicy.days)
+    .filter(([, d]) => d.enforce || d.inactivityDialog || d.breakNudge || d.morningReview)
+    .map(([k]) => k);
+  assert.deepEqual(intrusive, ['sun', 'tue', 'thu']);
   assert.deepEqual(ownersPolicy.tokensMin, [10, 5, 5]);
 });
 

@@ -42,6 +42,8 @@ export interface Heartbeat {
     latches: { panic: boolean; quit: boolean };
     /** Who set the panic latch (`hotkey` / `cli`), when set. */
     panicBy: string | null;
+    /** When the panic latch was set (epoch ms, Lua clock); the daemon decides its 04:00 expiry. */
+    panicAt: number | null;
   };
   acks: string[];
 }
@@ -53,6 +55,8 @@ export interface HeartbeatReply {
   menubar: MenubarSpec;
   commands: UiCommand[];
   duplicate: boolean;
+  /** The panic latch Lua reports was set before the last 04:00: Lua clears it (R-UI-ESC). */
+  panicExpired: boolean;
 }
 
 type Obj = Record<string, unknown>;
@@ -91,6 +95,7 @@ export function parseHeartbeat(body: unknown): Heartbeat {
       dimmed: ui.dimmed === true,
       latches: { panic: latches.panic === true, quit: latches.quit === true },
       panicBy: typeof ui.panicBy === 'string' ? ui.panicBy : null,
+      panicAt: isNum(ui.panicAt) ? ui.panicAt : null,
     },
     acks: arr(body.acks).filter((a): a is string => typeof a === 'string'),
   };

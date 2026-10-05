@@ -1,0 +1,51 @@
+{
+  "about": "Expected classification of test-fixtures/prompt-history/home (all on day key 2026-01-11, Asia/Jerusalem). See README.md. Times are UTC.",
+  "cli": {
+    "prompts": [
+      { "session": "00000000-0000-4000-8000-000000000001", "ts": "2026-01-11T08:00:02.000Z", "class": "human", "rule": "C6 ui-turn (request_ turn id)" },
+      { "session": "00000000-0000-4000-8000-000000000001", "ts": "2026-01-11T08:10:00.000Z", "class": "human", "rule": "C6 ui-turn" },
+      { "session": "00000000-0000-4000-8000-000000000001", "ts": "2026-01-11T08:10:31.000Z", "class": "automated", "rule": "C1 subagent (agentId + source agent-<sessionId>)" },
+      { "session": "00000000-0000-4000-8000-000000000001", "ts": "2026-01-11T08:12:00.000Z", "class": "unclassified", "rule": "C5 retry (same text as previous main prompt < 15 min)" },
+      { "session": "00000000-0000-4000-8000-000000000001", "ts": "2026-01-11T08:13:00.000Z", "class": "automated", "rule": "C2 system (source=system, delivery=steering, empty content)" },
+      { "session": "00000000-0000-4000-8000-000000000002", "ts": "2026-01-11T08:20:01.000Z", "class": "automated", "rule": "C3 runner marker" },
+      { "session": "00000000-0000-4000-8000-000000000002", "ts": "2026-01-11T08:30:00.000Z", "class": "human", "rule": "C6 ui-turn (typed later into a runner-launched session)" },
+      { "session": "00000000-0000-4000-8000-000000000003", "ts": "2026-01-11T08:40:01.000Z", "class": "automated", "rule": "C3 runner marker" },
+      { "session": "00000000-0000-4000-8000-000000000004", "ts": "2026-01-11T08:50:01.000Z", "class": "automated", "rule": "C4 non-UI agent-host turn (bare UUID)" },
+      { "session": "00000000-0000-4000-8000-000000000004", "ts": "2026-01-11T08:56:00.000Z", "class": "automated", "rule": "C4 non-UI agent-host turn (bare UUID)" },
+      { "session": "00000000-0000-4000-8000-000000000005", "ts": "2026-01-11T09:00:01.000Z", "class": "unclassified", "rule": "C7 github/cli headless" },
+      { "session": "00000000-0000-4000-8000-000000000006", "ts": "2026-01-11T08:00:02.000Z", "class": "skip", "rule": "C0 duplicate event id (copied from session …0001)" },
+      { "session": "00000000-0000-4000-8000-000000000006", "ts": "2026-01-11T09:10:05.000Z", "class": "human", "rule": "C10 no turn index, client vscode (medium confidence)" },
+      { "session": "00000000-0000-4000-8000-000000000007", "ts": "2026-01-11T09:20:01.000Z", "class": "automated", "rule": "C3 runner marker" },
+      { "session": "00000000-0000-4000-8000-000000000007", "ts": "2026-01-11T09:30:00.000Z", "class": "unclassified", "rule": "C8 runner follow-up without turn index: human only if `interactive` input in the preceding 60 s" },
+      { "session": "00000000-0000-4000-8000-000000000008", "ts": "2026-01-11T09:40:01.000Z", "class": "unclassified", "rule": "C9 agent-host turn row missing after the deferral window" }
+    ],
+    "answers": [
+      { "session": "00000000-0000-4000-8000-000000000001", "ts": "2026-01-11T08:03:00.000Z", "class": "human", "rule": "A1 ask_user outcome=answered (complete timestamp)" },
+      { "session": "00000000-0000-4000-8000-000000000002", "ts": "2026-01-11T08:24:00.000Z", "class": "human", "rule": "A1 (answers count in runner-launched sessions)" },
+      { "session": "00000000-0000-4000-8000-000000000006", "ts": "2026-01-11T08:03:00.000Z", "class": "skip", "rule": "C0 duplicate event id (copied)" },
+      { "session": "00000000-0000-4000-8000-000000000007", "ts": "2026-01-11T09:22:00.000Z", "class": "human", "rule": "A1 elicitation_action=accept" },
+      { "session": "00000000-0000-4000-8000-000000000007", "ts": "2026-01-11T09:25:00.000Z", "class": "unclassified", "rule": "A2 elicitation_action=cancel" }
+    ],
+    "notCounted": [
+      "session …0001: ask_user call-s1-ask2 has no tool.execution_complete (never answered)",
+      "session …0001: the torn last line (no trailing newline) must not be consumed; the byte cursor stays before it"
+    ]
+  },
+  "vscode": {
+    "prompts": [
+      { "file": "workspaceStorage/fixturehash0001/chatSessions/vs000000-0000-4000-8000-000000000001.jsonl", "ts": "2026-01-11T09:50:00.000Z", "class": "human", "rule": "V5 (kind:0 snapshot request)" },
+      { "file": "…0001.jsonl", "ts": "2026-01-11T09:55:00.000Z", "class": "human", "rule": "V5 (later removed by a retry splice — it was still typed)" },
+      { "file": "…0001.jsonl", "ts": "2026-01-11T09:58:00.000Z", "class": "automated", "rule": "V1 isSystemInitiated" },
+      { "file": "…0001.jsonl", "ts": "2026-01-11T09:59:00.000Z", "class": "unclassified", "rule": "V3 retry (splice i=1, same text, new requestId)" },
+      { "file": "…0001.jsonl", "ts": "2026-01-11T10:05:00.000Z", "class": "human", "rule": "V5 (edited + resent: splice with new text)" },
+      { "file": "…0002.jsonl", "ts": "2026-01-11T10:10:00.000Z", "class": "automated", "rule": "V2 runner marker (pre-2026-09-09 runner phrase)" },
+      { "file": "…0002.jsonl", "ts": "2026-01-11T10:15:00.000Z", "class": "human", "rule": "V5" },
+      { "file": "globalStorage/emptyWindowChatSessions/vs000000-0000-4000-8000-000000000003.jsonl", "ts": "2026-01-11T10:20:00.000Z", "class": "human", "rule": "V5" }
+    ],
+    "answers": [
+      { "file": "…0001.jsonl", "resolveId": "call-v1-q1", "class": "human", "rule": "VA1 questionCarousel isUsed + data (counted once although the part is pushed twice); no timestamp in the file: live = observation time, catch-up = containing request's timestamp (2026-01-11T09:50:00.000Z) as a lower bound" }
+    ],
+    "compaction": "variants/compacted/…/vs000000-0000-4000-8000-000000000001.jsonl replaces …0001.jsonl with one kind:0 line (file shrinks). Re-reading it after the original must add nothing (dedupe by requestId and resolveId)."
+  },
+  "totals": { "prompts": { "human": 9, "automated": 9, "unclassified": 5, "skip": 1 }, "answers": { "human": 4, "unclassified": 1, "skip": 1 } }
+}

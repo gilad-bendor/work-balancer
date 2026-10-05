@@ -14,8 +14,9 @@ export interface StoreHealth {
 
 export interface Store {
   readonly dataDir: string;
-  /** Never throws: a write error is logged and surfaced through `health()` (fail open). */
-  append(record: NewRecord): AnyRecord;
+  /** Never throws. Returns null when the line could not be written (logged, surfaced via `health()`); callers that
+   * must not lose the record keep it and retry. */
+  append(record: NewRecord): AnyRecord | null;
   readDay(day: DayKey): AnyRecord[];
   /** Both inclusive, in day order. */
   readDays(from: DayKey, to: DayKey): AnyRecord[];
@@ -24,6 +25,9 @@ export interface Store {
 }
 
 interface CacheEntry {
+  /** Identity of the file the cache was built from: a replaced/rewritten file (git checkout …) resets the cache. */
+  ino: number;
+  head: Buffer;
   size: number;
   records: AnyRecord[];
   /** Bytes after the last '\n' — an unterminated (possibly torn, possibly still being written) line. */
@@ -36,11 +40,15 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
   /** Files this process has seen end with '\n' — single writer, so they stay that way until a write fails. */
   const terminated = new Set<string>();
   let writeError: string | null = null;
+  let writeErrorAt = 0;
+  let errorLoggedAt = -Infinity;
 
   const filePath = (day: DayKey): string => join(dataDir, day.slice(0, 7), `${day}.jsonl`);
 
-  function append(input: NewRecord): AnyRecord {
-    const record: AnyRecord = { v: SCHEMA_VERSION, ts: input.ts ?? clock.now(), ...input } as AnyRecord;
+  function append(input: NewRecord): AnyRecord | null {
+    // `ts` is taken out of the input: an explicit `ts: undefined` must not erase the timestamp (readers drop such lines).
+    const { ts, ...rest } = input;
+    const record: AnyRecord = { v: SCHEMA_VERSION, ts: ts ?? clock.now(), ...rest } as AnyRecord;
     const about = aboutTime(record);
     const path = filePath(dayKey(about ?? clock.now()));
     try {
@@ -49,11 +57,16 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
       const repair = !terminated.has(path) && endsWithoutNewline(path);
       appendFileSync(path, repair ? '\n' + line : line);
       terminated.add(path);
-      writeError = null;
     } catch (e) {
       terminated.delete(path);
       writeError = `cannot write ${path}: ${(e as Error).message}`;
-      log.error('store append failed', { path, error: e as Error });
+      // At most one log line per minute while failing, not one per attempt.
+      if (clock.now() - errorLoggedAt >= 60_000) {
+        log.error('store append failed', { path, error: e as Error });
+        errorLoggedAt = clock.now();
+      }
+      writeErrorAt = clock.now();
+      return null;
     }
     return record;
   }
@@ -72,9 +85,13 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
       return cache.get(path)?.records ?? [];
     }
     try {
-      const size = fstatSync(fd).size;
+      const st = fstatSync(fd);
+      const size = st.size;
+      const head = Buffer.alloc(Math.min(HEAD_BYTES, size));
+      readSync(fd, head, 0, head.length, 0);
       let entry = cache.get(path);
-      if (!entry || size < entry.size) entry = { size: 0, records: [], tail: Buffer.alloc(0) };
+      const sameFile = entry && entry.ino === st.ino && size >= entry.size && head.subarray(0, entry.head.length).equals(entry.head);
+      if (!entry || !sameFile) entry = { ino: st.ino, head, size: 0, records: [], tail: Buffer.alloc(0) };
       if (size > entry.size) {
         const fresh = Buffer.alloc(size - entry.size);
         readSync(fd, fresh, 0, fresh.length, entry.size);
@@ -83,7 +100,7 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
         const complete = lastNl >= 0 ? buf.subarray(0, lastNl) : Buffer.alloc(0);
         const records = entry.records.slice();
         if (lastNl >= 0) parseLines(complete.toString('utf8'), records, path, log);
-        entry = { size, records, tail: Buffer.from(lastNl >= 0 ? buf.subarray(lastNl + 1) : buf) };
+        entry = { ino: st.ino, head, size, records, tail: Buffer.from(lastNl >= 0 ? buf.subarray(lastNl + 1) : buf) };
       }
       cache.set(path, entry);
       return entry.records;
@@ -98,9 +115,13 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
     readDay,
     readDays: (from, to) => dayKeysBetween(from, to).flatMap(readDay),
     filePath,
-    health: () => ({ writeError }),
+    // The warning stays visible for a while after the last failure, so a brief problem is not missed.
+    health: () => ({ writeError: writeError && clock.now() - writeErrorAt < WRITE_ERROR_VISIBLE_MS ? writeError : null }),
   };
 }
+
+const HEAD_BYTES = 256;
+export const WRITE_ERROR_VISIBLE_MS = 10 * 60_000;
 
 function endsWithoutNewline(path: string): boolean {
   let fd: number;

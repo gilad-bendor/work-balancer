@@ -8,9 +8,10 @@ const enforcingWorkday = {
   menubar: true, colours: true, dailyBudgetMin: 9 * H, referenceMin: null, enforce: true,
   inactivityDialog: true, breakNudge: true, morningReview: true,
 };
+// Only Sun/Tue/Thu are intrusive at all; the other days show the menubar status and nothing more.
 const relaxedWorkday = {
   menubar: true, colours: true, dailyBudgetMin: null, referenceMin: 9 * H, enforce: false,
-  inactivityDialog: true, breakNudge: true, morningReview: true,
+  inactivityDialog: false, breakNudge: false, morningReview: false,
 };
 
 export default {
@@ -30,8 +31,8 @@ export default {
     tue: enforcingWorkday,
     wed: relaxedWorkday,
     thu: enforcingWorkday,
-    // Private day: tracked, no budget, no morning review.
-    fri: { ...relaxedWorkday, referenceMin: null, morningReview: false },
+    // Private day: tracked, no budget, no reference colour.
+    fri: { ...relaxedWorkday, referenceMin: null },
     // Shabbat: tracking only — no colours, no popups at all.
     sat: {
       menubar: true, colours: false, dailyBudgetMin: null, referenceMin: null, enforce: false,
