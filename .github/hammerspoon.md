@@ -27,11 +27,12 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
 | H-11 | Overlay above everything | `level = windowLevels.screenSaver`, behaviour `canJoinAllSpaces | fullScreenAuxiliary | stationary | ignoresCycle`, borderless, Hammerspoon's dock icon hidden (it is: `hs.dockicon.visible()` = false) ⇒ shown on **both monitors**, **over full-screen apps**, above the menubar, and it **captures all input** (no app usable behind it). `webview:alpha(0.7)` works for the whole window. An `hs.canvas` at `level + 1` stays above it (the eject label). | Live test overlays with the owner's consent, 2026-10-05 |
 | H-12 | `os.exit(0)` (= `hs._exit`) | Terminates Hammerspoon at once (every module stops); the detached daemon keeps running and is adopted on relaunch (`open -g -a Hammerspoon`). | Owner pressed the eject combo over a live test overlay, 2026-10-05 |
 | H-13 | `print` inside an `hs.eventtap` callback | While an `hs -c` call is in flight, `print` is routed to the IPC client and raises `ipc.lua:402: attempt to index a nil value` (and the CLI times out). Diagnostics from callbacks: write to a file. | 2026-10-05 |
+| H-14 | `hs.menubar:setMenu(fn)` | With a menu set, **both left and right click** open it (the function builds the items at click time). | Owner clicked both, 2026-10-05 (Lua 0.5.0) |
 
 ### Still to verify (do it before relying on it)
 
-- Right-click vs left-click on `hs.menubar` (F-HS-4) — moot since D-32 (any click opens the menu).
-- A `focus = false` floating window really never takes key focus (`nonactivating` mask) — check in M9 (inactivity).
+- A `focus = false` floating window really never takes key focus (`nonactivating` mask) — owner checked a live
+  top-right test window on 2026-10-05 ("looks good"); re-check with the inactivity dialog in M9.
 
 ---
 
@@ -80,6 +81,11 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
   PANIC-EJECT" (an `hs.canvas` one level above), and ⌃⌥⌘⇧F12 terminates Hammerspoon (`restoreGamma`, a detached
   `kill -9` fallback after 3 s, `os.exit(0)`). `WorkBalancer.debugEject(false)` turns it off (the combo becomes the
   1.5 s panic hold again).
+- **Menu (M8):** `setMenu(buildMenu)`; items come from the daemon's menubar spec (`menu: [{id, title}]`, wording in
+  `src/ui/strings.ts`); a click → `POST /bridge/ui-request {open: id}` → heartbeat now. Daemon down → a disabled status
+  line + *Quit work-balancer…* confirmed with the non-blocking `hs.dialog.alert` (never `blockAlert`: it would freeze
+  every module). Pages may send `focus` (raise + key focus) and `quit` (honoured only from window `quit` →
+  `M.quit("menu")`); the daemon may send `window.focus`. Window `w`/`h` in (0, 1] = fraction of the screen.
 - **Dev preview:** `WorkBalancer.preview(url)` opens a normal, closable `DEV PREVIEW — <url>` webview; it refuses the
   live port and non-local URLs.
 

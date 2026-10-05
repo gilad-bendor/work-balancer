@@ -40,15 +40,15 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 | `policy.transition` | `from`, `to` (`ok` · `orange` · `warn` · `countdown` · `blocked`), `configHash` (latch key `<config hash>@<daemon version>`), `workedMin`, `limitMin` (null on non-enforcing days), `weekMin` | written (M6) | Ladder level changes only (one per change; a restarted daemon resumes from the day's last record; each day starts at `ok`). |
 | `token.used` | `minutes`, `until` | planned (M10) | `until` = `max(previous until, ts) + minutes`, clipped to the next 04:00 (`grantUntil()`); the evaluator folds these. |
 | `bypass.used` | `minutes`, `until`, `reason` | planned (M10) | |
-| `effect.shown` / `effect.closed` | `effect`, `windowId`; `closed` also `by` (`user` · `page` · `system` · `panic` · `failopen` · `load-failed`) | written (M7) | Only for effects with `audit: true` (product effects from M8; `test` windows are never logged). `shown` when Lua first reports the window; `closed` once per Lua close report (deduped by id + time). |
-| `note.created` | `noteId`, `kind` (`context` · `feedback` · `note`), `text`, `choices?`, `energy?`, `source` | planned (M8) | `source`: `quick` · `countdown` · `block` · `review` · `manager`. |
-| `note.edited` / `note.dismissed` / `note.undismissed` | `noteId`, (`text`) | planned (M8) | Event-sourced; state = fold over all days. No delete (ledger D-36): "removing" a note = dismissing it. |
+| `effect.shown` / `effect.closed` | `effect`, `windowId`; `closed` also `by` (`user` · `page` · `system` · `panic` · `failopen` · `load-failed` · `reload`) | written (M7) | Only for effects with `audit: true` (M8: `quick`, `notes`, `summary`, `quit`, `review`; `test` windows are never logged). `shown` when Lua first reports the window; `closed` once per Lua close report (deduped by id + time), or `reload` when an audited window vanished without a report. An `effect.closed` for `review` by `user`/`page` = the morning review is done for that day. |
+| `note.created` | `noteId` (`n-<epochMs>-<6 hex>`), `kind` (`context` · `feedback` · `note`), `text` (trimmed, ≤ 4000 chars; may be `""` for a feedback note), `choices?` (feedback only; only values from the policy's `feedbackChoices`), `energy?` (feedback only; integer 1–5), `source` | written (M8) | `source`: `quick` · `countdown` · `block` · `review` · `manager`. Current day's file. |
+| `note.edited` / `note.dismissed` / `note.undismissed` | `noteId`, (`text` for `edited`) | written (M8) | Event-sourced; state = fold of all `note.*` records over **all** day files in order (`src/notes/notes.ts`; unknown ids / duplicate creates ignored). Edits change the text only. No delete (ledger D-36): "removing" a note = dismissing it. A no-op (same text, already dismissed) writes nothing. |
 | `config.loaded` | `hash`, `source` (`file` · `snapshot`) | written (M3) | |
 | `config.invalid` | `errors` | written (M3) | |
-| `day.rollover` | `fromDay`, `toDay` | planned (M8) | |
+| `day.rollover` | `fromDay`, `toDay`, `review` (bool) | written (M8) | Once per day, on the daemon's first tick of the day (04:00, the first tick after a wake, or a start on a day without one). `review: true` = a morning-review day (policy `morningReview`) with notes waiting at that moment: it decides the day's morning review (R-UI-REVIEW). |
 | `panic` | `by` (`hotkey` · `cli` · `unknown`), `at` (when the latch was set) | written (M3) | Logged once per latch transition (a restarted daemon restores today's state from these records). |
 | `resume` | `by` (`cli` · `rollover`) | written (2026-10-05) | The panic latch was cleared: `WorkBalancer.resume()`, or the daemon expired it at 04:00. |
-| `app.quit` | `by` | planned (M8) | |
+| `app.quit` | `by` (`menu` · `cli`) | written (M8) | Lua's quit (menu → confirm, or `WorkBalancer.quit()`) asked the daemon to stop; followed by `daemon.stopped` with reason `quit`. |
 
 ### 3.1 `minute` data per provider
 

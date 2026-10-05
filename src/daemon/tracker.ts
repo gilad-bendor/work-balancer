@@ -11,6 +11,9 @@ import { createWorkProvider } from '../providers/work/index.ts';
 import { createPromptHistoryProvider } from '../providers/prompt-history/index.ts';
 import { evaluate, type GrantRecord, type Level, type PolicyState } from '../policy/evaluate.ts';
 import { strings } from '../ui/strings.ts';
+import { createNotes } from '../notes/notes.ts';
+import { noteView, registerProductEffects } from '../effects/product.ts';
+import { createHistory } from './history.ts';
 
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
 export const GAP_MIN_MS = 30_000;
@@ -48,6 +51,26 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   const lastStop = history.filter((r) => r.type === 'daemon.stopped' || r.type === 'daemon.started').at(-2);
   const previousStopReason = lastStop?.type === 'daemon.stopped' ? String(lastStop.reason ?? '') : null;
   let lastPruneDay: DayKey = today0;
+
+  const graceMs = (): number => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000;
+  const notes = createNotes({ store, log, now: () => clock.now(), feedbackChoices: () => policy.state().config?.feedbackChoices ?? [] });
+  const dayHistory = createHistory({ store, log, now: () => clock.now(), graceMs });
+  /** Day whose `day.rollover` record is known to exist (written by this daemon or found in the file). */
+  let rolloverDay: DayKey | null = null;
+
+  /** One `day.rollover` per day (current day's file): written on the first tick of a day — at 04:00, on the first
+   * tick after a wake, or at a start on a day the daemon has not seen. It also decides the morning review (D-35). */
+  function rollover(now: number): void {
+    const today = dayKey(now);
+    if (rolloverDay === today) return;
+    if (!store.readDay(today).some((r) => r.type === 'day.rollover')) {
+      const c = policy.state().config;
+      const review = c?.days[weekday(today)].morningReview === true && notes.active().length > 0;
+      if (!store.append({ type: 'day.rollover', fromDay: rolloverDay ?? addDays(today, -1), toDay: today, review })) return; // retried next tick
+      log.info('day rollover', { toDay: today, review });
+    }
+    rolloverDay = today;
+  }
 
   function recordGap(from: number, to: number, cause: GapCause): void {
     // Locked or asleep time is not a monitoring gap (nothing to monitor; and idle locked minutes have no records).
@@ -97,6 +120,64 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     return { today, earlier, todaySeconds, weekSeconds: earlier + todaySeconds };
   }
 
+  /** The activity summary (R-UI-MENU-3): today, this week per day vs budgets, the last 4 weeks, recent feedback. */
+  function summary(now: number) {
+    const c = policy.state().config;
+    const { today, todaySeconds, weekSeconds } = weekNumbers(now);
+    const start = dayStart(today);
+    const end = minuteKey(now) + 60_000;
+    const st = c ? policyState(now) : null;
+    const w = work.getRangeInfo(start, end);
+    const ia = interactive.getRangeInfo(start, end);
+    const pr = promptHistory.getRangeInfo(start, end);
+    const weekStart = weekStartKey(today);
+    const weekRecords = store.readDays(weekStart, today);
+    const count = (type: string, from: DayKey): number => weekRecords.filter((r) => r.type === type && dayKey(r.ts) >= from).length;
+    const budgets = (k: DayKey) => {
+      const dp = c?.days[weekday(k)];
+      return {
+        budgetSeconds: dp?.dailyBudgetMin != null ? dp.dailyBudgetMin * 60 : null,
+        referenceSeconds: dp?.referenceMin != null ? dp.referenceMin * 60 : null,
+        enforced: dp?.enforce === true,
+      };
+    };
+    const past = dayHistory.daySeconds(addDays(weekStart, -21), addDays(weekStart, -1));
+    const weeks = [3, 2, 1].map((i) => {
+      const ws = addDays(weekStart, -7 * i);
+      return { start: ws, workedSeconds: dayKeysBetween(ws, addDays(ws, 6)).reduce((sum, k) => sum + (past.get(k) ?? 0), 0), current: false };
+    });
+    weeks.push({ start: weekStart, workedSeconds: weekSeconds, current: true });
+    return {
+      now,
+      today: {
+        day: today, weekday: weekday(today), workedSeconds: todaySeconds,
+        limitSeconds: st?.limitSeconds ?? null, referenceSeconds: st?.referenceSeconds ?? null, remainingSeconds: st?.remainingSeconds ?? null,
+        level: st?.level ?? 'ok', enforcing: st?.enforcing ?? false,
+        tokensLeft: st?.tokensLeft ?? [], tokensUsed: st?.tokensUsed ?? 0, bypassesUsed: st?.bypassesUsed ?? 0,
+        prompts: pr?.prompts ?? 0, answers: pr?.answers ?? 0,
+        topApps: (ia?.topApps ?? []).map((a) => ({ name: a.name, seconds: a.s })),
+        longestStretchSeconds: w?.longestStretchSeconds ?? 0, breaks: w?.breaks ?? 0,
+        currentStretchSeconds: work.currentStretch()?.seconds ?? null,
+        firstActivityAt: w?.firstActivityAt ?? null, lastActivityAt: w?.lastActivityAt ?? null,
+        unmonitoredMinutes: Math.round(total(clip(gaps, start, now)) / 60_000),
+      },
+      week: {
+        start: weekStart, workedSeconds: weekSeconds, budgetSeconds: c ? c.weeklyBudgetMin * 60 : null,
+        tokensUsed: count('token.used', weekStart), bypassesUsed: count('bypass.used', weekStart),
+        days: dayKeysBetween(weekStart, addDays(weekStart, 6)).map((k) => ({
+          day: k, weekday: weekday(k), workedSeconds: k <= today ? work.daySeconds(k) : null, isToday: k === today, ...budgets(k),
+        })),
+      },
+      weeks,
+      feedback: notes.recentFeedback(8).map(noteView),
+      activeNotes: notes.active().length,
+    };
+  }
+
+  if (deps.effects) {
+    registerProductEffects({ effects: deps.effects, notes, store, now: () => clock.now(), config: () => policy.state().config, summary });
+  }
+
   return {
     ingest(samples, receivedAt) {
       const since = samples.since ?? receivedAt;
@@ -110,6 +191,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     },
 
     tick(now) {
+      rollover(clock.now());
       interactive.flushMinutes(now);
       promptHistory.poll(now);
       const st = policyState(now);

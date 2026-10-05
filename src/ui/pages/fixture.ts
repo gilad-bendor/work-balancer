@@ -1,6 +1,6 @@
 // M7 fixture page: renders in every window mode and exercises the page plumbing (strings, model, action, text
 // entry, closing through Lua). Never part of a product flow.
-import { act, boot, el, inHammerspoon, isPrimary, tellLua } from './page.ts';
+import { act, boot, closeOnEscape, el, focusOnInteract, inHammerspoon, isPrimary, tellLua } from './page.ts';
 
 interface FixtureModel {
   mode: string;
@@ -10,6 +10,8 @@ interface FixtureModel {
 }
 
 void boot<FixtureModel | null>(({ strings, model }) => {
+  closeOnEscape(strings.escUnsaved!);
+  if (!model?.focus) focusOnInteract();
   const mode = model?.mode ?? new URLSearchParams(location.search).get('mode') ?? 'normal';
   document.body.classList.add(`mode-${mode}`);
   const left = el('span', {}, String(model?.secondsLeft ?? '–'));

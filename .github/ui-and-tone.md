@@ -65,11 +65,33 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 - The dev instance adds a `DEV` badge (`body.env-dev`). For a look inside a real `hs.webview` use
   `WorkBalancer.preview('http://127.0.0.1:47622/ui/<page>.html?token=…&win=…')` (it focuses the window so typing works).
 - Per-screen windows: only the primary instance (`primary=1`) shows inputs; the others show the message only.
+- **Shared page modules:** `feedback.ts` (the R-UI-FB form — reuse it in countdown / block, M10), `notes-view.ts`
+  (a note card with edit / dismiss / bring back), `format.ts` (`hm`, `dayLabel`, `timeLabel`). `page.ts` helpers added in
+  M8: `topBar(title)` (static top bar + big ✕, for the large windows), `closeOnEscape()` (every dismissible page — never
+  the countdown / block), `submitOnCmdEnter(box, fn)` (every text box), `focusOnInteract()` (windows opened without
+  focus get it on the owner's click), `closeWindow()`.
+- **Owner's UI conventions (2026-10-05):** Esc closes any dismissible window (an open note editor takes Esc first);
+  Cmd+Enter in a text box submits; large windows (summary, notes) are 90 % of the screen with a static top bar (title
+  + big ✕, no Close button at the bottom) and a box 20 px from every side that scrolls inside.
 - `fixture.html` / `fixture.ts`: the M7 fixture used by the `test` effect (`POST /api/test/window`, `/api/test/dim`,
   `/api/test/clear`). Live test windows need `"live": true` in the request (owner consent), live at most 120 s, are
   exempt from the gate but not from panic/R-UI-QUIET, and are never written to `data/`.
 
-## 4. The debug panic-eject (R-UI-EJECT, D-49)
+## 4. The M8 windows
+
+| Window id | Opened by | Mode / size | Page | Notes |
+|---|---|---|---|---|
+| `quick` | menu *Quick note…* | floating, focus, 900×860 | `quick` | context-memory + feedback → `context` and/or `feedback` note (`source: quick`) |
+| `notes` | menu *Show status notes* | floating, focus, 90 % | `notes` | waiting first, then dismissed; add / edit / dismiss / bring back |
+| `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; 4-week trend via `src/daemon/history.ts` |
+| `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
+| `review` | `day.rollover` with `review: true` | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; "Let's start this day!" or ✕ = done for today |
+
+The menu itself comes from the daemon (`strings.menu`, sent in every menubar spec); a click posts
+`/bridge/ui-request {open}`; a second click on an open window raises it (`window.focus`). A restarted daemon adopts the
+open menu windows; a Hammerspoon reload ends them.
+
+## 5. The debug panic-eject (R-UI-EJECT, D-49)
 
 While ON (default until the owner trusts the blockers): every screen-covering window carries a big red bottom label
 "Press Shift+Ctrl+Alt+Cmd+F12 to PANIC-EJECT", and that combo terminates Hammerspoon. Lua-only, independent of the

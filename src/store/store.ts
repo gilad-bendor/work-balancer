@@ -1,6 +1,6 @@
 // Append-only JSONL store, one file per 04:00-bounded day: <dataDir>/YYYY-MM/YYYY-MM-DD.jsonl (instructions §6).
 // Single writer (the daemon; the port bind is the mutex). Appends are synchronous, so they serialise by construction.
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Clock } from '../core/clock.ts';
 import type { Logger } from '../core/log.ts';
@@ -20,6 +20,10 @@ export interface Store {
   readDay(day: DayKey): AnyRecord[];
   /** Both inclusive, in day order. */
   readDays(from: DayKey, to: DayKey): AnyRecord[];
+  /** Day keys that have a file, ascending. */
+  listDays(): DayKey[];
+  /** Reads a day without caching it (whole-history folds, old days). `lineFilter` skips lines before parsing. */
+  scanDay(day: DayKey, lineFilter?: (line: string) => boolean): AnyRecord[];
   filePath(day: DayKey): string;
   health(): StoreHealth;
 }
@@ -114,6 +118,43 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
     append,
     readDay,
     readDays: (from, to) => dayKeysBetween(from, to).flatMap(readDay),
+    listDays() {
+      const out: DayKey[] = [];
+      let months: string[];
+      try {
+        months = readdirSync(dataDir).filter((m) => MONTH_DIR.test(m));
+      } catch {
+        return out; // no data yet
+      }
+      for (const m of months) {
+        let files: string[] = [];
+        try {
+          files = readdirSync(join(dataDir, m));
+        } catch (e) {
+          log.warn('store list failed', { dir: m, error: e as Error });
+        }
+        for (const f of files) {
+          const k = DAY_FILE.exec(f)?.[1];
+          if (k && k.startsWith(m)) out.push(k);
+        }
+      }
+      return out.sort();
+    },
+    scanDay(day, lineFilter) {
+      const path = filePath(day);
+      let text: string;
+      try {
+        text = readFileSync(path, 'utf8');
+      } catch {
+        return [];
+      }
+      const lastNl = text.lastIndexOf('\n');
+      // An unterminated last line may still be being written (or torn): skip it, like readDay.
+      const complete = lastNl >= 0 ? text.slice(0, lastNl) : '';
+      const out: AnyRecord[] = [];
+      parseLines(lineFilter ? complete.split('\n').filter(lineFilter).join('\n') : complete, out, path, log);
+      return out;
+    },
     filePath,
     // The warning stays visible for a while after the last failure, so a brief problem is not missed.
     health: () => ({ writeError: writeError && clock.now() - writeErrorAt < WRITE_ERROR_VISIBLE_MS ? writeError : null }),
@@ -121,6 +162,8 @@ export function createStore(opts: { dataDir: string; clock: Clock; log: Logger }
 }
 
 const HEAD_BYTES = 256;
+const MONTH_DIR = /^\d{4}-\d{2}$/;
+const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 export const WRITE_ERROR_VISIBLE_MS = 10 * 60_000;
 
 function endsWithoutNewline(path: string): boolean {

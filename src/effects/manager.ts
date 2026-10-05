@@ -49,6 +49,8 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
   let deferred: string[] = [];
   let actual: ActualUi = { windows: {}, dimmed: false, closed: [] };
   const pulsesDone = new Set<string>();
+  let adopted = false;
+  let focusSeq = 0;
   const closedSeen = new Set<string>();
   const warnedIds = new Set<string>();
   /** Window ids seen on screen today (R-UI-QUIET never defers their re-appearance). */
@@ -110,7 +112,11 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
       if (openAudited.has(windowId)) return;
       openAudited.add(windowId);
     } else {
-      if (!openAudited.has(windowId)) return;
+      if (!openAudited.has(windowId)) {
+        // Lua reports a close for a window never reported as shown (closed within one beat of opening): it was shown.
+        if (by === 'reload' || by === undefined) return;
+        deps.store.append({ type: 'effect.shown', effect: e.name, windowId });
+      }
       openAudited.delete(windowId);
     }
     deps.store.append(by ? { type, effect: e.name, windowId, by } : { type, effect: e.name, windowId });
@@ -134,9 +140,31 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
       }
     }
     // Audited windows that vanished without a close report: Lua reloaded (its windows died with it).
-    for (const id of [...openAudited]) if (!(id in next.windows)) audit('effect.closed', id, 'reload');
+    for (const id of [...openAudited]) {
+      if (id in next.windows) continue;
+      audit('effect.closed', id, 'reload');
+      try {
+        effects.get(effectOf(id))?.closed?.(id, 'reload', now);
+      } catch (err) {
+        deps.log.error('effect.closed failed', { id, error: err as Error });
+      }
+    }
     for (const id of Object.keys(next.windows)) audit('effect.shown', id);
     actual = next;
+    if (!adopted) {
+      adopted = true;
+      // A restarted daemon must not close windows the owner opened (or is typing in): their effects adopt them.
+      for (const e of effects.values()) {
+        const ids = Object.keys(next.windows).filter((id) => effectOf(id) === e.name);
+        if (ids.length && e.adopt) {
+          try {
+            e.adopt(ids, now);
+          } catch (err) {
+            deps.log.error('effect.adopt failed', { effect: e.name, error: err as Error });
+          }
+        }
+      }
+    }
     const day = dayKey(now);
     if (day !== shownDay) {
       shownDay = day;
@@ -148,7 +176,20 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
     });
     dueSince = r.dueSince;
     deferred = r.deferred;
-    return r.commands;
+    const focus: UiCommand[] = [];
+    for (const e of effects.values()) {
+      let ids: string[] = [];
+      try {
+        ids = e.focusRequests?.() ?? [];
+      } catch (err) {
+        deps.log.error('effect.focusRequests failed', { effect: e.name, error: err as Error });
+      }
+      for (const id of ids) {
+        // Only for a window already on screen: a window being opened takes focus by its own spec.
+        if (effectOf(id) === e.name && id in next.windows) focus.push({ id: `focus:${id}:${++focusSeq}`, op: 'window.focus', windowId: id });
+      }
+    }
+    return [...r.commands, ...focus];
   }
 
   const effectFor = (win: unknown): Effect | null => (typeof win === 'string' ? (effects.get(effectOf(win)) ?? null) : null);
@@ -175,6 +216,17 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
           const e = effectFor(b.win);
           if (!e?.action || typeof b.action !== 'string') return { status: 404, json: { ok: false, error: 'unknown window or action' } };
           return { json: e.action(b.win as string, b.action, b.payload ?? null, deps.now()) };
+        },
+      },
+      {
+        // A menu click (Lua). Only user-initiated effects answer requests; Lua pushes a heartbeat right after.
+        method: 'POST', path: '/bridge/ui-request', auth: true,
+        handle: ({ body }) => {
+          const open = body && typeof body === 'object' ? (body as { open?: unknown }).open : undefined;
+          const e = typeof open === 'string' ? effects.get(open) : undefined;
+          if (!e?.request) return { status: 404, json: { ok: false, error: 'unknown request' } };
+          e.request(deps.now());
+          return { json: { ok: true } };
         },
       },
       {

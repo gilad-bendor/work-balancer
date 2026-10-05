@@ -10,10 +10,10 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M7 **done** (2026-10-05): **observe mode is live**; M7 UI infrastructure in place (window manager, page serving, reconciler, live gate **off**, debug panic-eject **on**) — `interactive` + `prompt-history` tracking into `data/`, policy evaluator (ladder logged as `policy.transition`), menubar `⏱ worked / limit` with colours. No enforcement UI yet (M7–M10). |
-| **Next** | **M8 — notes, feedback, menu, summary, morning review** (read `ui-and-tone.md` first). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. |
+| **Phase** | M1–M8 **done** (2026-10-05): **observe mode is live** + the **menubar menu** (Quick note · Show activity summary · Show status notes · Quit) with its windows; notes/feedback recorded in `data/`; `day.rollover` daily; morning review built but **gated on live** (`liveEffects: false`). M7 UI infrastructure (window manager, reconciler, live gate **off**, debug panic-eject **on**). No enforcement UI yet (M9–M10). |
+| **Next** | **M9 — inactivity dialog** (pre-warning dim D-33, gaps, credits), then M10. Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.4.0 + daemon 0.4.0, 2026-10-05; `liveEffects: false` ⇒ no dialogs/dims/blocks; debug eject ON — ⌃⌥⌘⇧F12 terminates Hammerspoon; `overlayOpacity: 0.7`): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Live on the owner's machine?** | Yes, **observe mode + menu** (Lua 0.5.0 + daemon 0.5.0, 2026-10-05; `liveEffects: false` ⇒ no dialogs/dims/blocks; debug eject ON — ⌃⌥⌘⇧F12 terminates Hammerspoon; `overlayOpacity: 0.7`): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | `tbd-04-continue-m8` — the **successor top-level session** (D-51), continuing from M8; it owns the ledger from its launch on. |
 
 ---
@@ -396,15 +396,29 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   covered by the tests and the dev fixture but were not shown live (no consent needed yet — first live use in M9/M10).
   Adversarial review: 8 findings + 2 on the fixes, all fixed; final re-check clean (`tbd-03-continue-m7/scratch/review-m7.txt`).
 
-### M8 — Notes, feedback, menubar menus, summary, morning review · `todo`
-- [ ] Notes event-sourcing (fold across all days; ids `n-<epochMs>-<rand>`).
-- [ ] ⟂ Quick-note window (left click): context-memory + feedback (R-UI-MENU-2, R-UI-CTX, R-UI-FB).
-- [ ] Right-click menu (R-UI-MENU-3) — verify right-click detection first (F-HS-4); fallback documented.
-- [ ] ⟂ Notes manager window (*Show status notes*).
-- [ ] ⟂ Activity summary window.
-- [ ] Quit flow (confirm, `app.quit`, teardown).
-- [ ] Rollover at 04:00 (timer + on-wake check) and morning review window (R-UI-REVIEW).
+### M8 — Notes, feedback, menubar menus, summary, morning review · `done`
+- [x] Notes event-sourcing (fold across all days; ids `n-<epochMs>-<rand>`) — `src/notes/notes.ts`; `store.listDays()` +
+      uncached `scanDay()`.
+- [x] Quick-note window: context-memory + feedback (R-UI-MENU-2, R-UI-CTX, R-UI-FB) — shared `feedback.ts` form.
+- [x] Menu on any click (D-32, H-14): items sent by the daemon, `POST /bridge/ui-request`, `window.focus` to raise.
+- [x] Notes manager window (*Show status notes*).
+- [x] Activity summary window (today, week per day vs budgets, last 4 weeks via `src/daemon/history.ts`, feedback).
+- [x] Quit flow (confirm page → Lua `quit` → shutdown → `app.quit` + `daemon.stopped quit`; daemon down → Lua confirm).
+- [x] Rollover (`day.rollover` on the first tick of a day — 04:00, after a wake, or at a start) and morning review
+      window (R-UI-REVIEW, D-53).
 - **AC:** owner reviews wording/visuals (use `execute-copilot-session --questions free-to-ask` or `ask_user`).
+- **AC verified (2026-10-05):** `scripts/check` 164/164 (`src/notes/notes.test.ts`: fold incl. unknown ids/duplicates/
+  malformed, order, validation, restart = same state, write error keeps state; `src/effects/product.test.ts`: menu
+  windows open live with the gate closed, focus on re-request, quick-note parts, notes manager actions, restart adopts
+  / reload ends, review decided by rollover + done survives a restart + Monday/live-gate off, summary model incl.
+  history weeks; store `listDays`/`scanDay`; daemon: menu in every reply, `app.quit`, persisted token). Owner, live
+  (Lua 0.5.0, ~12:00–12:55): **left and right click both open the menu**; quick note, status notes, activity summary
+  "all looking very good"; asked for and approved: a static top bar with a big ✕ and 90 % windows with an inner
+  scrolling box (summary, notes), Esc closes every dialog, Cmd+Enter submits, review button "Let's start this day!"
+  (D-55); morning review checked in a DEV PREVIEW; a live floating `focus: false` test window at the top right
+  ("looks good"). The review stays **gated on live** (`liveEffects: false`). Adversarial review: 6 findings (1 high —
+  pages kept open across a daemon restart could never save: token now persisted, D-54) — all fixed
+  (`tbd-04-continue-m8/report.md`).
 
 ### M9 — Inactivity dialog · `todo`
 - [ ] Gap detection, window (non-focus-stealing, corner), live elapsed time, three actions + slider, multi-gap list,
@@ -434,7 +448,10 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
 - Gentle Friday notice on first activity ("Friday is your private day").
 - Historical backfill script for `prompt-history`; weekly report (markdown) generated into `data/`.
 - Optional auto-commit of `data/` (owner currently commits manually).
-- Energy/feedback trend charts in the summary.
+- ~~Energy/feedback trend charts in the summary.~~ → superseded by the next item (2026-10-05).
+- *(2026-10-05, owner — **after M11**, once there is real data)* **"Feedback & energy" window**: a 5th menu item, same
+  90 % layout as the summary: energy per day (mean + range) over the last weeks beside worked hours per day, choice
+  counts per week, and every comment with its date.
 - *(2026-10-05, owner — low priority)* **Statistics on every full-screen effect** (block, zero-limit explanation, any
   overlay): today worked vs limit, this week vs weekly budget, per-day bars Sun–Thu, current stretch, tokens/bypasses
   used; reuse the summary's model. (The block already shows today/week numbers per R-UI-BLOCK — this extends it.)
@@ -509,6 +526,10 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-49 | 2026-10-05 | **Debug panic-eject** (R-UI-EJECT): Lua-only label on full-screen windows + ⌃⌥⌘⇧**F12** **press** (owner's original Esc is swallowed by macOS — H-9) terminates Hammerspoon while enabled (default on, `WorkBalancer.debugEject(bool)`, persisted). Same combo as the panic hotkey on purpose: when eject is on, eject wins. Limitation: a Hammerspoon whose main thread is frozen (H-6) cannot run any hotkey — `kill` from a terminal remains the last resort. | Owner: a safety net against buggy blockers locking the computer, before any real block exists. |
 | D-50 | 2026-10-05 | M7 window contract: effects declare windows (`mode`, `placement`, `perScreen`, `focus`, `intrusive`); the manager adds `rev` + `opacity`; anything covering a screen is always intrusive; Lua's kill-switches key on `intrusive or covers-screen`; pages must say `ready` within 15 s or fail open (screen-covering: closed after 5 s; quarantine doubles); a window already shown today is never deferred by R-UI-QUIET; 6 × 503 ⇒ fail open; `effect.*` audit rebuilt from the day's records, unreported disappearance = `closed by reload`. `overlayOpacity` (owner: 0.7) for screen-covering windows; page fonts +50 % (owner). | Owner requests + adversarial review M7 (8 findings). |
 | D-51 | 2026-10-05 | **Top-level handover** after M7: `tbd-03-continue-m7` ends and launches `tbd-04-continue-m8` (`execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait`), which becomes the single top-level / ledger-writing session for M8 → M11 under the same rules (D-26, D-27, D-37, D-45, live gate D-48, eject D-49) plus the owner's call-to-action preference before live visual stages. | Owner chose a fresh session at the M7 checkpoint (large context). |
+| D-52 | 2026-10-05 | **Menu windows** (`quick`, `notes`, `summary`, `quit`) are user-initiated `floating` windows with focus (not `normal`: Hammerspoon has no Dock icon, a window lost behind VS Code would be unreachable); never intrusive, never screen-covering, so not gated live. The menu items come from the daemon (`strings.menu`, in every menubar spec); a click posts `/bridge/ui-request`; clicking an open one raises it (`window.focus`); a click within 2 s of the window closing reopens it. A restarted daemon **adopts** open windows (first heartbeat); a Hammerspoon reload ends them. Note edits change the text only; waiting notes oldest first, dismissed most recent first. | Owner wants the menu to "just work"; restarts must not lose his typing. |
+| D-53 | 2026-10-05 | **Morning review** is decided once per day by the `day.rollover` record (`review: true` on a `morningReview` day with notes waiting at the first tick of the day) — so a later restart neither invents nor loses it; it is shown (floating, **no focus**, intrusive ⇒ live gate / R-UI-QUIET / panic apply) until closed by the owner (`effect.closed` by user/page = done for the day; reload/fail-open bring it back). A click gives the window focus (`focusOnInteract`). | R-UI-REVIEW + "never steal keystrokes" + data-driven state. |
+| D-54 | 2026-10-05 | The bridge **token persists** in `var/<env>/token` (0600) across daemon restarts. | Review M8#1: pages carry the token in their URL; an adopted window would otherwise get 401 forever. Same-user local secret either way. |
+| D-55 | 2026-10-05 | **Owner's UI conventions:** Esc closes every dismissible window (first Esc only warns when a box holds unsaved text; a note editor takes Esc first; never on countdown/block); Cmd+Enter submits a text box; large windows (summary, notes) are 90 % of the screen with a static top bar (title + big ✕, no bottom Close) and an inner box 20 px from every side that scrolls; review button "Let's start this day!". Window `w`/`h` in (0, 1] = fraction of the screen. | Owner, 2026-10-05 (M8 visual review); Esc guard from review M8#4. |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -566,7 +587,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
   (c) its clicks land at VS Code button coordinates — if our overlay is on top, they could hit our buttons → two-step
   confirm for consequential actions (R-UI-BLOCK).
 - **F-HS-3** Agents keep running during a block — by design (delegated work is fine; the block protects the owner).
-- **F-HS-4** *(to verify in M8)* Whether `hs.menubar` exposes right-click vs left-click.
+- **F-HS-4** *(verified 2026-10-05)* With `hs.menubar:setMenu(fn)` both left and right click open the menu (H-14).
 - **F-HS-5** *(verified 2026-10-05)* `hs.webview` typing needs `allowTextEntry(true)` **and** key focus
   (`hswindow():focus()`) — H-10; overlay at `screenSaver` level + `canJoinAllSpaces|fullScreenAuxiliary|stationary`
   covers both monitors and full-screen apps and captures all input — H-11. (`hs.task` across reload: → F-HS-8.)
@@ -640,3 +661,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-04 | (same tmp-folder, follow-up) | Q-11 → D-31 (skip idle fully-locked/asleep minutes; locked time never a gap); moved reload-hammerspoon logic + tests to `src/hammerspoon/` (owner's TODO); Q-12: no interim menu. 88 tests. | — |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. **M5 implemented** (readers, classifier, minute records, dry-run report; review + 2 re-checks; D-44). **M6 done** (pure evaluator, ladder transitions logged, latch; review + re-check; D-45, D-46; version 0.4.0). 133 tests. Handed over to tbd-03 (D-47). | tbd-02, tbd-03 |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/` | Successor top-level session (D-47). **M7 done**: effects contracts/reconciler/manager (live gate D-48), test effect, page serving with type stripping, Lua window manager + dim + fail-open, owner's **debug panic-eject** (R-UI-EJECT, D-49; Esc impossible → F12, H-9) and `overlayOpacity`; live visual checks with consent; review 8 + 2 findings fixed (D-50); `ui-and-tone.md`. 147 tests. Handed over to tbd-04 (D-51). | tbd-04 |
+| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/` | Successor top-level session (D-51). **M8 done**: notes (event-sourced over all days), menu on any click (H-14), quick note + shared feedback form, notes manager, activity summary (4-week history), quit flow, `day.rollover`, morning review (gated live); owner's live visual review + UI conventions (D-55); review 6 findings fixed (token persisted, D-54); D-52…D-55. 164 tests. Backlog: "Feedback & energy" window after M11. | — |

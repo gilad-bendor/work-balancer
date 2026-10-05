@@ -11,6 +11,15 @@ export interface MenubarSpec {
   tooltip: string;
   /** Shown as a warning glyph + tooltip line (config invalid, write error, protocol mismatch …). */
   warning: string | null;
+  /** The menu any click opens (D-32); a click on an item posts `/bridge/ui-request {open: id}`. Lua keeps the last
+   * one it received (and its own minimal fallback while the daemon is down). */
+  menu?: MenuItem[];
+}
+
+export interface MenuItem {
+  /** Effect name to request (`quick`, `summary`, `notes`, `quit`), or `-` for a separator. */
+  id: string;
+  title: string;
 }
 
 /**
@@ -28,6 +37,7 @@ export interface WindowInput {
   path: string;
   mode: WindowMode;
   placement: Placement;
+  /** Size in points; a value in (0, 1] is a fraction of the screen's usable frame (0.9 = 90 %). */
   w?: number;
   h?: number;
   /** One instance per screen (overlays); the page gets `primary=1` on the primary screen. */
@@ -89,6 +99,8 @@ export interface ActualUi {
 export type UiCommand =
   | { id: string; op: 'window.open'; window: WindowSpec }
   | { id: string; op: 'window.close'; windowId: string }
+  /** Bring an open window to the front with key focus (a menu item clicked again). */
+  | { id: string; op: 'window.focus'; windowId: string }
   | { id: string; op: 'dim'; dim: DimSpec };
 
 /** Result of a page action (`POST /api/ui/action`). */
@@ -108,6 +120,12 @@ export interface Effect {
   /** Explicitly requested test windows bypass the live gate (still subject to panic and R-UI-QUIET). */
   readonly gateExempt?: boolean;
   desired(now: number): { windows: WindowInput[]; dims: DimSpec[] };
+  /** The owner asked for this effect's window (menu click, `POST /bridge/ui-request`). User-initiated effects only. */
+  request?(now: number): void;
+  /** First heartbeat after a daemon start: this effect's windows Lua still shows (a restart must not close them). */
+  adopt?(windowIds: string[], now: number): void;
+  /** Windows to raise with key focus (drained every heartbeat; ignored for windows not on screen). */
+  focusRequests?(): string[];
   /** Lua reported the window gone. `user`/`page` mean dismissed; other causes leave the decision to the effect. */
   closed?(windowId: string, by: CloseBy, now: number): void;
   /** JSON model the page renders (`GET /api/ui/model?win=`). */

@@ -212,3 +212,22 @@ test('a panic pressed while the daemon was unreachable until after 04:00 is stil
   const types = s.daemon.store.readDay('2026-10-04').filter((r) => r.type === 'panic' || r.type === 'resume').map((r) => `${r.type}:${r.by}`);
   assert.deepEqual(types, ['panic:hotkey', 'resume:rollover']);
 });
+
+test('review M8#1: the bridge token persists across restarts (open pages keep working), 0600, regenerated if invalid', async () => {
+  const { loadToken } = await import('./daemon.ts');
+  const { makeTmpDir } = await import('../testing/tmp.ts');
+  const { statSync, writeFileSync } = await import('node:fs');
+  const tmp = makeTmpDir('token');
+  try {
+    const a = loadToken(tmp.dir);
+    assert.match(a, /^[A-Za-z0-9_-]{32}$/);
+    assert.equal(loadToken(tmp.dir), a);
+    assert.equal(statSync(`${tmp.dir}/token`).mode & 0o777, 0o600);
+    writeFileSync(`${tmp.dir}/token`, 'short\n');
+    const b = loadToken(tmp.dir);
+    assert.notEqual(b, 'short');
+    assert.match(b, /^[A-Za-z0-9_-]{32}$/);
+  } finally {
+    tmp.cleanup();
+  }
+});

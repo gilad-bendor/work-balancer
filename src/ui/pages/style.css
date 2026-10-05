@@ -28,3 +28,54 @@ input[type=text], textarea { font: inherit; width: 100%; padding: 6px 8px; borde
 .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
 /* Dev instance: an unmistakable badge (instructions §4.4). */
 body.env-dev::before { content: attr(data-badge); position: fixed; top: 6px; right: 8px; background: #b5651d; color: #fff; font-weight: 700; font-size: 16px; padding: 3px 12px; border-radius: 6px; letter-spacing: 0.08em; }
+
+/* M8: notes, feedback, summary */
+body.scroll { align-items: flex-start; overflow-y: auto; }
+body.scroll > main.card { margin: 24px auto; }
+.card.wide { max-width: 1060px; }
+h2 { font-size: 24px; font-weight: 600; margin: 22px 0 8px; }
+.label { display: block; margin: 14px 0 6px; }
+.small { font-size: 17px; }
+.row.end { justify-content: flex-end; }
+.msg { min-height: 1.5em; color: var(--accent); }
+textarea { resize: vertical; line-height: 1.4; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.chip { border-radius: 999px; padding: 4px 14px; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.static { border: 1px solid var(--border); font-size: 18px; cursor: default; }
+.chip.energy { min-width: 44px; }
+.energy-row { margin: 10px 0; }
+.feedback { border-top: 1px solid var(--border); margin-top: 18px; }
+.notes { margin-top: 8px; }
+.note { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 10px 0; }
+.note.dismissed { opacity: 0.55; }
+.note-head { font-size: 18px; }
+.note-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.add-note { margin: 12px 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 24px; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted var(--border); }
+.days { display: flex; flex-direction: column; gap: 6px; }
+.day { display: grid; grid-template-columns: 190px 1fr 190px; gap: 12px; align-items: center; }
+.day.today .day-name { font-weight: 600; }
+.day-value { text-align: right; font-variant-numeric: tabular-nums; }
+.bar { position: relative; height: 16px; background: var(--border); border-radius: 8px; overflow: visible; }
+.bar .fill { height: 100%; background: var(--accent); border-radius: 8px; opacity: 0.75; }
+.bar.enforced .fill { opacity: 1; }
+.bar .mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); opacity: 0.6; }
+.feedback-line { display: flex; gap: 14px; padding: 4px 0; border-bottom: 1px dotted var(--border); }
+
+/* Large windows (summary, notes): a static top bar with the title and a big close icon; the content scrolls. */
+.topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 14px 28px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.topbar h1 { margin: 0; }
+.close-x { width: 52px; height: 52px; border-radius: 50%; padding: 0; font-size: 26px; line-height: 1; display: flex;
+  align-items: center; justify-content: center; color: var(--muted); }
+.close-x:hover { background: var(--border); color: var(--text); }
+/* The box fills the window (20 px from every side) and scrolls inside; the top bar stays put. */
+body.panel { display: flex; flex-direction: column; height: 100vh; overflow: hidden; align-items: stretch; }
+body.panel > .topbar { flex: none; }
+body.panel > main.card { flex: 1; min-height: 0; overflow-y: auto; margin: 20px; width: auto; max-width: none; }
+body.env-dev.panel::before { top: auto; bottom: 8px; z-index: 11; }
+body.panel > main.card > :first-child, body.panel > main.card > section:first-child > h2:first-child { margin-top: 0; }
+.esc-hint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 20; background: var(--text);
+  color: var(--bg); padding: 10px 18px; border-radius: 10px; max-width: 90%; }

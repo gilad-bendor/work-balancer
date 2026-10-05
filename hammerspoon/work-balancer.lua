@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.4.0"
+local VERSION = "0.5.0"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -113,12 +113,17 @@ local COLOURS = {
   grey = { white = 0.55 },
 }
 
+local buildMenu -- defined in the menu section
+
 local function applyMenubar(spec)
   if M.latches.quit then return end
   if not S.menu then
     S.menu = hs.menubar.new(true, "work-balancer")
     if not S.menu then return end
+    -- Any click (left or right) opens the menu (D-32); the items are built at click time.
+    S.menu:setMenu(function() return buildMenu() end)
   end
+  if type(spec.menu) == "table" and #spec.menu > 0 then S.menuItems = spec.menu end
   local title = spec.title or "⏱"
   if spec.warning then title = "⚠︎ " .. title end
   local attrs = { font = hs.styledtext.defaultFonts.menuBar }
@@ -144,6 +149,7 @@ end
 -- page that fails to load closes them (fail open), and the debug eject terminates Hammerspoon (R-UI-EJECT).
 
 local sendHeartbeat -- defined in the heartbeat section
+local focusWindow
 
 local EJECT_LABEL = "Press Shift+Ctrl+Alt+Cmd+F12 to PANIC-EJECT"
 local LOAD_FAIL_CLOSE = 60     -- seconds a small window whose page failed stays (with a kind message) before closing
@@ -231,8 +237,15 @@ end
 local function frameFor(spec, screen)
   local f = spec.mode == "overlay" and screen:fullFrame() or screen:frame()
   if spec.placement == "full" then return f end
-  local w = math.min(tonumber(spec.w) or 560, f.w - 40)
-  local h = math.min(tonumber(spec.h) or 380, f.h - 40)
+  -- A size in (0, 1] is a fraction of the screen (the summary and notes windows use 0.9).
+  local function size(v, total, default)
+    v = tonumber(v)
+    if not v or v <= 0 then return default end
+    if v <= 1 then return math.floor(total * v) end
+    return v
+  end
+  local w = math.min(size(spec.w, f.w, 560), f.w - 40)
+  local h = math.min(size(spec.h, f.h, 380), f.h - 40)
   if spec.placement == "top-right" then return { x = f.x + f.w - w - 16, y = f.y + 16, w = w, h = h } end
   if spec.placement == "bottom-right" then return { x = f.x + f.w - w - 16, y = f.y + f.h - h - 16, w = w, h = h } end
   return { x = f.x + (f.w - w) / 2, y = f.y + (f.h - h) / 2, w = w, h = h }
@@ -275,6 +288,22 @@ end
 
 local closeWindow
 
+--- Brings a window to the front with key focus (a menu item clicked again, or the owner clicked into a window that
+--- opened without focus).
+focusWindow = function(id)
+  local rec = S.wins[id]
+  if not rec then return end
+  local v = rec.views.main
+  if not v then for _, x in pairs(rec.views) do v = x; break end end
+  if not v then return end
+  pcall(function()
+    v:show()
+    v:bringToFront(true)
+    local w = v:hswindow()
+    if w then w:focus() end
+  end)
+end
+
 local function loadFailed(id)
   local rec = S.wins[id]
   if not rec or rec.failed then return end
@@ -301,6 +330,11 @@ local function onPageMessage(msg)
   elseif body.op == "ready" then
     local rec = S.wins[body.win]
     if rec then rec.ready = true end
+  elseif body.op == "focus" then
+    later(0, function() focusWindow(body.win) end)
+  elseif body.op == "quit" and body.win == "quit" then
+    -- Only the quit confirmation page may stop work-balancer (R-UI-MENU-3).
+    later(0, function() M.quit("menu") end)
   end
 end
 
@@ -461,6 +495,7 @@ local function applyCommands(cmds)
       local ok, err = pcall(function()
         if c.op == "window.open" then openWindow(c.window)
         elseif c.op == "window.close" then closeWindow(c.windowId, "system")
+        elseif c.op == "window.focus" then focusWindow(c.windowId)
         elseif c.op == "dim" then dimPulse(c.dim)
         end
       end)
@@ -839,18 +874,67 @@ end
 
 -- ───────────────────────────── stop (quit latch) ─────────────────────────────
 
---- Stops the daemon and keeps it stopped until the next module load (login / reload). Menu entry arrives in M8.
-function M.quit()
+--- Stops the daemon and keeps it stopped until the next module load (login / reload). The daemon logs `app.quit`.
+function M.quit(by)
   M.latches.quit = true
   local info = readDaemonInfo()
   if info then
-    hs.http.asyncPost(string.format("http://127.0.0.1:%d/bridge/shutdown", info.port), '{"reason":"quit"}',
+    hs.http.asyncPost(string.format("http://127.0.0.1:%d/bridge/shutdown", info.port),
+      hs.json.encode({ reason = "quit", by = by == "menu" and "menu" or "cli" }),
       { ["Content-Type"] = "application/json", ["X-WB-Token"] = info.token }, function() end)
   end
   if S.menu then S.menu:delete(); S.menu = nil end
   closeWhere(function() return true end, "system")
   restoreDim("quit")
   return "work-balancer stopped until the next Hammerspoon reload"
+end
+
+-- ───────────────────────────── menu (M8) ─────────────────────────────
+-- The daemon sends the items (ids + titles, wording in src/ui/strings.ts) with every menubar spec; a click asks the
+-- daemon to open that window (`POST /bridge/ui-request`) and pushes a heartbeat so it appears at once. While the
+-- daemon is down only a kind status line and Quit (confirmed here) remain.
+
+local function daemonUp() return S.lastOkAt ~= nil and S.failures == 0 and not M.latches.quit end
+
+local function uiRequest(open)
+  local info = readDaemonInfo()
+  local function sorry() hs.alert.show("work-balancer isn't answering right now — try again in a few seconds.", 3) end
+  if not info then sorry(); return end
+  hs.http.asyncPost(string.format("http://127.0.0.1:%d/bridge/ui-request", info.port), hs.json.encode({ open = open }),
+    { ["Content-Type"] = "application/json", ["X-WB-Token"] = info.token }, function(status)
+      if status == 200 then sendHeartbeat() else log("ui-request %s failed (HTTP %s)", open, tostring(status)); sorry() end
+    end)
+end
+
+--- Daemon down: confirm Quit here. hs.dialog.alert is non-blocking (blockAlert would freeze every module — §3.2).
+local function quitConfirmLocal()
+  local f = hs.screen.mainScreen():frame()
+  S.quitAlert = hs.dialog.alert(f.x + f.w / 2 - 200, f.y + f.h / 3, function(choice)
+    S.quitAlert = nil
+    if choice == "Stop it" then M.quit("menu") end
+  end, "Stop work-balancer?", "Tracking and the menubar stop until the next login or Hammerspoon reload.",
+    "Stop it", "Keep it running")
+end
+
+buildMenu = function()
+  if not daemonUp() then
+    return {
+      { title = "work-balancer isn't running right now — restarting it…", disabled = true },
+      { title = "-" },
+      { title = "Quit work-balancer…", fn = function() quitConfirmLocal() end },
+    }
+  end
+  local items = {}
+  for _, m in ipairs(S.menuItems or {}) do
+    if m.id == "-" then
+      items[#items + 1] = { title = "-" }
+    elseif type(m.id) == "string" and type(m.title) == "string" then
+      local id = m.id
+      items[#items + 1] = { title = m.title, fn = function() uiRequest(id) end }
+    end
+  end
+  if #items == 0 then items = { { title = "Quit work-balancer…", fn = function() quitConfirmLocal() end } } end
+  return items
 end
 
 -- ───────────────────────────── dev preview ─────────────────────────────

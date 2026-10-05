@@ -114,3 +114,26 @@ test('an explicit ts: undefined does not erase the timestamp', (t) => {
   s.store.append({ type: 'note.created', ts: undefined, text: 'x' });
   assert.equal(s.store.readDay('2026-10-04')[0]!.ts, local(2026, 10, 4, 12, 0));
 });
+
+test('listDays: day files in order across months, foreign files ignored; scanDay: uncached, filtered, torn line skipped', (t) => {
+  const s = setup(local(2026, 11, 2, 12, 0));
+  t.after(s.cleanup);
+  assert.deepEqual(s.store.listDays(), [], 'no data dir yet');
+  for (const [y, m, d] of [[2026, 11, 1], [2026, 10, 30], [2026, 10, 4]] as const) {
+    s.clock.set(local(y, m, d, 12, 0));
+    s.store.append({ type: 'note.created', noteId: `n-${d}`, kind: 'note', text: 'x' });
+    s.store.append({ type: 'other', n: d });
+  }
+  writeFileSync(`${s.dir}/2026-10/notes.txt`, 'not a day');
+  writeFileSync(`${s.dir}/2026-10/2026-11-09.jsonl`, '{}\n'); // a day file in the wrong month dir
+  mkdirSync(`${s.dir}/scratch`, { recursive: true });
+  writeFileSync(`${s.dir}/scratch/2026-10-05.jsonl`, '{}\n');
+  assert.deepEqual(s.store.listDays(), ['2026-10-04', '2026-10-30', '2026-11-01']);
+  const path = s.store.filePath('2026-10-04');
+  appendFileSync(path, '{"v":1,"ts":5,"type":"note.created","noteId":"torn"'); // torn, no newline
+  const all = s.store.scanDay('2026-10-04');
+  assert.deepEqual(all.map((r) => r.type), ['note.created', 'other']);
+  const notes = s.store.scanDay('2026-10-04', (line) => line.includes('"type":"note.'));
+  assert.deepEqual(notes.map((r) => r.noteId), ['n-4']);
+  assert.deepEqual(s.store.scanDay('2026-09-01'), [], 'missing day');
+});

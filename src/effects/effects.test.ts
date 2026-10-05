@@ -187,3 +187,19 @@ test('review M7 round 2: a dismissed window obeys R-UI-QUIET next time; a reload
   hb({ nudge: 'r' });
   assert.deepEqual(hb({}, [{ id: 'nudge', by: 'user', at: 1 }]), [], 'dismissed: the next one waits for a typing pause');
 });
+
+test('M8: every heartbeat reply carries the menu; a quit shutdown logs app.quit (by menu / cli)', async (t) => {
+  const { beat, call, daemon } = await start(t);
+  const r = await beat();
+  assert.deepEqual(r.menubar.menu.map((m: any) => m.id), ['quick', 'summary', 'notes', '-', 'quit']);
+  assert.equal(r.menubar.menu[0].title, 'Quick note…');
+  assert.equal((await call('/bridge/ui-request', { open: 'nope' })).status, 404);
+  assert.equal((await call('/bridge/shutdown', { reason: 'quit', by: 'menu' })).json.ok, true);
+  await new Promise((res) => setTimeout(res, 150));
+  const { readFileSync } = await import('node:fs');
+  const { dayKey } = await import('../core/time.ts');
+  const lines = readFileSync(daemon.store.filePath(dayKey(Date.UTC(2026, 9, 4, 10, 0))), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines.filter((l) => l.type === 'app.quit').map((l) => l.by), ['menu']);
+  assert.equal(lines.at(-1).type, 'daemon.stopped');
+  assert.equal(lines.at(-1).reason, 'quit');
+});

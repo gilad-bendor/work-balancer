@@ -17,6 +17,7 @@ import { createEffectsManager, type EffectsManager } from '../effects/manager.ts
 import { createTestEffect } from '../effects/test-effect.ts';
 import { DEFAULT_QUIET } from '../effects/reconcile.ts';
 import { pagesRoute } from '../ui/serve.ts';
+import { strings } from '../ui/strings.ts';
 
 export const DAEMON_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
@@ -77,7 +78,7 @@ export interface DaemonOptions {
 /** Resolves to null when another daemon of this env already owns the port. */
 export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
   const { env, clock, log } = opts;
-  const token = randomBytes(24).toString('base64url');
+  const token = loadToken(env.varDir);
   const store = createStore({ dataDir: env.dataDir, clock, log });
   const policy = createPolicyLoader({
     path: env.configPath,
@@ -124,7 +125,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
       spec = { ...fallbackMenubar(), warning: 'internal error (see daemon log)' };
     }
     const w = warnings();
-    return w ? { ...spec, warning: [spec.warning, w].filter(Boolean).join('\n') } : spec;
+    return { ...spec, menu: strings.menu.map((m) => ({ ...m })), ...(w ? { warning: [spec.warning, w].filter(Boolean).join('\n') } : {}) };
   };
 
   const routes: Route[] = [
@@ -204,7 +205,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     {
       method: 'POST', path: '/bridge/shutdown', auth: true,
       handle: ({ body }) => {
-        const reason = body && typeof body === 'object' && typeof (body as { reason?: unknown }).reason === 'string' ? (body as { reason: string }).reason : 'requested';
+        const b = (body && typeof body === 'object' ? body : {}) as { reason?: unknown; by?: unknown };
+        const reason = typeof b.reason === 'string' ? b.reason : 'requested';
+        // R-UI-MENU-3: an intentional stop is logged (the gap that follows is a `quit` gap).
+        if (reason === 'quit') store.append({ type: 'app.quit', by: b.by === 'menu' ? 'menu' : 'cli' });
         setTimeout(() => void daemon.stop(reason).then(() => opts.onShutdownRequest?.()), 50);
         return { json: { ok: true } };
       },
@@ -286,4 +290,24 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     },
   };
   return daemon;
+}
+
+/**
+ * The bridge token persists in var/<env>/token (0600) across daemon restarts: pages carry it in their URL, so a window
+ * the owner kept open across a restart (adopted, maybe mid-typing) must still be able to save (review M8#1).
+ */
+export function loadToken(varDir: string): string {
+  const path = join(varDir, 'token');
+  try {
+    const t = readFileSync(path, 'utf8').trim();
+    if (/^[A-Za-z0-9_-]{32}$/.test(t)) return t;
+  } catch {
+    // first start
+  }
+  const t = randomBytes(24).toString('base64url');
+  mkdirSync(varDir, { recursive: true });
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, t + '\n', { mode: 0o600 });
+  renameSync(tmp, path);
+  return t;
 }
