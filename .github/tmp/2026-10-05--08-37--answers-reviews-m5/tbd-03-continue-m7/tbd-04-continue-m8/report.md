@@ -78,3 +78,13 @@ meeting whose wake heartbeat already carried the key press → **retroactive det
 ≥ grace + 30 s, coverage continuous, the Mac locked/asleep in it, dialog allowed throughout). Round 3: two holes in that
 (a prompt inside the last run → a second gap; breaks behind the gate/block/panic dug up) → max-end `lastInputAt`,
 overlap check, `lastDisallowedAt`. Round 4: holds. 177 tests.
+
+## Handover (D-58)
+
+Owner approved a fresh session for M10 at the M9 checkpoint (large context). Successor prompt `tbd-05-continue-m10.md`
+(in this tmp-folder; what exists for M10, suggestions, live gate, standing rules, open items), registered in the ledger
+§5, launched with `scripts/execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait`.
+From its launch on, it owns the ledger; this session stops writing it. The dev daemon was stopped.
+
+State at handover: live = Lua 0.5.1 + daemon 0.6.0, observe mode + menu (`liveEffects: false`), 177 tests green.
+Leftover scratch (gitignored): `scratch/` (screenshots, dev seed/gap scripts, the reviewers' scratch tests).
