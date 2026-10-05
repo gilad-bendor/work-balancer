@@ -27,6 +27,7 @@ the policy lives in [config/policy.ts](config/policy.ts) and is hot-reloaded.
 - `hs -c 'return WorkBalancer.health()'` — is the Hammerspoon side alive (and the daemon up)?
 - `curl "http://127.0.0.1:47621/api/status?token=$(jq -r .token var/live/daemon.json)"` — today/week numbers as JSON.
 - `scripts/restart-daemon` — after changing `src/` (Hammerspoon keeps adopting the running daemon otherwise).
+- `scripts/prompt-history-report` — today's Copilot prompts/answers as classified by the `prompt-history` provider (counts only; writes nothing).
 - `scripts/reload-hammerspoon` — after changing `hammerspoon/work-balancer.lua`.
 - `hs -c 'WorkBalancer.panic()'` — escape hatch: tear down every overlay until the next 04:00 (`WorkBalancer.resume()` undoes it).
 

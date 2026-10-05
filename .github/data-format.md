@@ -68,7 +68,20 @@ record for the same minute (late samples, a restart) replaces it. App
 `topApps` of a minute loaded from disk are kept when re-emitting (raw app intervals are not persisted; per app the
 larger second count wins).
 
-**`prompt-history`** (M5) — planned.
+**`prompt-history`** (R-INFO-4, M5) — one record per minute with ≥ 1 classified interaction (rules:
+[copilot-history-formats.md](./copilot-history-formats.md) §3). **Counts and times only — never text, never hashes.**
+
+| Field | Meaning |
+|---|---|
+| `prompts`, `answers` | Human prompts / human answers to agent questions (`ask_user`, VS Code question carousels). |
+| `unclassified` | Undecidable interactions (retries, `github/cli`, runner follow-ups without corroboration, missing turn rows, cancelled asks) — never counted as human. |
+| `automated` | Runner, subagent, system and other non-human prompts (insight only). |
+| `at` | Offsets (ms from `minute`) of the human prompts and answers — activity instants for the `work` digest (each counts like an input instant). VS Code answers read on a catch-up scan carry their request's time (a lower bound). |
+| `bySource` | Human interactions per store: `{ "cli": n, "vscode": n }`. |
+
+Omitted when zero/empty. A minute is re-emitted (last wins) when late classifications change it, never with fewer
+interactions than its persisted record. Only interactions at/after the day start of the daemon's start are read from
+history; a restart re-scans today's history files (no persisted cursors — D-44).
 
 ## 4. Changelog
 

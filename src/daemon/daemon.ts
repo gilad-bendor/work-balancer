@@ -44,6 +44,8 @@ export interface TrackerDeps {
   policy: PolicyLoader;
   /** This daemon's start (coverage holes that began before it are `daemon-down`/`quit` gaps). */
   startedAt: number;
+  /** Home whose Copilot history is read (prompt-history). */
+  copilotHome: string;
 }
 
 export interface Daemon {
@@ -208,7 +210,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     }
     else if (r.type === 'resume') panicLatched = false;
   }
-  tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt })) ?? null;
+  tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt, copilotHome: env.copilotHome })) ?? null;
   log.info('daemon started', { env: env.name, port, pid: process.pid, dataDir: env.dataDir });
 
   const tick = async (): Promise<void> => {

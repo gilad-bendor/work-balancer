@@ -22,4 +22,6 @@ export const strings = {
   tooltipShabbat: 'Shabbat — tracking only. Shabbat shalom.',
   trackingOnly: 'No valid policy — tracking only.',
   observeMode: 'Observe mode: nothing is enforced yet.',
+  promptHistoryTurnsDrift: 'Copilot history: agent-host prompts cannot be matched to their turns (format change?) — prompts are not counted.',
+  promptHistoryNothingParsed: 'Copilot history: nothing parsed today (format change?) — prompts are not counted.',
 } as const;

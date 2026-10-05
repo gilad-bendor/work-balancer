@@ -44,3 +44,16 @@ corrected; F-COP-6…9). Key result: agent-host sessions can be classified deter
 
 M5 implementation: reader + classifier per the topic file, minute records, `work` source (prompt instants), live
 dry-run report (counts only) for the owner.
+
+## 6. M5 implementation (done)
+
+`src/providers/prompt-history/`: `files.ts` (chunked cursor reader with rewrite guard), `cli.ts` (S-CLI, byte-prefix
+filters, per-file isolation, oldest-session-first), `turns.ts` (agent-host index, `mode=ro&nolock=1` — never locks or
+copies VS Code's dbs), `vscode.ts` (op-log replay, splices, compaction-safe dedupe), `classify.ts`, `index.ts`
+(provider, minute records with counts + human times only, work source, drift warning), `report.ts` +
+`scripts/prompt-history-report`. Tracker wiring; `WB_COPILOT_HOME` (dev only).
+
+Verified: 116/116 tests (fixtures vs `expected.json`); live dry run 79 ms, numbers consistent with tbd-02. Review: 8
+findings, then 3 on the fixes, then clean — all fixed (most notable: the first db-reading fix copied whole dbs, incl.
+drafts/terminal output, into `var/`; replaced by lock-free in-place reads; no copy ever persisted). Open: owner's
+sanity check of the dry-run numbers; daemon RSS ≈ 150 MB (mostly Node + imports).

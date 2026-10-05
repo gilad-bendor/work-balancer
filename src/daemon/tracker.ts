@@ -8,6 +8,7 @@ import type { MenubarSpec } from '../core/effects.ts';
 import type { GapCause } from '../store/records.ts';
 import { createInteractiveProvider } from '../providers/interactive/index.ts';
 import { createWorkProvider } from '../providers/work/index.ts';
+import { createPromptHistoryProvider } from '../providers/prompt-history/index.ts';
 import { effectiveLimit, statusColour } from '../policy/observe.ts';
 import { strings } from '../ui/strings.ts';
 
@@ -24,13 +25,20 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
 
   const interactive = createInteractiveProvider({ store, log, now: () => clock.now() });
   interactive.load(history);
+  const promptHistory = createPromptHistoryProvider({
+    store, log, now: () => clock.now(), home: deps.copilotHome,
+    inputActivity: (from, to) => interactive.workSource.activity!(from, to),
+  });
+  promptHistory.load(history);
+  promptHistory.poll(now0, { force: true });
   const work = createWorkProvider({
-    sources: () => [interactive.workSource],
+    sources: () => [interactive.workSource, promptHistory.workSource],
     graceMs: () => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000,
     now: () => clock.now(),
   });
   const repo = createInfoRepository();
   repo.register('interactive', { perMinute: interactive, timeRange: interactive });
+  repo.register('prompt-history', { perMinute: promptHistory, timeRange: promptHistory });
   repo.register('work', { perMinute: work, timeRange: work });
   await repo.startAll({ clock, log, store });
 
@@ -77,6 +85,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
 
     tick(now) {
       interactive.flushMinutes(now);
+      promptHistory.poll(now);
       const today = dayKey(now);
       if (today !== lastPruneDay) {
         lastPruneDay = today;
@@ -105,7 +114,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
         strings.tooltipStretch(stretch ? stretch.seconds : null),
         strings.observeMode,
       ];
-      return { title: strings.menubarTitle(todaySeconds, base), colour: statusColour(c, limit, todaySeconds), tooltip: lines.join('\n'), warning: null };
+      return { title: strings.menubarTitle(todaySeconds, base), colour: statusColour(c, limit, todaySeconds), tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds) };
     },
 
     status(now) {
@@ -124,6 +133,8 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
         currentStretch: work.currentStretch(),
         work: work.getRangeInfo(start, end),
         interactive: interactive.getRangeInfo(start, end),
+        prompts: promptHistory.getRangeInfo(start, end),
+        promptDiagnostics: promptHistory.diagnostics(start, now),
         unmonitoredMinutes: Math.round(total(clip(gaps, start, now)) / 60_000),
         week: dayKeysBetween(weekStartKey(today), today).map((k) => ({ day: k, weekday: weekday(k), workedSeconds: work.daySeconds(k) })),
       };

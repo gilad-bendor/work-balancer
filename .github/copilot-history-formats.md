@@ -239,8 +239,10 @@ exactly equal to the byte offset of their own line, compactions and truncations 
 - keep per session: pending `ask_user` callIds, *runner-launched* flag, previous-prompt hash and time (in memory),
   `client_name`. Keep globally: the set of seen event ids for the current and previous day.
 
-**S-AH:** open each `session.db` read-only (`node:sqlite`, `readOnly: true`; tolerate `SQLITE_BUSY` by retrying on
-the next poll). Re-read a db only when its mtime changes, and only for sessions with unresolved messages. Build
+**S-AH:** the dbs use a **rollback journal, not WAL** (header bytes 18–19 = `01 01` on all 231 dbs, no `-wal`/`-shm`;
+review 2026-10-05). Opening them in place — even read-only — holds a SHARED lock that can make VS Code's commit fail
+with `SQLITE_BUSY`. So the provider reads a **byte copy** (in `var/<env>/tmp/`) and discards it when a hot `-journal`
+exists or the file changed during the copy (retried next poll). Re-read a db only when its mtime changes. Build
 `sdkSessionId → Map(event_id → turn id)` by merging all dbs.
 
 **S-VSC is NOT append-only.** VS Code rewrites the whole file when it compacts (after > 512 entries); the file then

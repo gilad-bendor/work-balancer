@@ -10,8 +10,8 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M4 **done** (2026-10-04): **observe mode is live** — tracking into `data/`, menubar `⏱ worked / limit` with colours. No enforcement, no dialogs. |
-| **Next** | **M5 — `prompt-history` provider**: investigation done (tbd-02 → [copilot-history-formats.md](./copilot-history-formats.md), fixtures in `test-fixtures/prompt-history/`); next: reader + classifier + minute records + live dry-run report. Then M6 (policy engine). |
+| **Phase** | M1–M5 **done** (2026-10-05): **observe mode is live** — `interactive` + `prompt-history` tracking into `data/`, menubar `⏱ worked / limit` with colours. No enforcement, no dialogs. |
+| **Next** | **M6 — Policy engine** (pure evaluator + exhaustive table-driven tests; R-POL-2/3/3a/4, Q-3, R-UI-QUIET timing inputs). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Follow-up: daemon RSS ≈ 150 MB (≈ 90 MB is Node + TS imports; JS heap ≈ 10 MB) — watch, no action now. |
 | **Blocked** | Nothing. |
 | **Live on the owner's machine?** | Yes, **observe mode** (Lua 0.3.2 + current daemon, 2026-10-05): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | None (see §5). |
@@ -319,23 +319,34 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   `/api/status` aggregates consistent (worked 165 s, 4 monitored minutes, 0 unmonitored), daemon 0.0 % CPU / 68 MB,
   console clean, no `monitor.gap` across a Hammerspoon reload. Not yet observed live: lock/unlock, sleep/wake records.
 
-### M5 — `prompt-history` provider · `todo`
+### M5 — `prompt-history` provider · `done` (owner's sanity check of the dry-run numbers pending)
 - [x] ⟂ Investigation → [copilot-history-formats.md](./copilot-history-formats.md) (tbd-02, 2026-10-05): three stores
       (CLI `events.jsonl`, agent-host turn index `agentSessionData/*/session.db`, VS Code native op-logs), no
       cross-store double counting, copied sessions deduped by event id; classification C0–C10 / A1–A2 / V1–V5 / VA1;
       Insiders not installed.
-- [ ] Incremental reader: scan changed files by mtime every ~30 s; per-file byte cursors in `var/<env>/`; only from today's
-      day start on startup; robust to partial lines and format drift (skip unknown, never crash).
-- [ ] Human filter per [copilot-history-formats.md](./copilot-history-formats.md) §3: agent-host prompts classified
+- [x] Incremental reader: scan changed files by mtime every ~30 s; per-file byte cursors **in memory** (D-44: a restart
+      re-scans today's changed files — < 0.5 s — instead of persisting cursors); only from today's day start on startup;
+      robust to partial lines, rewritten files (guard bytes) and format drift (skip unknown, never crash).
+- [x] Human filter per [copilot-history-formats.md](./copilot-history-formats.md) §3 (`src/providers/prompt-history/classify.ts`): agent-host prompts classified
       deterministically by the `agentSessionData` turn id (`request_*` = VS Code UI = human; bare UUID = runner/AHP
       client) and runner markers; subagents by `agentId`/`source`; `ask_user` answers (outcome answered / elicitation
       accept) count as human everywhere; `interactive` corroboration (~60 s) only for runner-launched sessions without a
       turn index (C8); retries, `github/cli`, missing turn rows, cancelled asks → `unclassified` (never silently human).
-- [ ] Minute records `{ prompts, answers, bySource }` (no text) + range aggregates (count, per hour, first/last,
-      longest silence). Prompts count as input in the `work` digest.
+- [x] Minute records `{ prompts, answers, unclassified, automated, at, bySource }` (no text; data-format §3.1) + range
+      aggregates (count, per hour, first/last, longest silence). Human prompts/answers are activity instants in `work`.
+- [x] `scripts/prompt-history-report` — read-only dry run over today's real history (counts only).
 - [x] Synthetic fixtures for all stores + `expected.json` (tbd-02): `test-fixtures/prompt-history/`.
 - **AC:** fixture tests; a live dry-run report over today's real history (counts only) shown to the owner for a sanity
   check.
+- **AC verified (2026-10-05):** `scripts/check` 116/116 — `src/providers/prompt-history/prompt-history.test.ts` runs the
+  tbd-02 fixtures (materialised SQLite) and matches `expected.json` per store/kind/class/rule; C8 with/without
+  corroboration; C9 deferral; minute records hold counts + times only (no fixture text in `data/`); restart and VS Code
+  compaction add nothing; answers re-stamped identically; failed writes retried; copied-session original by
+  `created_at`; hot journal skipped; drift warning. Live: `scripts/prompt-history-report` (79 ms) — 2026-10-05 04:00 →
+  ~09:40: human prompts 2 (1 CLI agent-host UI turn, 1 VS Code native), answers 0, automated 9 (runner + subagents),
+  unclassified 0 — matches tbd-02's independent count for the morning. Daemon writes `prompt-history` minutes live.
+  Adversarial review: 8 findings + 3 on the fixes (incl. a db byte-copy that would have put drafts/terminal output
+  into `var/`) — all fixed (`.github/tmp/2026-10-05--08-37--answers-reviews-m5/scratch/review-m5.txt`).
 
 ### M6 — Policy engine · `todo`
 - [ ] Pure evaluator → `PolicyState` (R-POL-2): weekday rules, effective limit, ladder thresholds in worked minutes,
@@ -457,6 +468,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-41 | 2026-10-05 | `store.append` returns null on failure; `interactive` retries failed minute/system writes; a write error stays visible ≥ 10 min. Other records (gaps, daemon/config events) are logged-only on failure (rare, low value). | Review M1#1. |
 | D-42 | 2026-10-05 | Live env refuses `WB_PORT` (≠ 47621) and `WB_FAKE_NOW`. `reload-hammerspoon`: a commented-out require line = owner disabled it (never re-added); refuses to re-point to another checkout without `--force`; byte-transparent (latin1) atomic write. | Review M1#2/#6/#8. |
 | D-43 | 2026-10-05 | `prompt-history` provenance: the agent-host turn-id format (`request_*` vs bare UUID) is the primary signal, runner boilerplate markers outrank it, subagents by `agentId`/`source`; undecidable cases (retries, `github/cli`, runner follow-ups without corroboration, missing turn rows, cancelled asks) go to `unclassified`. Text is read in memory only; nothing derived from text (not even hashes) is persisted. | Deterministic for the owner's main mode; verified on ground-truth sessions (tbd-02). |
+| D-44 | 2026-10-05 | `prompt-history` keeps no persisted cursors: on start it re-scans today's changed history files (< 0.5 s) and rewrites no unchanged minute; a minute is never re-emitted with fewer interactions than its persisted record. | Simpler and restart-proof; the ledger's "cursors in var/" was only a means. |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -561,6 +573,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
   `session_metadata.defaultChatProviderData` (or `agentHost.chatProviderData`) `.sdkSessionId` → CLI session id;
   `turns(id, event_id)` maps each main-agent `user.message` id to its turn. Turn ids `request_<uuid>` come from the
   VS Code UI, bare `<uuid>` from `execute-copilot-session`/other AHP clients. Several dbs may share one sdkSessionId → merge.
+  The dbs use a rollback journal (not WAL): read a byte copy, never VS Code's file in place (a SHARED lock could make
+  its commit fail).
 - **F-COP-7** Agent-host sessions are **not** mirrored into VS Code's `chatSessions` store (no cross-store double
   counting). Inside the CLI store, continued sessions are copied with the same event ids and timestamps → dedupe by
   event id. `events.jsonl` is append-only (51/52 resume offsets exact).
@@ -581,4 +595,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-04 | Design session (ran from `~/gits/GILAD-PRIVATE-BRANCH`; no tmp-folder in this repo) | Problem analysis with the owner; requirements, policy, architecture; created `copilot-instructions.md` and this ledger; independent design review applied (D-17…D-23). | — |
 | 2026-10-04 | `.github/tmp/2026-10-04--16-19--kickoff-m1-m4/` | Kickoff M1→M4, all done; **observe mode live**. M1 scaffolding + reload-hammerspoon (tbd-01) + live install; M2 core/store/config; M3 daemon/bridge/supervisor (incident: hs.task pipe freeze, H-6); M4 interactive/work/menubar. Facts F-HS-6..11, F-ENV-5..6; decisions D-24..D-30. | tbd-01 |
 | 2026-10-04 | (same tmp-folder, follow-up) | Q-11 → D-31 (skip idle fully-locked/asleep minutes; locked time never a gap); moved reload-hammerspoon logic + tests to `src/hammerspoon/` (owner's TODO); Q-12: no interim menu. 88 tests. | — |
-| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. | tbd-02 |
+| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. **M5 implemented** (readers, classifier, minute records, dry-run report; review + 2 re-checks; D-44). 116 tests. | tbd-02 |

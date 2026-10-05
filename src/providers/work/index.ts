@@ -66,7 +66,7 @@ export function createWorkProvider(opts: { sources: () => readonly WorkSource[];
 
   const provider: WorkProvider = {
     name: PROVIDER,
-    dependsOn: ['interactive'],
+    dependsOn: ['interactive', 'prompt-history'],
     busy,
     getMinuteInfo(m: MinuteKey) {
       if (m >= opts.now()) return null;

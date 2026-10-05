@@ -21,7 +21,7 @@ async function setup(start: number, seed?: (store: ReturnType<typeof createStore
   seed?.(store);
   const policy = createPolicyLoader({ path: join(REPO_ROOT, 'config', 'policy.ts'), snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
-  const tracker = await createTracker({ store, clock, log: silentLogger, policy, startedAt: start });
+  const tracker = await createTracker({ store, clock, log: silentLogger, policy, startedAt: start, copilotHome: join(tmp.dir, 'empty-home') });
   const samples = (o: Partial<SensorSamples>): SensorSamples => ({ inputs: [], apps: [], system: [], locked: false, since: null, ...o });
   return { ...tmp, clock, store, tracker, samples };
 }

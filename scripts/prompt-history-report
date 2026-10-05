@@ -1,0 +1,5 @@
+#!/bin/bash
+# Dry-run report of today's Copilot prompt-history classification (counts only; writes nothing).
+set -euo pipefail
+repo="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+exec "$repo/scripts/run-node" "$repo/src/providers/prompt-history/report.ts" "$@"
