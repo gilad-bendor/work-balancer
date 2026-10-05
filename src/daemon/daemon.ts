@@ -98,7 +98,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     },
     overlayOpacity: () => policy.state().config?.overlayOpacity ?? 1,
   });
-  const testEffect = createTestEffect({ env: env.name, now: () => clock.now() });
+  const testEffect = createTestEffect({ env: env.name, now: () => clock.now(), log: (m, f) => log.info(m, f) });
   effects.register(testEffect.effect);
   let lastSeq: { loadId: string; seq: number } | null = null;
   let panicLatched = false;

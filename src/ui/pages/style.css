@@ -79,3 +79,12 @@ body.env-dev.panel::before { top: auto; bottom: 8px; z-index: 11; }
 body.panel > main.card > :first-child, body.panel > main.card > section:first-child > h2:first-child { margin-top: 0; }
 .esc-hint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 20; background: var(--text);
   color: var(--bg); padding: 10px 18px; border-radius: 10px; max-width: 90%; }
+/* M9: inactivity dialog */
+.gap { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 10px 0; }
+.some input[type=range] { flex: 1; min-width: 200px; }
+.some-label { font-variant-numeric: tabular-nums; min-width: 140px; }
+body.mode-overlay .muted { color: #b8b4ad; }
+body.page-inactivity .card { max-width: 1100px; }
+.gap-since { font-size: 26px; margin: 18px 0 10px; }
+.gap-timer { font-variant-numeric: tabular-nums; font-weight: 600; }
+button:disabled { opacity: 0.45; cursor: default; }

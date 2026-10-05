@@ -49,3 +49,32 @@ leave `closing` set (one spurious reopen later).
 ### Owner items
 - Energy-survey window → backlog, after M11 (owner's choice).
 - Still pending: sanity check of the M5 dry-run numbers (`scripts/prompt-history-report`); Q-12 (colours) open.
+
+## M9 checkpoint
+
+### What was built
+- `src/inactivity/inactivity.ts`: gap detection (5 min idle → ~10 s pre-warning dim, input cancels → else
+  `inactivity.detected`), one gap at a time, the full-screen un-escapable dialog (D-56), resolutions (`back` / `whole` /
+  `some` / `expired` at 04:00) as a `work` source: credits + the in-gap override (dialog fiddling is not work).
+  Input while the dialog is on screen does not end the gap (from the `effect.*` audit; a coverage hole ends a period).
+- Page `inactivity` (live gap timer with seconds, slider "Worked N min of M" + presets, Submit after a touch; other
+  screens: "Please answer on the main screen."). History includes credits. Test-effect trial mode (`page: inactivity`)
+  and `WorkBalancer.preview(url, true)`. `overlayOpacity` 0.8.
+
+### Verified
+- `scripts/check` 175/175 (`src/inactivity/inactivity.test.ts`, 11 tests).
+- Owner: two dev-preview rounds → his redesign (D-56: full screen, no Esc/timeout, one gap, input ignored while shown,
+  slider-first, "Worked", Submit after touch); live pre-warning dim twice (cancelled by the mouse; ran 10 s and restored
+  — "Good"; first attempt was deferred by R-UI-QUIET because he was using the mouse — as designed); live full-screen
+  trial on both screens (answer logged only) — "That was perfect"; opacity → 80 %.
+
+### Adversarial review (D-37)
+Round 1 — 3 findings, all fixed: (high) Hammerspoon down/ejected → gaps detected without sensors, a dialog period that
+never ended erased real work → detection only with fresh sensors, a period ends at a coverage hole or any close
+(incl. reload), human prompts end a gap; (high) a failing resolve write would trap the owner behind the un-escapable
+dialog → resolutions never fail (in memory + retry), no dialog while the store has a write error; (medium) gaps
+recorded during panic → not while panicking. Version 0.6.0 (D-45). Round 2: the sensors-fresh rule missed a lid-closed
+meeting whose wake heartbeat already carried the key press → **retroactive detection** (a recent return after a hole
+≥ grace + 30 s, coverage continuous, the Mac locked/asleep in it, dialog allowed throughout). Round 3: two holes in that
+(a prompt inside the last run → a second gap; breaks behind the gate/block/panic dug up) → max-end `lastInputAt`,
+overlap check, `lastDisallowedAt`. Round 4: holds. 177 tests.

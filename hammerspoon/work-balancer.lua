@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.5.0"
+local VERSION = "0.5.1"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -940,7 +940,8 @@ end
 -- ───────────────────────────── dev preview ─────────────────────────────
 
 --- Opens a page of the DEV daemon in a normal, closable window labelled DEV PREVIEW. Never touches live state.
-function M.preview(url)
+--- `full`: sized to the whole screen at the overlay opacity (to judge a full-screen effect; still titled + closable).
+function M.preview(url, full)
   local port = tonumber((url or ""):match("^http://127%.0%.0%.1:(%d+)/") or (url or ""):match("^http://localhost:(%d+)/"))
   if not port then return "preview: only http://127.0.0.1:<port>/… URLs" end
   if port == ((S.daemon and S.daemon.port) or LIVE_PORT_DEFAULT) then return "preview: refusing the live daemon's port" end
@@ -954,7 +955,8 @@ function M.preview(url)
       S.timers.previewClose = hs.timer.doAfter(0, function() M.closePreviews(w) end)
     end
   end)
-  w = hs.webview.new({ x = f.x + 80, y = f.y + 60, w = 960, h = 720 }, {}, ucc)
+  w = hs.webview.new(full and f or { x = f.x + 80, y = f.y + 60, w = 960, h = 720 }, {}, ucc)
+  if full then w:alpha(0.8) end
   w:windowTitle("DEV PREVIEW — " .. url)
   w:windowStyle({ "titled", "closable", "resizable", "miniaturizable" })
   w:closeOnEscape(true)

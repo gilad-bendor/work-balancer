@@ -16,6 +16,11 @@ export interface EffectsManager {
   desired(now: number): DesiredUi;
   routes(): Route[];
   status(now: number): unknown;
+  /** The live gate (D-48): system-initiated effects may run. Effects that also *record* things (inactivity gaps)
+   * check it so nothing is recorded for a dialog that cannot be shown. */
+  gateOpen(): boolean;
+  /** Lua's panic latch as of the last heartbeat (nothing intrusive is shown). */
+  suppressed(): boolean;
 }
 
 export interface EffectsDeps {
@@ -50,6 +55,7 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
   let actual: ActualUi = { windows: {}, dimmed: false, closed: [] };
   const pulsesDone = new Set<string>();
   let adopted = false;
+  let panicNow = false;
   let focusSeq = 0;
   const closedSeen = new Set<string>();
   const warnedIds = new Set<string>();
@@ -123,6 +129,7 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
   }
 
   function heartbeat({ actual: next, acks, panic, now }: Parameters<EffectsManager['heartbeat']>[0]): UiCommand[] {
+    panicNow = panic;
     for (const a of acks) if (a.startsWith('dim:')) remember(pulsesDone, a.slice(4));
     for (const c of next.closed) {
       const key = `${c.id}@${c.at}`;
@@ -249,5 +256,7 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
     desired,
     routes,
     status,
+    gateOpen: () => deps.gateOpen(),
+    suppressed: () => panicNow,
   };
 }

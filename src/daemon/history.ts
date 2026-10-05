@@ -7,13 +7,15 @@ import type { Store } from '../store/store.ts';
 import { createInteractiveProvider } from '../providers/interactive/index.ts';
 import { createPromptHistoryProvider } from '../providers/prompt-history/index.ts';
 import { createWorkProvider } from '../providers/work/index.ts';
+import { creditsFromRecords } from '../inactivity/inactivity.ts';
 
 export interface History {
   /** Worked seconds per day in [from, to] (both inclusive). */
   daySeconds(from: DayKey, to: DayKey): Map<DayKey, number>;
 }
 
-const RAW_LINE = (line: string): boolean => line.includes('"type":"minute"') || line.includes('"type":"system"');
+const RAW_LINE = (line: string): boolean =>
+  line.includes('"type":"minute"') || line.includes('"type":"system"') || line.includes('"type":"inactivity.resolved"');
 
 export function createHistory(deps: { store: Store; log: Logger; now: () => number; graceMs: () => number }): History {
   const cache = new Map<DayKey, { grace: number; seconds: number }>();
@@ -29,7 +31,8 @@ export function createHistory(deps: { store: Store; log: Logger; now: () => numb
       inputActivity: (a, b) => interactive.workSource.activity!(a, b),
     });
     prompts.load(records);
-    const work = createWorkProvider({ sources: () => [interactive.workSource, prompts.workSource], graceMs: deps.graceMs, now });
+    const credits = creditsFromRecords(records, deps.graceMs);
+    const work = createWorkProvider({ sources: () => [interactive.workSource, prompts.workSource, credits], graceMs: deps.graceMs, now });
     return new Map(dayKeysBetween(from, to).map((k) => [k, work.daySeconds(k)]));
   }
 

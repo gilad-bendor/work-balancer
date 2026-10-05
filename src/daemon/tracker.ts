@@ -14,6 +14,7 @@ import { strings } from '../ui/strings.ts';
 import { createNotes } from '../notes/notes.ts';
 import { noteView, registerProductEffects } from '../effects/product.ts';
 import { createHistory } from './history.ts';
+import { createInactivity } from '../inactivity/inactivity.ts';
 
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
 export const GAP_MIN_MS = 30_000;
@@ -34,8 +35,33 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   });
   promptHistory.load(history);
   promptHistory.poll(now0, { force: true });
+  // The owner's activity: input runs and human prompts (a prompt ends a gap too — review M9#1).
+  // (Closed runs; an instant is [t, t] — so sorted, not normalize()d, which drops empty intervals.)
+  const ownerActivity = (from: number, to: number): Interval[] =>
+    [...interactive.workSource.activity!(from, to), ...promptHistory.workSource.activity!(from, to)].sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const inactivity = createInactivity({
+    store, log, now: () => clock.now(),
+    graceMs: () => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000,
+    lastInputAt: (since, now) => {
+      // The max end (a prompt instant can sit inside the last input run — review M9b#1).
+      const ends = ownerActivity(since, now + 1).map(([, b]) => b).filter((b) => b <= now);
+      return ends.length ? Math.max(...ends) : null;
+    },
+    inputStartsAfter: (t, now) => ownerActivity(t + 1, now + 1).map(([a]) => a).filter((a) => a > t),
+    activity: ownerActivity,
+    away: (from, to) => interactive.blocked(from, to),
+    coverageEnd: () => interactive.coverageEnd(),
+    coveredUntil: (t) => interactive.coveredUntil(t, 15_000),
+    allowed: (now) => {
+      // Not while panicking: nothing would be shown, and a stale gap must not pop up after resume (review M9#3).
+      if (!deps.effects?.gateOpen() || deps.effects.suppressed() || !policy.state().config) return false;
+      const st = policyState(now);
+      return st.dayPolicy?.inactivityDialog === true && st.weekday !== 'sat' && st.level !== 'blocked';
+    },
+  });
+  inactivity.load(history);
   const work = createWorkProvider({
-    sources: () => [interactive.workSource, promptHistory.workSource],
+    sources: () => [interactive.workSource, promptHistory.workSource, inactivity.workSource],
     graceMs: () => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000,
     now: () => clock.now(),
   });
@@ -175,6 +201,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   }
 
   if (deps.effects) {
+    deps.effects.register(inactivity.effect);
     registerProductEffects({ effects: deps.effects, notes, store, now: () => clock.now(), config: () => policy.state().config, summary });
   }
 
@@ -194,6 +221,11 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       rollover(clock.now());
       interactive.flushMinutes(now);
       promptHistory.poll(now);
+      try {
+        inactivity.tick(now);
+      } catch (e) {
+        log.error('inactivity tick failed', { error: e as Error });
+      }
       const st = policyState(now);
       // The tick may straddle 04:00 (flush/poll take time): never file a transition into the next day.
       if (st.level !== lastLevel && dayKey(clock.now()) === st.day) {

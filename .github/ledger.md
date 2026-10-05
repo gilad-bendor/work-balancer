@@ -10,8 +10,8 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M8 **done** (2026-10-05): **observe mode is live** + the **menubar menu** (Quick note · Show activity summary · Show status notes · Quit) with its windows; notes/feedback recorded in `data/`; `day.rollover` daily; morning review built but **gated on live** (`liveEffects: false`). M7 UI infrastructure (window manager, reconciler, live gate **off**, debug panic-eject **on**). No enforcement UI yet (M9–M10). |
-| **Next** | **M9 — inactivity dialog** (pre-warning dim D-33, gaps, credits), then M10. Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
+| **Phase** | M1–M9 **done** (2026-10-05; M9 = inactivity dialog, built and tried live, but like every intrusive effect **gated on live** until `liveEffects: true`): **observe mode is live** + the **menubar menu** (Quick note · Show activity summary · Show status notes · Quit) with its windows; notes/feedback recorded in `data/`; `day.rollover` daily; morning review built but **gated on live** (`liveEffects: false`). M7 UI infrastructure (window manager, reconciler, live gate **off**, debug panic-eject **on**). No enforcement UI yet (M9–M10). |
+| **Next** | **M10 — enforcement** (escape hatches first; warn + dim, countdown, block, tokens, bypass, break nudge; dev walk-through; owner approves live enforcement). Owner: sanity-check the M5 dry-run numbers (`scripts/prompt-history-report`). Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
 | **Blocked** | Nothing. |
 | **Live on the owner's machine?** | Yes, **observe mode + menu** (Lua 0.5.0 + daemon 0.5.0, 2026-10-05; `liveEffects: false` ⇒ no dialogs/dims/blocks; debug eject ON — ⌃⌥⌘⇧F12 terminates Hammerspoon; `overlayOpacity: 0.7`): tracking into `data/`, menubar `⏱ worked / limit`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes run `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | `tbd-04-continue-m8` — the **successor top-level session** (D-51), continuing from M8; it owns the ledger from its launch on. |
@@ -141,6 +141,11 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   during it cancels the dialog (the owner was just reading); otherwise the dialog appears.
   Multiple unresolved gaps are listed in the same window. It **disappears automatically at 04:00** (unresolved =
   default rule). Not shown on Saturday or while blocked. Gaps are clipped to their day.
+  *(2026-10-05, owner, D-56 — supersedes the window shape above)* The dialog is **full screen** (all screens,
+  `overlayOpacity`), **not escapable and never times out** — it ends only by answering (escape hatches still apply).
+  **Input while it is on screen does not end the gap**: the gap keeps growing (live timer with seconds) until Submit,
+  so there is only ever **one** gap to answer. One slider "Worked N min of M" (0 = back · max = whole, pinned to the
+  growing gap · between = some) with the two presets moving it; Submit only after a deliberate touch.
   **Credit arithmetic (normative):** a gap is `[lastInput, nextInput)`. "Whole" credits the entire gap **including
   locked/asleep time** (the owner locks the screen when leaving for a meeting — that is work). "Some = N min" credits
   `[gapStart, gapStart + N)` chronologically (N ≤ gap length). "Back" keeps the default rule. A later resolution of
@@ -420,10 +425,22 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   pages kept open across a daemon restart could never save: token now persisted, D-54) — all fixed
   (`tbd-04-continue-m8/report.md`).
 
-### M9 — Inactivity dialog · `todo`
-- [ ] Gap detection, window (non-focus-stealing, corner), live elapsed time, three actions + slider, multi-gap list,
-      auto-close at 04:00, not on Saturday / while blocked; `inactivity.*` events; `work` digest honours resolutions.
+### M9 — Inactivity dialog · `done`
+- [x] Gap detection with the ~10 s pre-warning dim (D-33; input cancels), full-screen un-escapable dialog (D-56), live
+      gap timer, slider + presets, one gap at a time, expiry at 04:00, not on Mon/Wed/Fri/Sat (D-35) / while blocked /
+      with the live gate closed; `inactivity.*` events; `work` digest honours resolutions (credits + the gap override)
+      — `src/inactivity/inactivity.ts`, page `inactivity`; history (4-week summary) includes them.
 - **AC:** tests for credit math (incl. lock inside gap, gap across 04:00); owner tries it in dev.
+- **AC verified (2026-10-05):** `src/inactivity/inactivity.test.ts` (8): credit arithmetic; pre-warning dim → input
+  cancels → no gap, else gap + full-screen window; late detection after sleep (no pre-warning); `whole` credits a gap
+  with a 24-min lock inside it; `some` replaces `whole` after a restart; no close action; gap across 04:00 clipped and
+  expired into the gap's day file; restart restores the open gap; Mon/Sat/live-gate → nothing; D-56: input over the
+  dialog ignored, gap ends at Submit, dialog fiddling not work, one gap; a panic-suppressed dialog lets input end the
+  gap. 172 tests. Owner: dev previews (2 rounds of changes → D-56), **live** pre-warning dim twice (cancelled by the
+  mouse; ran 10 s and restored by itself — "Good"), **live** full-screen trial on both screens over a synthetic gap
+  (`/api/test/window` `page: inactivity`, nothing in `data/`) — "That was perfect"; `overlayOpacity` 0.7 → **0.8**.
+  Adversarial review: 3 findings + 1 + 2 on the fixes (Hammerspoon-down gaps erasing work, a failing write trapping
+  the owner, panic; sleep-with-keypress missed → retroactive detection) — all fixed; version **0.6.0** (D-45). 177 tests.
 
 ### M10 — Enforcement: warn, countdown, block, tokens, bypass, break nudge · `todo`
 - [ ] **First verify escape hatches** (panic hotkey, `hs -c`), fail-open on daemon death / page failure.
@@ -530,6 +547,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-53 | 2026-10-05 | **Morning review** is decided once per day by the `day.rollover` record (`review: true` on a `morningReview` day with notes waiting at the first tick of the day) — so a later restart neither invents nor loses it; it is shown (floating, **no focus**, intrusive ⇒ live gate / R-UI-QUIET / panic apply) until closed by the owner (`effect.closed` by user/page = done for the day; reload/fail-open bring it back). A click gives the window focus (`focusOnInteract`). | R-UI-REVIEW + "never steal keystrokes" + data-driven state. |
 | D-54 | 2026-10-05 | The bridge **token persists** in `var/<env>/token` (0600) across daemon restarts. | Review M8#1: pages carry the token in their URL; an adopted window would otherwise get 401 forever. Same-user local secret either way. |
 | D-55 | 2026-10-05 | **Owner's UI conventions:** Esc closes every dismissible window (first Esc only warns when a box holds unsaved text; a note editor takes Esc first; never on countdown/block); Cmd+Enter submits a text box; large windows (summary, notes) are 90 % of the screen with a static top bar (title + big ✕, no bottom Close) and an inner box 20 px from every side that scrolls; review button "Let's start this day!". Window `w`/`h` in (0, 1] = fraction of the screen. | Owner, 2026-10-05 (M8 visual review); Esc guard from review M8#4. |
+| D-56 | 2026-10-05 | **Inactivity dialog = full screen, un-escapable, no timeout; input while it is up does not end the gap** (supersedes R-UI-INACT's corner window / multi-gap list): a gap ends at the owner's first input made while the dialog was **not** on screen (from the `effect.shown`/`effect.closed` audit; a suppressed/closed dialog lets input end it) or at Submit; at most one unanswered gap; inside `[lastInput + grace, end)` only the credit counts. Slider "Worked N min of M" with presets; Submit after a deliberate touch. `overlayOpacity` 0.8. | Owner, live trial 2026-10-05: "This has to be full screen, un-escapable, un-timed-out"; moving the mouse over the dialog is not being back. |
+| D-57 | 2026-10-05 | **Inactivity robustness:** gaps are detected only while Lua's sensors are fresh (≤ 15 s) and never while panicking; a dialog period ends at any close or at a hole in Lua's coverage; human prompts end a gap like input; a gap missed because the Mac slept (the wake heartbeat already carried the key press) is detected **retroactively** within 2 min of the return (hole ≥ grace + 30 s, coverage continuous, locked/asleep inside, dialog allowed throughout); a resolution whose record cannot be written is applied in memory and retried, and no dialog shows while the store has a write error. | Adversarial review M9 (principle 5: never trap; never erase real work). |
 | D-27 | 2026-10-04 | At milestone checkpoints: **commit** (never `data/`, `var/`, or files that aren't the session's, e.g. `_PRIVATE-SCRATCH.md`) and **proceed** to the next milestone without asking — stop to ask only for a real blocker. | Owner, at the M1 checkpoint. |
 
 ---
@@ -661,4 +680,4 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-04 | (same tmp-folder, follow-up) | Q-11 → D-31 (skip idle fully-locked/asleep minutes; locked time never a gap); moved reload-hammerspoon logic + tests to `src/hammerspoon/` (owner's TODO); Q-12: no interim menu. 88 tests. | — |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/` | Owner's answers Q-1…Q-10 → D-32…D-36; review rule D-37; live-data bugs fixed (phantom inputs, false/dark wake); retroactive adversarial reviews of all commits + 2 review rounds on the fixes — 31 findings, all fixed or justified (D-38…D-42); tbd-02 M5 investigation applied (D-43, F-COP-6…9). 106 tests. **M5 implemented** (readers, classifier, minute records, dry-run report; review + 2 re-checks; D-44). **M6 done** (pure evaluator, ladder transitions logged, latch; review + re-check; D-45, D-46; version 0.4.0). 133 tests. Handed over to tbd-03 (D-47). | tbd-02, tbd-03 |
 | 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/` | Successor top-level session (D-47). **M7 done**: effects contracts/reconciler/manager (live gate D-48), test effect, page serving with type stripping, Lua window manager + dim + fail-open, owner's **debug panic-eject** (R-UI-EJECT, D-49; Esc impossible → F12, H-9) and `overlayOpacity`; live visual checks with consent; review 8 + 2 findings fixed (D-50); `ui-and-tone.md`. 147 tests. Handed over to tbd-04 (D-51). | tbd-04 |
-| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/` | Successor top-level session (D-51). **M8 done**: notes (event-sourced over all days), menu on any click (H-14), quick note + shared feedback form, notes manager, activity summary (4-week history), quit flow, `day.rollover`, morning review (gated live); owner's live visual review + UI conventions (D-55); review 6 findings fixed (token persisted, D-54); D-52…D-55. 164 tests. Backlog: "Feedback & energy" window after M11. | — |
+| 2026-10-05 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/` | Successor top-level session (D-51). **M9 done** (inactivity dialog, owner's redesign D-56 after a live trial, robustness D-57, 0.6.0, 177 tests). **M8 done**: notes (event-sourced over all days), menu on any click (H-14), quick note + shared feedback form, notes manager, activity summary (4-week history), quit flow, `day.rollover`, morning review (gated live); owner's live visual review + UI conventions (D-55); review 6 findings fixed (token persisted, D-54); D-52…D-55. 164 tests. Backlog: "Feedback & energy" window after M11. | — |

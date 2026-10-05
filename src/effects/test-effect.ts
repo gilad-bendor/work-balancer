@@ -9,8 +9,9 @@ const PLACEMENTS: readonly Placement[] = ['center', 'top-right', 'bottom-right',
 const MAX_TTL_S = 120;
 const MAX_WINDOWS = 4;
 
-export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number }): { effect: Effect; routes: Route[] } {
-  const windows = new Map<string, { input: WindowInput; until: number }>();
+export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number; log?: (msg: string, f: Record<string, unknown>) => void }): { effect: Effect; routes: Route[] } {
+  /** `trial`: a product page shown over synthetic data (the owner tries the real thing; nothing reaches data/). */
+  const windows = new Map<string, { input: WindowInput; until: number; trial?: { page: 'inactivity'; gapFrom: number } }>();
   let dims: { spec: DimSpec; until: number }[] = [];
   let n = 0;
 
@@ -29,10 +30,18 @@ export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number 
     model(id, now) {
       const w = windows.get(id);
       if (!w) return null;
+      if (w.trial) {
+        return { now, gaps: [{ gapId: 'trial', from: w.trial.gapFrom, to: null, maxMinutes: Math.floor((now - w.trial.gapFrom) / 60_000) }] };
+      }
       return { mode: w.input.mode, perScreen: !!w.input.perScreen, focus: !!w.input.focus, secondsLeft: Math.max(0, Math.round((w.until - now) / 1000)) };
     },
     action(id, action, payload) {
       if (action === 'close') {
+        windows.delete(id);
+        return { ok: true, close: true };
+      }
+      if (action === 'resolve' && windows.get(id)?.trial) {
+        deps.log?.('trial answered (not recorded)', { id, payload: payload as Record<string, unknown> });
         windows.delete(id);
         return { ok: true, close: true };
       }
@@ -60,6 +69,16 @@ export function createTestEffect(deps: { env: 'live' | 'dev'; now: () => number 
         const mode = MODES.includes(b.mode as WindowMode) ? (b.mode as WindowMode) : 'normal';
         const placement = PLACEMENTS.includes(b.placement as Placement) ? (b.placement as Placement) : mode === 'overlay' ? 'full' : 'center';
         const id = `test:${++n}`;
+        if (b.page === 'inactivity') {
+          // The real full-screen inactivity dialog over a synthetic gap of `gapMinutes` (default 12).
+          const gapMin = typeof b.gapMinutes === 'number' ? Math.min(240, Math.max(1, b.gapMinutes)) : 12;
+          const input: WindowInput = {
+            id, path: '/ui/inactivity.html', mode: 'overlay', placement: 'full', perScreen: true, focus: true, closable: false,
+            title: 'work-balancer — welcome back (trial)', intrusive: true,
+          };
+          windows.set(id, { input, until: deps.now() + ttl(b), trial: { page: 'inactivity', gapFrom: deps.now() - gapMin * 60_000 } });
+          return { json: { ok: true, id } };
+        }
         const input: WindowInput = {
           // `broken`: a page that never loads (HTTP 404) — exercises the readiness handshake / fail-open.
           id, path: b.broken === true ? '/ui/missing-page.html' : `/ui/fixture.html?mode=${mode}`, mode, placement, title: `work-balancer test (${mode})`,

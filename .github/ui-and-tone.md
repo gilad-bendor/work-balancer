@@ -86,6 +86,7 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 | `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; 4-week trend via `src/daemon/history.ts` |
 | `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
 | `review` | `day.rollover` with `review: true` | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; "Let's start this day!" or ✕ = done for today |
+| `inactivity` (M9) | a gap (5 min idle + uncancelled 10 s pre-warning dim) | **overlay, full, per screen**, focus, intrusive | `inactivity` | **no Esc, no timeout** (D-56) — ends only by Submit (or the escape hatches / fail-open / 04:00); one gap; live timer with seconds; slider "Worked N min of M" + presets (highlighted iff the slider is at their value); Submit enabled after a deliberate touch; other screens: "Please answer on the main screen." |
 
 The menu itself comes from the daemon (`strings.menu`, sent in every menubar spec); a click posts
 `/bridge/ui-request {open}`; a second click on an open window raises it (`window.focus`). A restarted daemon adopts the
@@ -96,4 +97,8 @@ open menu windows; a Hammerspoon reload ends them.
 While ON (default until the owner trusts the blockers): every screen-covering window carries a big red bottom label
 "Press Shift+Ctrl+Alt+Cmd+F12 to PANIC-EJECT", and that combo terminates Hammerspoon. Lua-only, independent of the
 daemon. Toggle: `hs -c 'return WorkBalancer.debugEject(false)'`. Every new screen-covering effect (M9 pre-warning dim
-excluded — gamma only — M10 block, zero-limit explanation) must be checked with the label visible.
+excluded — gamma only; the M9 inactivity dialog checked live 2026-10-05; M10 block, zero-limit explanation) must be
+checked with the label visible.
+- **Trying a product page live without touching data:** `POST /api/test/window {"live": true, "page": "inactivity",
+  "gapMinutes": 12}` shows the real inactivity dialog over a synthetic gap (TTL ≤ 120 s); the answer goes to the daemon
+  log only. `WorkBalancer.preview(url, true)` = a full-screen DEV PREVIEW at the overlay opacity.

@@ -28,8 +28,8 @@ export default {
   quiet: { afterInputSec: 10, maxDeferSec: 120 },
   // Live gate: dialogs, dims, countdown and block stay OFF on this Mac until you approve enforcement (milestone M10).
   liveEffects: false,
-  // Opacity of full-screen effects (block, overlays): 1 = solid; 0.7 lets you read what is behind.
-  overlayOpacity: 0.7,
+  // Opacity of full-screen effects (block, overlays, inactivity dialog): 1 = solid; 0.8 still lets you read what is behind.
+  overlayOpacity: 0.8,
   feedbackChoices: ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day', 'Other'],
   days: {
     sun: enforcingWorkday,

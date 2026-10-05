@@ -19,3 +19,10 @@ export function dayLabel(day: string, opts: { weekday?: boolean } = {}): string 
 export function timeLabel(ms: number): string {
   return timeFmt.format(new Date(ms));
 }
+
+/** A duration as "18 min" / "1 h 05 min" (floored to minutes). */
+export function duration(ms: number, s: { inactMin?: string; inactHour?: string }): string {
+  const m = Math.floor(Math.max(0, ms) / 60_000);
+  const min = s.inactMin ?? 'min';
+  return m < 60 ? `${m} ${min}` : `${Math.floor(m / 60)} ${s.inactHour ?? 'h'} ${String(m % 60).padStart(2, '0')} ${min}`;
+}

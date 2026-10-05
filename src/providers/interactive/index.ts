@@ -64,6 +64,8 @@ export interface InteractiveProvider extends PerMinuteInfoProvider<InteractiveMi
   flushMinutes(now: number, opts?: { all?: boolean }): number;
   /** End of the latest covered span (persisted or live), or null when nothing is known. */
   coverageEnd(): number | null;
+  /** End of the continuous coverage span containing `t` (holes ≤ `toleranceMs` ignored), or null if `t` is not covered. */
+  coveredUntil(t: number, toleranceMs: number): number | null;
   /** Locked ∪ asleep inside [from, to). */
   blocked(from: number, to: number): Interval[];
   /** Forget raw state before `t` (keeps memory bounded; the week's data stays). */
@@ -307,6 +309,16 @@ export function createInteractiveProvider(opts: { store: Store; log: Logger; now
     },
 
     coverageEnd: () => (coverage.length ? coverage[coverage.length - 1]![1] : null),
+    coveredUntil(t, toleranceMs) {
+      let end: number | null = null;
+      for (const [a, b] of coverage) {
+        if (end === null) {
+          if (a <= t && t < b + toleranceMs) end = b;
+        } else if (a - end <= toleranceMs) end = Math.max(end, b);
+        else break;
+      }
+      return end;
+    },
 
     blocked: (from, to) => blockedIn(from, to),
 
