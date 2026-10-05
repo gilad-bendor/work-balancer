@@ -107,3 +107,15 @@ Commit: `e7ce3e4` "M10: enforcement — …".
 | Daemon death / page failure under an overlay | live at the start of M10 | fail open in 2 s / 21 s |
 
 Also: tests no longer depend on the owner's `liveEffects` (`src/testing/config.ts`). 187 tests.
+
+Commit: `76f55ea` "M11: hardening — …". M11 is `in-progress — awaiting one week of live use` (Tue 2026-10-06 → Mon
+2026-10-12). Review (D-37): no trap/freeze risk; 3 lows fixed (two weak test assertions, crash-loop counter reset rule).
+
+## State at pause (2026-10-05 ~18:45)
+- Live: Lua 0.6.2 + daemon 0.7.0, **enforcing** (`liveEffects: true`), debug eject ON, daemon RSS 150 MB (stable).
+  187 tests green. Dev daemon stopped; fake dev data only in `var/dev/data/2026-10-13/14` (gitignored).
+- Paused on the owner's word: he is writing new tasks in `_PRIVATE-SCRATCH.md` (Task 1 = a day-timeline component
+  for every full-screen view and most dialogs) and will say when to start. Still pending from him: the M5 dry-run
+  sanity check (`scripts/prompt-history-report`); Q-12…Q-15.
+- Leftover scratch (gitignored `scratch/`): screenshots, dev seed / walk / disk-full scripts and outputs, the
+  reviewers' scratch tests.
