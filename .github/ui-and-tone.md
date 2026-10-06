@@ -86,7 +86,7 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 | `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; 4-week trend via `src/daemon/history.ts` |
 | `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
 | `review` | `day.rollover` with `review: true` | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; "Let's start this day!" or ✕ = done for today |
-| `inactivity` (M9) | a gap (5 min idle + uncancelled 10 s pre-warning dim) | **overlay, full, per screen**, focus, intrusive | `inactivity` | **no Esc, no timeout** (D-56) — ends only by Submit (or the escape hatches / fail-open / 04:00); one gap; live timer with seconds; slider "Worked N min of M" + presets (highlighted iff the slider is at their value); Submit enabled after a deliberate touch; other screens: "Please answer on the main screen." |
+| `inactivity` (M9) | a gap (5 min idle + uncancelled 10 s pre-warning dim) | **overlay, full, per screen**, focus, intrusive | `inactivity` | **no Esc, no timeout** (D-56) — ends only by Submit (or the escape hatches / fail-open / 04:00); one gap; live timer with seconds; slider "Worked N min of M" + presets (highlighted iff the slider is at their value); the presets submit at once (D-68), the slider enables Submit; other screens: "Please answer on the main screen." |
 
 The menu itself comes from the daemon (`strings.menu`, sent in every menubar spec); a click posts
 `/bridge/ui-request {open}`; a second click on an open window raises it (`window.focus`). A restarted daemon adopts the

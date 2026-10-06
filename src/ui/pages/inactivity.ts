@@ -1,8 +1,8 @@
 // Inactivity dialog (R-UI-INACT, D-56): full screen on every screen, no Esc, no timeout — it ends by answering. Input
 // while it is up does not end the gap: the gap keeps growing (live, with seconds) until Submit. A slider of the minutes
 // worked (0 = back, the default rule · max = the whole gap · between = some): pinned to max it follows the growing gap,
-// otherwise it keeps its minutes (and drifts left). Two presets move it (highlighted iff it is at their value); Submit
-// is enabled once the owner touched a preset or the slider. Inputs on the primary screen only.
+// otherwise it keeps its minutes (and drifts left). The two presets (back / whole) submit at once (D-68); the slider
+// enables Submit once touched. Inputs on the primary screen only.
 import { act, api, boot, el, isPrimary, windowId } from './page.ts';
 import { duration, timeLabel } from './format.ts';
 
@@ -68,33 +68,41 @@ void boot<Model | null>(({ strings: s, model }) => {
     back.setAttribute('aria-pressed', minutes === 0 && !pinned ? 'true' : 'false');
     whole.setAttribute('aria-pressed', pinned ? 'true' : 'false');
   }
+  let sending = false;
+  const setBusy = (busy: boolean): void => {
+    sending = busy;
+    back.disabled = whole.disabled = slider.disabled = busy;
+    submit.disabled = busy || !touched;
+  };
   const touch = (): void => {
     touched = true;
-    submit.disabled = false;
+    submit.disabled = sending;
   };
 
-  back.addEventListener('click', () => { pinned = false; minutes = 0; touch(); update(); });
-  whole.addEventListener('click', () => { pinned = true; touch(); update(); });
+  async function send(): Promise<void> {
+    if (!gap || !touched || sending) return;
+    setBusy(true);
+    msg.textContent = '';
+    try {
+      const choice = pinned ? 'whole' : minutes === 0 ? 'back' : 'some';
+      const r = await act('resolve', { gapId: gap.gapId, choice, minutes });
+      if (r.ok) return; // the daemon closes the dialog (controls stay disabled meanwhile)
+      msg.textContent = s.saveFailed!;
+    } catch {
+      msg.textContent = s.saveFailed!;
+    }
+    setBusy(false);
+  }
+
+  back.addEventListener('click', () => { pinned = false; minutes = 0; touch(); update(); void send(); });
+  whole.addEventListener('click', () => { pinned = true; touch(); update(); void send(); });
   slider.addEventListener('input', () => {
     minutes = Number(slider.value);
     pinned = minutes >= maxMin() && minutes > 0;
     touch();
     update();
   });
-  submit.addEventListener('click', async () => {
-    if (!gap || !touched) return;
-    submit.disabled = true;
-    msg.textContent = '';
-    try {
-      const choice = pinned ? 'whole' : minutes === 0 ? 'back' : 'some';
-      const r = await act('resolve', { gapId: gap.gapId, choice, minutes });
-      if (r.ok) return; // the daemon closes the dialog
-      msg.textContent = s.saveFailed!;
-    } catch {
-      msg.textContent = s.saveFailed!;
-    }
-    submit.disabled = false;
-  });
+  submit.addEventListener('click', () => { void send(); });
 
   document.body.replaceChildren(el('main', { class: 'card' },
     el('h1', {}, s.inactTitle!),
@@ -117,7 +125,7 @@ void boot<Model | null>(({ strings: s, model }) => {
         minutes = 0;
         pinned = false;
         touched = false;
-        submit.disabled = true;
+        setBusy(false);
       }
       gap = next;
       update();
