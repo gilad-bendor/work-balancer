@@ -44,6 +44,7 @@ export interface Heartbeat {
   ui: {
     /** Window id → rev on screen (M7). Older Lua sent a list of ids; they map to rev "". */
     windows: Record<string, string>;
+    windowOpenedAt?: Record<string, number>;
     /** Windows that went away since the last acknowledged heartbeat (re-sent until a 200; deduped by id+at). */
     closed: ClosedWindow[];
     dimmed: boolean;
@@ -115,9 +116,12 @@ export function parseHeartbeat(body: unknown): Heartbeat {
     },
     ui: {
       windows: parseWindows(ui.windows),
+      windowOpenedAt: isObj(ui.windowOpenedAt)
+        ? Object.fromEntries(Object.entries(ui.windowOpenedAt).filter((entry): entry is [string, number] => isNum(entry[1])))
+        : {},
       closed: arr(ui.closed).filter(
         (c): c is ClosedWindow => isObj(c) && typeof c.id === 'string' && (CLOSE_BY as readonly unknown[]).includes(c.by) && isNum(c.at),
-      ).map((c) => ({ id: c.id, by: c.by, at: c.at })),
+      ).map((c) => ({ id: c.id, by: c.by, at: c.at, ...(isNum(c.openedAt) && c.openedAt <= c.at ? { openedAt: c.openedAt } : {}) })),
       dimmed: ui.dimmed === true,
       latches: { panic: latches.panic === true, quit: latches.quit === true },
       panicBy: typeof ui.panicBy === 'string' ? ui.panicBy : null,

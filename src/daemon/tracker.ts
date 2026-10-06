@@ -5,7 +5,7 @@ import { createInfoRepository } from '../core/registry.ts';
 import { addDays, dayEnd, dayKey, dayKeysBetween, dayStart, minuteKey, weekday, weekStartKey, type DayKey } from '../core/time.ts';
 import { clip, normalize, subtract, total, type Interval } from '../core/intervals.ts';
 import type { MenubarSpec } from '../core/effects.ts';
-import type { GapCause } from '../store/records.ts';
+import type { AnyRecord, GapCause } from '../store/records.ts';
 import { createInteractiveProvider } from '../providers/interactive/index.ts';
 import { createWorkProvider } from '../providers/work/index.ts';
 import { createPromptHistoryProvider } from '../providers/prompt-history/index.ts';
@@ -16,6 +16,8 @@ import { noteView, registerProductEffects } from '../effects/product.ts';
 import { createHistory } from './history.ts';
 import { createInactivity } from '../inactivity/inactivity.ts';
 import { createEnforcement, type WeekInfo } from '../enforcement/enforcement.ts';
+import { createReports } from '../reports/reports.ts';
+import { reportPeriods, reportWorkSource, withoutReportWork } from '../reports/work.ts';
 
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
 export const GAP_MIN_MS = 30_000;
@@ -43,6 +45,12 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   // (Closed runs; an instant is [t, t] — so sorted, not normalize()d, which drops empty intervals.)
   const ownerActivity = (from: number, to: number): Interval[] =>
     [...interactive.workSource.activity!(from, to), ...promptHistory.workSource.activity!(from, to)].sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const reports = createReports({ store, config: () => policy.state().config });
+  const freshReviewDue = (now: number): boolean => reports.freshDue(now) && !['fri', 'sat'].includes(weekday(dayKey(now)));
+  const welcomeAllowed = (now: number): boolean =>
+    !store.health().writeError && ownerActivity(dayStart(dayKey(now)), now + 1).length > 0
+    && interactive.coverageEnd() !== null && now - interactive.coverageEnd()! <= 15_000
+    && interactive.blocked(now - 1, now + 1).length === 0 && !policyState(now).blockActive;
   const inactivity = createInactivity({
     store, log, now: () => clock.now(),
     graceMs: () => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000,
@@ -59,13 +67,37 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     allowed: (now) => {
       // Not while panicking: nothing would be shown, and a stale gap must not pop up after resume (review M9#3).
       if (!deps.effects?.gateOpen() || deps.effects.suppressed() || !policy.state().config) return false;
+      if (freshReviewDue(now)) return false;
       const st = policyState(now);
       return st.dayPolicy?.inactivityDialog === true && st.weekday !== 'sat' && st.level !== 'blocked';
     },
   });
   inactivity.load(history);
+  const reportEvidence = (r: AnyRecord): boolean => r.windowId === 'review:fresh' || r.type === 'monitor.gap';
+  const auditedReports = history.filter(reportEvidence);
+  let auditDay = today0;
+  let auditOffset = store.readDay(today0).length;
+  let auditReadAt = -Infinity;
+  let auditReadVersion = -1;
+  const reportAudit = () => {
+    const now = clock.now();
+    const version = deps.effects?.auditVersion() ?? 0;
+    if (auditReadAt === now && auditReadVersion === version) return auditedReports;
+    auditReadAt = now;
+    auditReadVersion = version;
+    const today = dayKey(now);
+    if (today !== auditDay) { auditDay = today; auditOffset = 0; }
+    const records = store.readDay(today);
+    for (const r of records.slice(auditOffset)) if (reportEvidence(r)) auditedReports.push(r);
+    auditOffset = records.length;
+    return auditedReports;
+  };
+  const reportVersion = (): number => reportAudit().length;
+  const reportIntervals = (): Interval[] => reportPeriods(reportAudit(), clock.now(), (at) => interactive.coveredUntil(at, 15_000));
+  const workInteractive = withoutReportWork(interactive.workSource, reportIntervals, reportVersion);
+  const workPrompts = withoutReportWork(promptHistory.workSource, reportIntervals, reportVersion);
   const work = createWorkProvider({
-    sources: () => [interactive.workSource, promptHistory.workSource, inactivity.workSource],
+    sources: () => [workInteractive, workPrompts, withoutReportWork(inactivity.workSource, reportIntervals, reportVersion), reportWorkSource(reportIntervals, reportVersion)],
     graceMs: () => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000,
     now: () => clock.now(),
   });
@@ -201,18 +233,20 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       },
       weeks,
       feedback: notes.recentFeedback(8).map(noteView),
+      reports: reports.list(now).filter((r) => r.daysAgo < 28).reverse(),
       activeNotes: notes.active().length,
     };
   }
 
   if (deps.effects) {
     deps.effects.register(inactivity.effect);
-    registerProductEffects({ effects: deps.effects, notes, store, now: () => clock.now(), config: () => policy.state().config, summary, quitAllowed });
+    registerProductEffects({ effects: deps.effects, notes, store, now: () => clock.now(), config: () => policy.state().config, summary, quitAllowed, reports, welcomeAllowed });
     const enforcement = createEnforcement({
       store, log, now: () => clock.now(), notes, config: () => policy.state().config,
       state: (now) => (policy.state().config ? policyState(now) : null),
       week: weekInfo,
       currentStretch: () => work.currentStretch(),
+      reports, freshReviewDue,
     });
     for (const e of enforcement.effects) deps.effects.register(e);
   }
@@ -223,7 +257,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     // Nothing is enforced while the block cannot show (store write error — fail open; panic): Quit stays (review M10b#1).
     if (!deps.effects?.gateOpen() || deps.effects.suppressed() || store.health().writeError || !policy.state().config) return true;
     const st = policyState(now);
-    return !(st.enforcing && (st.level === 'countdown' || st.level === 'blocked'));
+    return !(freshReviewDue(now) || (st.enforcing && (st.level === 'countdown' || st.level === 'blocked')));
   }
 
   /** This week's days up to today vs their budgets (the block's numbers, R-UI-BLOCK). */
@@ -308,10 +342,12 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
         ...(st.enforcing && gate ? [strings.tooltipTokens(st.tokensLeft)] : []),
         ...(gate ? [] : [strings.observeMode]),
       ];
-      const menu = quitAllowed(now) ? undefined : strings.menu.filter((m) => m.id !== 'quit' && m.id !== '-');
+      const pendingReports = reports.list(now).filter((r) => r.status === 'pending').length;
+      const menu = (quitAllowed(now) ? strings.menu : strings.menu.filter((m) => m.id !== 'quit' && m.id !== '-'))
+        .map((m) => m.id === 'reports' ? { ...m, title: strings.reportsMenu(pendingReports) } : { ...m });
       return {
         title: strings.menubarTitle(todaySeconds, base, grantLeft), colour: st.colour, tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds),
-        ...(menu ? { menu: menu.map((m) => ({ ...m })) } : {}),
+        menu,
       };
     },
 

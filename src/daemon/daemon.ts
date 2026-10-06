@@ -181,7 +181,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
         let commands: UiCommand[] = [];
         try {
           commands = effects.heartbeat({
-            actual: { windows: hb.ui.windows, dimmed: hb.ui.dimmed, closed: hb.ui.closed }, acks: hb.acks,
+            actual: {
+              windows: hb.ui.windows, dimmed: hb.ui.dimmed,
+              windowOpenedAt: Object.fromEntries(Object.entries(hb.ui.windowOpenedAt ?? {}).map(([id, at]) => [id, at + clock.offsetMs])),
+              closed: hb.ui.closed.map((c) => ({
+                ...c, at: c.at + clock.offsetMs,
+                ...(c.openedAt !== undefined ? { openedAt: c.openedAt + clock.offsetMs } : {}),
+              })),
+            }, acks: hb.acks,
             panic: hb.ui.latches.panic && !panicExpired, now,
           });
         } catch (e) {

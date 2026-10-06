@@ -10,10 +10,10 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, owner's approval 2026-10-05 ~16:40, D-62): on Sun/Tue/Thu — morning review, inactivity dialog, break nudge, warn + dim → countdown (Save = done for today, D-60) → full-screen block until 04:00 with tokens (10+5+5) and the emergency bypass. Mon/Wed/Fri/Sat: menubar only. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). |
+| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, D-62): budgets/inactivity/nudges on Sun/Tue/Thu. **Daily energy reports implemented** (2026-10-06, D-69): every calendar date from today; fresh welcome Sun–Thu (survey-only exception on Mon/Wed), today's report in the block, dismissible menu/catch-up window including today/yesterday. Fri/Sat remain automatically quiet. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). Deployment/verification: see latest session row. |
 | **Next** | **M11 — one week of live use** (Tue 2026-10-06 → Mon 2026-10-12; hardening done 2026-10-05). Then the owner launches **`tbd-06-m11-wrapup`** (on/after Tue 2026-10-13, `scripts/execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait …/tbd-06-m11-wrapup.md`, D-66): week summary from `data/`, his feedback, tuning, M11 done. Owner: sanity-check the M5 numbers (`scripts/prompt-history-report`). Open questions: none. Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.0 + daemon 0.7.1, 2026-10-05; app categories recorded, D-67): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` while a token/bypass runs), the menu, and every intrusive effect on Sun/Tue/Thu. Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.1 + daemon 0.7.2; daily reports and lifecycle hardening deployed 2026-10-06, D-69): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` during a grant), the report menu, budget effects Sun/Tue/Thu and survey-only welcome/catch-up Mon/Wed. Read-only deployment check: healthy, no warning/config errors, today's report available. Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/tbd-06-m11-wrapup` — **pending**, a top-level successor prompt for the owner to launch on/after Tue 2026-10-13 (M11 wrap-up). `tbd-05-continue-m10` completed 2026-10-05. |
 
 ---
@@ -79,8 +79,8 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   | Fri | ✅ | ✅ | — | ❌ | ❌ | ❌ | ❌ (protects the private day) |
   | Sat | ✅ | ✅ (no colours) | — | ❌ | ❌ | ❌ | ❌ (Shabbat: **no popups at all**) |
 
-  - *(2026-10-05, D-35)* **Only Sun/Tue/Thu have anything intrusive** (dialogs, dims, nudges, morning review, block).
-    Mon/Wed/Fri/Sat: menubar status only.
+  - *(2026-10-05, D-35; amended 2026-10-06, D-69)* Budget/inactivity/nudge effects remain **Sun/Tue/Thu only**.
+    Daily energy-report welcome/catch-up also runs on Mon/Wed; Fri/Sat remain automatically quiet.
   - **Weekly budget 44 h** (all days of the week count, R-TIME-3).
   - On enforcing days: **effective daily limit = min(daily budget, weekly budget − worked earlier this week)**, floor 0.
     A heavy week therefore shortens Thursday — protecting Friday. (If the effective limit is 0, see open question Q-3.)
@@ -126,6 +126,15 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   predefined **multi-select choices** (initial: *Too much work · Feeling tired · Anxious · Stuck / frustrated ·
   Productive · Good day · Other*) **+ always a free-text comment**, plus optional energy 1–5. Recorded as a note of kind
   `feedback`.
+- **R-UI-REPORT Daily energy report** *(2026-10-06, owner, D-69)* — **done**: every calendar day, including short
+  workdays and Friday/Saturday away. Required energy 1–5; feelings/comment optional. Today's report is in the
+  end-of-day block; missing yesterday is a full-screen Sun–Thu welcome (answer or explicitly confirm skip before
+  Continue). Older dates share one dismissible catch-up window. Menu *Daily energy reports…* includes missing
+  today/yesterday, so short workdays can be reported before leaving; answered/skipped dates can be amended.
+  Show date, weekday and days ago. Skip confirmation explains the persistent missing score; stronger wording and
+  0.8 s confirmation delay for today/yesterday, lighter for older dates. Closing older catch-up leaves pending dates
+  intact; no successive popups. Fri/Sat have no automatic UI. Activation 2026-10-06 prevents pre-feature backlog.
+  Reports persist as `report.*`, separate from optional feedback notes; block exits/safety remain unchanged.
 - **R-UI-CTX Context-memory** ("close the loop"): free-text box "What's the next thing you'd do? It will be waiting
   for you tomorrow." + submit. Present in: countdown, block, quick-note. Recorded as a note of kind `context`.
 - **R-UI-WARN** Warning dialog (dismissible) + **dim pulse** (few seconds; gamma based; always restored).
@@ -135,7 +144,8 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   given up (`budget.forfeited`) and the block follows until 04:00 (tokens / bypass still work). Cmd+Enter does not save
   there (review M10#6).
 - **R-UI-BLOCK** Full-screen block on **all screens, all spaces, above the menubar and full-screen apps**, until 04:00:
-  kind message, today/week numbers, context-memory box, feedback form, token buttons (remaining counts),
+  kind message, today/week numbers, context-memory box, today's daily report (optional feedback form if reports
+  disabled), token buttons (remaining counts),
   emergency-bypass flow. Consequential actions (token, bypass) need a two-step confirm (guards against accidental and
   synthetic clicks — see F-HS-2). Re-asserted on screen/space changes and after restarts.
 - **R-UI-INACT Inactivity dialog**: when inactivity (default 5 min, R-INFO-3) is detected, show a non-focus-stealing
@@ -160,6 +170,8 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 - **R-UI-REVIEW Morning review at 04:00** (on rollover into Sun–Thu; if the Mac sleeps at 04:00, on first wake after):
   a window listing **all non-dismissed notes** (context-memory + feedback + free notes), **pre-filled/editable**, each
   with a **Dismiss** button. Closing the window does not dismiss anything. Thursday's notes therefore surface on Sunday.
+  *(2026-10-06, D-69)* Missing yesterday's energy report adds the stronger full-screen welcome on all Sun–Thu;
+  notes follow its report/skip decision. Ordinary notes-only review remains Sun/Tue/Thu and dismissible.
 - **R-UI-QUIET** *(2026-10-05, D-34)* **No visual effect starts within 10 s of user input** (typing / mouse): a
   due effect (warn, dim, countdown, block, nudge, dialog) waits for 10 s without input, so it never lands
   mid-keystroke or mid-click. Bounded by a maximum deferral (Q-13), otherwise continuous typing would postpone it forever.
@@ -492,9 +504,11 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
 - Historical backfill script for `prompt-history`; weekly report (markdown) generated into `data/`.
 - Optional auto-commit of `data/` (owner currently commits manually).
 - ~~Energy/feedback trend charts in the summary.~~ → superseded by the next item (2026-10-05).
-- *(2026-10-05, owner — **after M11**, once there is real data)* **"Feedback & energy" window**: a 5th menu item, same
+- *(2026-10-05, owner — **after M11**, once there is real data)* **"Feedback & energy" trend window**: a dedicated menu item, same
   90 % layout as the summary: energy per day (mean + range) over the last weeks beside worked hours per day, choice
   counts per week, and every comment with its date.
+  *(2026-10-06, D-69)* Daily-report entry/catch-up and a recent-report list in summary are done; richer charts/trends
+  remain this backlog, not replaced by the entry window.
 - *(2026-10-05, owner — low priority)* **Statistics on every full-screen effect** (block, zero-limit explanation, any
   overlay): today worked vs limit, this week vs weekly budget, per-day bars Sun–Thu, current stretch, tokens/bypasses
   used; reuse the summary's model. (The block already shows today/week numbers per R-UI-BLOCK — this extends it.)
@@ -555,7 +569,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-32 | 2026-10-05 | One menubar menu on **any** click; first item *Quick note…* (supersedes left-click = quick note; F-HS-4 no longer matters). | Owner (Q-1). |
 | D-33 | 2026-10-05 | Inactivity dialog preceded by a ~10 s pre-warning dim; input cancels it. | Owner (Q-2): reading ≠ away. |
 | D-34 | 2026-10-05 | R-UI-QUIET: effects never start within 10 s of input (bounded deferral, Q-13). | Owner (Q-3): never land mid-keystroke. |
-| D-35 | 2026-10-05 | Only Sun/Tue/Thu are intrusive; Mon/Wed/Fri/Sat menubar only (no inactivity dialog, break nudge or morning review there; supersedes D-13's review schedule: notes now surface on Sun/Tue/Thu mornings). Consequence: no inactivity credits on Mon/Wed/Fri, so off-computer work on those days is not counted toward the weekly budget. | Owner (Q-4). |
+| D-35 | 2026-10-05 | Only Sun/Tue/Thu are intrusive; Mon/Wed/Fri/Sat menubar only (no inactivity dialog, break nudge or morning review there; supersedes D-13's review schedule: notes now surface on Sun/Tue/Thu mornings). Consequence: no inactivity credits on Mon/Wed/Fri, so off-computer work on those days is not counted toward the weekly budget. **Amended by D-69 for daily report windows only; budget/inactivity policy unchanged.** | Owner (Q-4). |
 | D-36 | 2026-10-05 | Notes: no delete, no purge — dismiss/un-dismiss only; `note.deleted` dropped from the data model. | Owner (Q-5): notes are temporary reminders. |
 | D-37 | 2026-10-05 | **Before every commit, an adversarial review subagent checks the change**; findings are triaged (fixed, or recorded why not) before committing. M1–M4 commits were reviewed retroactively. | Owner. |
 | D-38 | 2026-10-05 | Sensors: an input is only an idle-counter **reset** (H-7); a synthetic `wake` only > 60 s after an unmatched sleep; the heartbeat's `locked` flag repairs the timeline only when the newest lock/unlock event is > 10 s old. | Live data 2026-10-04 (phantom inputs, false wake) + review M4#1 (fake lock/unlock pair on every unlock). |
@@ -590,6 +604,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-66 | 2026-10-05 | **Handover for the M11 wrap-up:** `tbd-05-continue-m10` ends. It leaves `tbd-06-m11-wrapup` (pending), which **the owner launches** on or after Tue 2026-10-13 with `scripts/execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait <pending path>`. That session becomes the single top-level, ledger-writing session under the same rules (D-26, D-27, D-37, D-45, D-60…D-65). | M11 needs a week of real use; nothing can usefully run until then. Owner: "Should we proceed now?" |
 | D-67 | 2026-10-05 | **App categories** (owner): `config/categories.ts` (owner-editable, hot-reloaded) exports `categorize({bundleId, appName, windowTitle})` → a category (initially `WhatsApp` for `net.whatsapp.WhatsApp`, else `Work`) and `categoryStyle(category)` → `{color, thickness, label}` for daily timelines, incl. the built-ins `Inactive`/`Blocked`/`Future` (which `categorize` may not return). Recorded per `interactive` minute as `categories: {name: seconds}`, decided when the interval arrives (history is not rewritten by later edits). **No effect on any time logic** (worked time, budgets, ladder, block, inactivity). A throwing/invalid categorizer → `Work`; a broken file keeps the previous one (menubar warning). Window title: Lua 0.7.0 reads it via `hs.axuielement` with a 0.1 s timeout per call (H-19); used in memory only, never stored or logged. | Owner: "In this computer I am doing work almost 100 % of the time"; WhatsApp is the exception; categories feed future daily timelines. |
 | D-68 | 2026-10-06 | **Inactivity presets auto-submit** (amends D-56): clicking "I am back to work!" (`back`) or "I was working the whole time" (`whole`) resolves the gap immediately; the slider ("some") still needs Submit. All controls are disabled while the answer is sent; on failure they re-enable with "save failed". Page-only change (`src/ui/pages/inactivity.ts`), no daemon change. Accepted risk: a stray synthetic click (F-HS-2) landing on a preset now answers the gap in one click instead of two — rare (the owner is away, the overlay must be under VS Code's button) and bounded to one gap's credit. | Owner: the extra Submit click after a preset was needless friction. |
+| D-69 | 2026-10-06 | **Every-day energy reports** (R-UI-REPORT): fresh = today in block / yesterday in Sun–Thu full-screen welcome, energy required or deliberate confirmed skip; older = one dismissible catch-up, date/weekday/age visible. Menu includes today/yesterday for short workdays. Reports are target-date `report.*` events (submission-day file, last wins); skip stores no score and can be filled later. Initial activation today, 2026-10-06; no pre-feature backlog. Fri/Sat automatically quiet; Mon/Wed get survey-only UI (amends D-35), not budgets/inactivity. Mandatory welcome time is excluded from work/credits; safety exits and block tokens/bypass remain. Last 28 days appear in summary; richer trend-chart backlog remains. | Owner: protect energy and avoid missing days, while keeping honest exits; fresh reports compelling, older reports gentler. |
+| D-70 | 2026-10-06 | **Welcome lifecycle accounting:** actual Lua opening/closing timestamps in optional heartbeat metadata, not command request time; sensor coverage/gap boundaries cap exclusion. Quick report completion remains excluded; lost replies and crashed overlays cannot erase real work. Automatic catch-up adoption keeps its original revision, preserving drafts. Daemon 0.7.2 (releases old accounting latch, D-45), Lua 0.7.1. | Requested GPT-6 Astra adversarial pre-commit review and narrow re-checks; all findings fixed with regressions. |
 
 ---
 
@@ -726,3 +742,5 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-05 | (same tmp-folder, tbd-05) | Owner closed Q-12…Q-15 (Q-14 → `github/cli` = automated, D-64, daemon 0.7.1); `_PRIVATE-SCRATCH.md` always ignored (D-65); successor prompt `tbd-06-m11-wrapup` written for after the week (pending, D-66). Session complete. | tbd-06 |
 | 2026-10-05 | (same tmp-folder, tbd-05, continued on the owner's request) | **App categories** (D-67): `config/categories.ts` (`categorize` + `categoryStyle`), per-minute `categories` in `interactive` records, window title via AX with a timeout (Lua 0.7.0, H-19), no time logic touched; review 3 rounds (16 findings) fixed. 196 tests. Deployed live (Monday). | — |
 | 2026-10-06 | (no tmp-folder — small change) | Owner: inactivity presets auto-submit (D-68); dev-verified in a browser (back/whole send one `resolve` at once, slider still needs Submit). 196 tests. Live without a restart (pages served by mtime). | — |
+| 2026-10-06 | `.github/tmp/2026-10-06--14-20--daily-reports/` | **Daily reports done/live** (D-69): calendar obligations, required fresh welcome, block report, menu today/yesterday and dismissible older catch-up, confirmed skips, amendments, summary and mandatory-input accounting. Typecheck + **205 tests**; isolated browser walkthrough of dates, validation, save/amend, skip/cancel, hidden drafts, welcome, synthetic block and draft preservation. One graceful daemon restart; healthy live menu/model, no warnings. No Lua changes/reload, synthetic live UI, data rewrites or commits. [Report](./tmp/2026-10-06--14-20--daily-reports/report.md). | — |
+| 2026-10-06 | (same session, pre-commit follow-up) | Owner authorized our daily-report changes plus pre-existing `.gitignore`, excluding `data/`. GPT-6 Astra adversarial review + narrow re-checks: quick completion, crash-gap exclusion, automatic adoption drafts, lost replies and initial Lua timestamp wiring fixed (D-70); **212 tests + typecheck** green. Lua 0.7.1 reloads healthy/console clean; daemon 0.7.2 restarted healthy. Review triage in session report. | — |

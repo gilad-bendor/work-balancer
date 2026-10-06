@@ -9,21 +9,21 @@ import { fixedClock } from '../core/clock.ts';
 import { REPO_ROOT } from '../core/env.ts';
 import { silentLogger } from '../core/log.ts';
 import { local, makeTmpDir } from '../testing/tmp.ts';
-import { gateClosedPolicy } from '../testing/config.ts';
+import { testPolicy } from '../testing/config.ts';
 import { createEffectsManager } from './manager.ts';
 import { DEFAULT_QUIET } from './reconcile.ts';
 import type { ActualUi, UiCommand } from '../core/effects.ts';
 
 type Cmd = UiCommand & Record<string, any>;
 
-async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; seed?: (store: Store, clock: ReturnType<typeof fixedClock>) => void } = {}) {
+async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; reportsStart?: string; seed?: (store: Store, clock: ReturnType<typeof fixedClock>) => void } = {}) {
   const tmp = opts.dir ? { dir: opts.dir, cleanup() {} } : makeTmpDir('product');
   const clock = fixedClock(start);
   const store = createStore({ dataDir: join(tmp.dir, 'data'), clock, log: silentLogger });
   opts.seed?.(store, clock);
   clock.set(start);
   // Live-env tests are about the closed gate: the owner's policy with liveEffects false (whatever his file says).
-  const configPath = opts.env === 'live' ? gateClosedPolicy(tmp.dir) : join(REPO_ROOT, 'config', 'policy.ts');
+  const configPath = testPolicy(tmp.dir, { dailyReportsStartDay: opts.reportsStart ?? null, ...(opts.env === 'live' ? { liveEffects: false } : {}) });
   const policy = createPolicyLoader({ path: configPath, snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
@@ -76,6 +76,139 @@ test('menu windows: a request opens a floating, focused, non-intrusive window �
     s.request(id);
     assert.ok(s.beat().some((c) => c.op === 'window.open' && c.window.id === id), id);
   }
+});
+
+test('daily reports: Thursday to Sunday; fresh welcome is firm, menu includes every date, form input is not work', async (t) => {
+  const sun = local(2026, 10, 11, 9, 0);
+  const s = await setup(sun, { reportsStart: '2026-10-08' });
+  t.after(s.cleanup);
+  s.tracker.tick(sun);
+  assert.deepEqual(s.beat(), [], 'no automatic overlay while the owner is absent');
+  s.tracker.ingest({ since: sun - 5000, inputs: [sun], apps: [], system: [], locked: false }, sun);
+  const open = s.beat().find((c) => c.op === 'window.open' && c.window.id === 'review:fresh')!;
+  assert.ok(open);
+  assert.equal(open.window.closable, false);
+  assert.equal(open.window.perScreen, true);
+  assert.equal(open.window.mode, 'overlay');
+  assert.equal(s.model('review:fresh').report.day, '2026-10-10');
+  assert.equal(s.action('review:fresh', 'close').error, 'report-required');
+  assert.equal(s.action('review:fresh', 'report-submit', { day: '2026-10-08', energy: 2 }).error, 'day');
+  s.beat({ windows: { 'review:fresh': open.window.rev } });
+  s.clock.advance(60_000);
+  s.tracker.ingest({ since: sun, inputs: [sun + 30_000], apps: [], system: [], locked: false }, s.clock.now());
+  assert.equal((s.tracker.status(s.clock.now()) as { workedSeconds: number }).workedSeconds, 0, 'welcome input cannot consume budget');
+  assert.equal(s.action('review:fresh', 'report-submit', { day: '2026-10-10', energy: 4 }).ok, true);
+  assert.ok(s.effects.desired(s.clock.now()).windows.some((w) => w.id === 'review:fresh'), 'Continue is still available after recording');
+  assert.equal(s.action('review:fresh', 'close').close, true);
+  s.beat({ closed: [{ id: 'review:fresh', by: 'page', at: s.clock.now() }] });
+  assert.ok(!s.effects.desired(s.clock.now()).windows.some((w) => w.id === 'reports'), 'no follow-up popup after the firm welcome');
+  assert.equal(s.request('reports').json.ok, true);
+  const menu = s.beat().find((c) => c.op === 'window.open' && c.window.id === 'reports')!;
+  assert.equal(menu.window.intrusive, false);
+  assert.equal(menu.window.closable, true);
+  assert.equal(s.model('reports').preferredDay, null, 'manual opening lets today be the initial selection');
+  assert.deepEqual(s.model('reports').reports.map((r: { day: string }) => r.day), ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11']);
+  assert.equal(s.action('reports', 'report-submit', { day: '2026-10-11', energy: 3 }).ok, true, 'today can be reported before leaving a short day');
+  assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /2 pending/);
+  assert.equal(s.model('summary').reports.find((r: { day: string }) => r.day === '2026-10-11').energy, 3);
+  s.action('reports', 'close');
+  s.request('reports');
+  const reopened = s.beat({ closed: [{ id: 'reports', by: 'page', at: s.clock.now() }] }).find((c) => c.window?.id === 'reports')!;
+  assert.equal(reopened.window.intrusive, false, 'a menu click while closing stays manual');
+  const restartAt = s.clock.now() + 60_000;
+  const again = await setup(restartAt, { reportsStart: '2026-10-08', dir: s.dir });
+  again.tracker.tick(restartAt);
+  again.tracker.ingest({ since: restartAt - 5000, inputs: [restartAt], apps: [], system: [], locked: false }, restartAt);
+  assert.ok(!again.effects.desired(restartAt).windows.some((w) => w.id === 'review:fresh' || w.id === 'reports'), 'completed welcome and catch-up suppression survive restart');
+});
+
+test('fresh welcome survives restart and changes its revision at 04:00 without resolving missed dates', async (t) => {
+  const start = local(2026, 10, 12, 3, 59);
+  const s = await setup(start, { reportsStart: '2026-10-08' });
+  t.after(s.cleanup);
+  s.tracker.tick(start);
+  s.tracker.ingest({ since: start - 5000, inputs: [start], apps: [], system: [], locked: false }, start);
+  const open = s.beat().find((c) => c.window?.id === 'review:fresh')!;
+  s.beat({ windows: { 'review:fresh': open.window.rev } });
+  const next = start + 10_000;
+  const again = await setup(next, { reportsStart: '2026-10-08', dir: s.dir });
+  again.tracker.tick(next);
+  again.tracker.ingest({ since: start, inputs: [next], apps: [], system: [], locked: false }, next);
+  assert.equal(again.action('review:fresh', 'close').error, 'report-required');
+  const before = again.effects.desired(next).windows.find((w) => w.id === 'review:fresh')!;
+  again.clock.set(local(2026, 10, 12, 4, 0, 5));
+  again.tracker.tick(again.clock.now());
+  again.tracker.ingest({ since: next, inputs: [again.clock.now()], apps: [], system: [], locked: false }, again.clock.now());
+  const after = again.effects.desired(again.clock.now()).windows.find((w) => w.id === 'review:fresh')!;
+  assert.notEqual(before.path, after.path, 'new target date rebuilds the page rather than leaving yesterday’s form');
+  assert.equal(again.model('review:fresh').report.day, '2026-10-11');
+  assert.equal(again.model('reports').reports.find((r: { day: string }) => r.day === '2026-10-10').status, 'pending');
+});
+
+test('rapid welcome completion before first shown heartbeat does not spend the work budget', async (t) => {
+  const start = local(2026, 10, 11, 9, 0);
+  const s = await setup(start, { reportsStart: '2026-10-08' });
+  t.after(s.cleanup);
+  s.tracker.tick(start);
+  s.tracker.ingest({ since: start - 5000, inputs: [start], apps: [], system: [], locked: false }, start);
+  assert.ok(s.beat().some((c) => c.window?.id === 'review:fresh'));
+  s.clock.advance(3500);
+  assert.equal(s.action('review:fresh', 'report-submit', { day: '2026-10-10', energy: 3 }).ok, true);
+  s.action('review:fresh', 'close');
+  s.clock.set(start + 5000);
+  s.tracker.ingest({ since: start, inputs: [start + 1000, start + 2000, start + 3000], apps: [], system: [], locked: false }, s.clock.now());
+  s.beat({ closed: [{ id: 'review:fresh', by: 'page', at: start + 3500, openedAt: start }] });
+  assert.equal((s.tracker.status(s.clock.now()) as { workedSeconds: number }).workedSeconds, 0);
+  s.clock.advance(300_000);
+  assert.equal((s.tracker.status(s.clock.now()) as { workedSeconds: number }).workedSeconds, 0, 'no five-minute grace from report-only clicks');
+});
+
+test('automatic catch-up adoption keeps the same revision so drafts survive daemon restart', async (t) => {
+  const start = local(2026, 10, 11, 9, 0);
+  const seed = (store: Store) => store.append({ type: 'report.submitted', day: '2026-10-10', energy: 4, choices: [], text: '' });
+  const s = await setup(start, { reportsStart: '2026-10-08', seed });
+  t.after(s.cleanup);
+  s.tracker.ingest({ since: start - 5000, inputs: [start], apps: [], system: [], locked: false }, start);
+  const open = s.beat().find((c) => c.window?.id === 'reports')!;
+  s.beat({ windows: { reports: open.window.rev } });
+  const next = start + 5000;
+  const again = await setup(next, { reportsStart: '2026-10-08', dir: s.dir });
+  again.tracker.ingest({ since: start, inputs: [], apps: [], system: [], locked: false }, next);
+  assert.deepEqual(again.beat({ windows: { reports: open.window.rev } }), [], 'no replacement command destroying the existing webview');
+  assert.equal(again.effects.desired(next).windows.find((w) => w.id === 'reports')!.rev, open.window.rev);
+});
+
+test('daily reports: Friday/Saturday quiet; Monday/Wednesday fresh; live gate and panic; older catch-up once', async (t) => {
+  for (const date of [9, 10, 12, 14]) {
+    const now = local(2026, 10, date, 9, 0);
+    const s = await setup(now, { reportsStart: '2026-10-08' });
+    t.after(s.cleanup);
+    s.tracker.tick(now);
+    s.tracker.ingest({ since: now - 5000, inputs: [now], apps: [], system: [], locked: false }, now);
+    assert.equal(s.effects.desired(now).windows.some((w) => w.id === 'review:fresh'), date === 12 || date === 14);
+    if (date === 9 || date === 10) assert.deepEqual(s.beat(), []);
+    assert.deepEqual(s.effects.heartbeat({ actual: { windows: {}, dimmed: false, closed: [] }, acks: [], panic: true, now }), [], 'panic suppresses automatic effects');
+  }
+  const sun = local(2026, 10, 11, 9, 0);
+  const live = await setup(sun, { reportsStart: '2026-10-08', env: 'live' });
+  t.after(live.cleanup);
+  live.tracker.ingest({ since: sun - 5000, inputs: [sun], apps: [], system: [], locked: false }, sun);
+  assert.deepEqual(live.beat(), [], 'live gate suppresses fresh report');
+  assert.equal(live.request('reports').json.ok, true);
+  assert.ok(live.beat().some((c) => c.window?.id === 'reports'), 'manual reports work with the gate closed');
+  const old = await setup(sun, { reportsStart: '2026-10-08', seed: (store) => {
+    store.append({ type: 'report.submitted', day: '2026-10-10', energy: 4, choices: [], text: '' });
+  } });
+  t.after(old.cleanup);
+  old.tracker.ingest({ since: sun - 5000, inputs: [sun], apps: [], system: [], locked: false }, sun);
+  const open = old.beat().find((c) => c.window?.id === 'reports')!;
+  assert.ok(open);
+  assert.equal(open.window.mode, 'floating');
+  assert.equal(open.window.focus, false);
+  assert.equal(old.model('reports').preferredDay, '2026-10-08', 'automatic catch-up starts on an older missing date, not today');
+  old.beat({ windows: { reports: open.window.rev } });
+  old.beat({ closed: [{ id: 'reports', by: 'user', at: sun }] });
+  assert.deepEqual(old.beat(), [], 'Not now silences catch-up for this day');
 });
 
 test('quick note: context + feedback → two notes (source quick); saved parts reported; empty refused', async (t) => {

@@ -13,6 +13,7 @@ import { createEffectsManager } from '../effects/manager.ts';
 import { DEFAULT_QUIET } from '../effects/reconcile.ts';
 import type { SensorSamples } from '../bridge/protocol.ts';
 import { creditedMinutesFor, creditOf, PREWARN_WAIT_MS } from './inactivity.ts';
+import { testPolicy } from '../testing/config.ts';
 
 const S = 1000;
 const MIN = 60_000;
@@ -21,7 +22,7 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string }
   const tmp = opts.dir ? { dir: opts.dir, cleanup() {} } : makeTmpDir('inactivity');
   const clock = fixedClock(start);
   const store = createStore({ dataDir: join(tmp.dir, 'data'), clock, log: silentLogger });
-  const policy = createPolicyLoader({ path: join(REPO_ROOT, 'config', 'policy.ts'), snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
+  const policy = createPolicyLoader({ path: testPolicy(tmp.dir), snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
   const effects = createEffectsManager({

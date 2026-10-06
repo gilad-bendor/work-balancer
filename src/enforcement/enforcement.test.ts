@@ -10,7 +10,7 @@ import { fixedClock } from '../core/clock.ts';
 import { REPO_ROOT } from '../core/env.ts';
 import { silentLogger } from '../core/log.ts';
 import { local, makeTmpDir } from '../testing/tmp.ts';
-import { gateClosedPolicy } from '../testing/config.ts';
+import { gateClosedPolicy, testPolicy } from '../testing/config.ts';
 import { createEffectsManager } from '../effects/manager.ts';
 import { DEFAULT_QUIET } from '../effects/reconcile.ts';
 import { createTestEffect } from '../effects/test-effect.ts';
@@ -35,7 +35,7 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; 
   const store: Store = { ...real, health: () => (opts.writeError?.() ? { ...real.health(), writeError: opts.writeError() } : real.health()) };
   clock.set(start);
   // Live-env tests are about the closed gate: the owner's policy with liveEffects false (whatever his file says).
-  const configPath = opts.configPath ?? (opts.env === 'live' ? gateClosedPolicy(tmp.dir) : join(REPO_ROOT, 'config', 'policy.ts'));
+  const configPath = opts.configPath ?? (opts.env === 'live' ? gateClosedPolicy(tmp.dir) : testPolicy(tmp.dir));
   const policy = createPolicyLoader({ path: configPath, snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
@@ -78,6 +78,30 @@ test('phrase comparison ignores case, spacing and punctuation; token groups', ()
   assert.equal(phraseMatches('', ''), false, 'an empty phrase never matches');
   assert.equal(phraseKey(42), '');
   assert.deepEqual(tokenGroups([5, 10, 5]), [{ minutes: 10, left: 1 }, { minutes: 5, left: 2 }]);
+});
+
+test('daily report in block: today only, required energy, independent token/bypass exits, block retains priority', async (t) => {
+  const dir = makeTmpDir('block-report');
+  t.after(dir.cleanup);
+  const now = local(2026, 10, 6, 17, 1);
+  const s = await setup(now, {
+    dir: dir.dir, configPath: testPolicy(dir.dir, { dailyReportsStartDay: '2026-10-05' }),
+    seed: (store) => seedWork(store, local(2026, 10, 6, 8, 0), now),
+  });
+  s.tracker.tick(now);
+  s.tracker.ingest({ since: now - 5000, inputs: [now], apps: [], system: [], locked: false }, now);
+  assert.deepEqual(s.ids(), ['block'], 'work-budget block has priority over yesterday’s pending report');
+  assert.equal(s.model('block').report.day, '2026-10-06');
+  assert.equal(s.action('block', 'report-submit', { day: '2026-10-05', energy: 2 }).error, 'day');
+  assert.equal(s.action('block', 'report-submit', { day: '2026-10-06' }).error, 'energy');
+  assert.equal(s.action('block', 'token', { minutes: 10 }).close, true, 'pending report never prevents a token');
+  s.clock.advance(11 * MIN);
+  s.tracker.tick(s.clock.now());
+  assert.ok(s.ids().includes('block'));
+  assert.equal(s.action('block', 'report-submit', { day: '2026-10-06', energy: 3 }).ok, true);
+  assert.ok(s.ids().includes('block'), 'answering does not release the budget block');
+  assert.equal(s.model('block').report.status, 'answered');
+  assert.equal(s.action('block', 'bypass', { phrase: PHRASE, reason: 'synthetic reason' }).close, true);
 });
 
 test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, park) → block → token → bypass → restart → 04:00', async (t) => {
@@ -315,7 +339,7 @@ test('review M10: block back at once after a grant (no R-UI-QUIET); dismissals k
   t.after(w.cleanup);
   w.work(local(2026, 10, 6, 16, 31, 30));
   assert.ok(w.win('warn'));
-  assert.ok(w.tracker.menubar(w.clock.now()).menu === undefined, 'Quit stays at warn');
+  assert.ok(w.tracker.menubar(w.clock.now()).menu?.some((m) => m.id === 'quit'), 'Quit stays at warn');
   w.action('warn', 'close');
   assert.equal(w.win('warn'), undefined, 'dismissed even before (or without) the effect.closed record');
 });

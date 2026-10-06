@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Logger } from '../core/log.ts';
 import { WEEKDAYS, type Weekday } from '../core/time.ts';
+import { validReportDay } from '../reports/reports.ts';
 
 export interface DayPolicy {
   /** Show worked time in the menubar. */
@@ -25,6 +26,8 @@ export interface DayPolicy {
 }
 
 export interface PolicyConfig {
+  /** Daily energy obligations begin here; null/absent disables daily reports. */
+  dailyReportsStartDay?: string | null;
   /** Weekly budget in worked minutes (week = Sun 04:00 → Sun 04:00; all days count). */
   weeklyBudgetMin: number;
   /** R-INFO-3: a moment is busy if there was input in the preceding N minutes; also the inactivity threshold. */
@@ -70,6 +73,7 @@ export function validatePolicy(x: unknown): ValidationResult {
     if (v !== null) num(v, path, 0, 24 * 60);
   };
   if (!isObj(x)) return { ok: false, errors: ['the default export must be an object'] };
+  if (x.dailyReportsStartDay != null && !validReportDay(x.dailyReportsStartDay)) errors.push('dailyReportsStartDay must be a real YYYY-MM-DD date or null');
 
   num(x.weeklyBudgetMin, 'weeklyBudgetMin', 0, 7 * 24 * 60);
   num(x.busyGraceMin, 'busyGraceMin', 1, 60);

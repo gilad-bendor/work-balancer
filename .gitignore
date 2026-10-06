@@ -2,3 +2,4 @@ node_modules/
 var/
 .github/tmp/**/scratch/
 .DS_Store
+/_PRIVATE-SCRATCH.md

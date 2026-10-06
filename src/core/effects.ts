@@ -87,12 +87,14 @@ export interface ClosedWindow {
   id: string;
   by: CloseBy;
   at: number;
+  openedAt?: number;
 }
 
 /** Actual UI as reported by Lua in every heartbeat. */
 export interface ActualUi {
   /** Window id → rev of what is on screen. */
   windows: Record<string, string>;
+  windowOpenedAt?: Record<string, number>;
   dimmed: boolean;
   closed: ClosedWindow[];
 }
@@ -125,7 +127,7 @@ export interface Effect {
   /** The owner asked for this effect's window (menu click, `POST /bridge/ui-request`). User-initiated effects only. */
   request?(now: number): void;
   /** First heartbeat after a daemon start: this effect's windows Lua still shows (a restart must not close them). */
-  adopt?(windowIds: string[], now: number): void;
+  adopt?(windowIds: string[], now: number, revisions?: Readonly<Record<string, string>>): void;
   /** Windows to raise with key focus (drained every heartbeat; ignored for windows not on screen). */
   focusRequests?(): string[];
   /** Lua reported the window gone. `user`/`page` mean dismissed; other causes leave the decision to the effect. */

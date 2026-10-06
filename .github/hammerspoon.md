@@ -94,6 +94,10 @@ Environment: Hammerspoon **1.1.1**, `hs` CLI at `/opt/homebrew/bin/hs`, macOS, o
   `M.quit("menu")`); the daemon may send `window.focus`. Window `w`/`h` in (0, 1] = fraction of the screen.
 - **Dev preview:** `WorkBalancer.preview(url)` opens a normal, closable `DEV PREVIEW — <url>` webview; it refuses the
   live port and non-local URLs.
+- **Window lifecycle (Lua 0.7.1):** `createView` stamps the first `openedAt` immediately after `show()` (before focus),
+  shared across per-screen views. Heartbeats carry `ui.windowOpenedAt`; close reports retain `openedAt` alongside
+  `at`. The daemon uses these actual times for mandatory welcome accounting, even if the window closed before its
+  first shown heartbeat. A command being sent is not evidence that a window appeared.
 
 ## 3. Gotchas
 

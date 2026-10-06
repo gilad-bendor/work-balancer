@@ -8,6 +8,7 @@ import { createInteractiveProvider } from '../providers/interactive/index.ts';
 import { createPromptHistoryProvider } from '../providers/prompt-history/index.ts';
 import { createWorkProvider } from '../providers/work/index.ts';
 import { creditsFromRecords } from '../inactivity/inactivity.ts';
+import { reportPeriods, reportWorkSource, withoutReportWork } from '../reports/work.ts';
 
 export interface History {
   /** Worked seconds per day in [from, to] (both inclusive). */
@@ -15,7 +16,7 @@ export interface History {
 }
 
 const RAW_LINE = (line: string): boolean =>
-  line.includes('"type":"minute"') || line.includes('"type":"system"') || line.includes('"type":"inactivity.resolved"');
+  line.includes('"type":"minute"') || line.includes('"type":"system"') || line.includes('"type":"inactivity.resolved"') || line.includes('"type":"monitor.gap"') || line.includes('"windowId":"review:fresh"');
 
 export function createHistory(deps: { store: Store; log: Logger; now: () => number; graceMs: () => number }): History {
   const cache = new Map<DayKey, { grace: number; seconds: number }>();
@@ -32,7 +33,12 @@ export function createHistory(deps: { store: Store; log: Logger; now: () => numb
     });
     prompts.load(records);
     const credits = creditsFromRecords(records, deps.graceMs);
-    const work = createWorkProvider({ sources: () => [interactive.workSource, prompts.workSource, credits], graceMs: deps.graceMs, now });
+    const periods = () => reportPeriods(records, now(), (at) => interactive.coveredUntil(at, 15_000));
+    const version = () => 0;
+    const work = createWorkProvider({
+      sources: () => [withoutReportWork(interactive.workSource, periods, version), withoutReportWork(prompts.workSource, periods, version), withoutReportWork(credits, periods, version), reportWorkSource(periods, version)],
+      graceMs: deps.graceMs, now,
+    });
     return new Map(dayKeysBetween(from, to).map((k) => [k, work.daySeconds(k)]));
   }
 

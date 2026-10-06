@@ -16,6 +16,7 @@ export interface FeedbackForm {
   value(): FeedbackValue;
   isEmpty(): boolean;
   reset(): void;
+  setValue(value: FeedbackValue): void;
 }
 
 export function feedbackForm(s: Strings, choices: readonly string[]): FeedbackForm {
@@ -68,6 +69,14 @@ export function feedbackForm(s: Strings, choices: readonly string[]): FeedbackFo
       energy = null;
       comment.value = '';
       [...chips, ...energyButtons].forEach((b) => toggle(b, false));
+    },
+    setValue(value) {
+      picked.clear();
+      for (const choice of value.choices) if (choices.includes(choice)) picked.add(choice);
+      energy = value.energy;
+      comment.value = value.text;
+      chips.forEach((b, i) => toggle(b, picked.has(choices[i]!)));
+      energyButtons.forEach((b, i) => toggle(b, energy === i + 1));
     },
   };
 }

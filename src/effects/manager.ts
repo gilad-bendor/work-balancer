@@ -21,6 +21,8 @@ export interface EffectsManager {
   gateOpen(): boolean;
   /** Lua's panic latch as of the last heartbeat (nothing intrusive is shown). */
   suppressed(): boolean;
+  /** Changes when lifecycle audit records are appended, even within the same clock tick. */
+  auditVersion(): number;
 }
 
 export interface EffectsDeps {
@@ -64,6 +66,7 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
   let shownToday = new Set<string>();
   /** Audited windows whose last record is `effect.shown` — rebuilt from yesterday + today, so restarts don't re-log. */
   const openAudited = new Set<string>();
+  let auditVersion = 0;
   {
     const today = dayKey(deps.now());
     shownDay = today;
@@ -117,9 +120,12 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
     return { windows, dims };
   }
 
-  function audit(type: 'effect.shown' | 'effect.closed', windowId: string, by?: CloseBy): void {
+  function audit(type: 'effect.shown' | 'effect.closed', windowId: string, by?: CloseBy, closedAt?: number, openedAt?: number): void {
     const e = effects.get(effectOf(windowId));
     if (!e?.audit) return;
+    const end = Math.min(closedAt ?? deps.now(), deps.now());
+    const start = typeof openedAt === 'number' && Number.isFinite(openedAt) && openedAt <= end ? openedAt : undefined;
+    const lifecycle = windowId === 'review:fresh' ? { at: type === 'effect.shown' ? start ?? deps.now() : end } : {};
     if (type === 'effect.shown') {
       if (openAudited.has(windowId)) return;
       openAudited.add(windowId);
@@ -127,11 +133,12 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
       if (!openAudited.has(windowId)) {
         // Lua reports a close for a window never reported as shown (closed within one beat of opening): it was shown.
         if (by === 'reload' || by === undefined) return;
-        deps.store.append({ type: 'effect.shown', effect: e.name, windowId });
+        deps.store.append({ type: 'effect.shown', effect: e.name, windowId, ...(start !== undefined ? { at: start } : {}) });
       }
       openAudited.delete(windowId);
     }
-    deps.store.append(by ? { type, effect: e.name, windowId, by } : { type, effect: e.name, windowId });
+    deps.store.append(by ? { type, effect: e.name, windowId, by, ...lifecycle } : { type, effect: e.name, windowId, ...lifecycle });
+    auditVersion++;
   }
 
   function heartbeat({ actual: next, acks, panic, now }: Parameters<EffectsManager['heartbeat']>[0]): UiCommand[] {
@@ -141,7 +148,7 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
       const key = `${c.id}@${c.at}`;
       if (closedSeen.has(key)) continue;
       remember(closedSeen, key);
-      audit('effect.closed', c.id, c.by);
+      audit('effect.closed', c.id, c.by, c.at, c.openedAt);
       // Closed on purpose: its next appearance is a new effect (R-UI-QUIET applies again). Only involuntary losses
       // (reload, fail-open, load failure) re-appear without deferral.
       if (c.by === 'user' || c.by === 'page' || c.by === 'system' || c.by === 'panic') shownToday.delete(c.id);
@@ -162,7 +169,7 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
         deps.log.error('effect.closed failed', { id, error: err as Error });
       }
     }
-    for (const id of Object.keys(next.windows)) audit('effect.shown', id);
+    for (const id of Object.keys(next.windows)) audit('effect.shown', id, undefined, undefined, next.windowOpenedAt?.[id]);
     actual = next;
     if (!adopted) {
       adopted = true;
@@ -171,7 +178,7 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
         const ids = Object.keys(next.windows).filter((id) => effectOf(id) === e.name);
         if (ids.length && e.adopt) {
           try {
-            e.adopt(ids, now);
+            e.adopt(ids, now, next.windows);
           } catch (err) {
             deps.log.error('effect.adopt failed', { effect: e.name, error: err as Error });
           }
@@ -264,5 +271,6 @@ export function createEffectsManager(deps: EffectsDeps): EffectsManager {
     status,
     gateOpen: () => deps.gateOpen(),
     suppressed: () => panicNow,
+    auditVersion: () => auditVersion,
   };
 }

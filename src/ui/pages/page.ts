@@ -123,13 +123,13 @@ export function submitOnCmdEnter(box: HTMLElement, submit: () => void): void {
  * unsaved text in a box, the first Esc only says so; a second Esc within 3 s closes (review M8#4: never lose his words
  * to a stray key).
  */
-export function closeOnEscape(unsavedHint: string): void {
+export function closeOnEscape(unsavedHint: string, hasUnsaved?: () => boolean): void {
   let armedAt = -Infinity;
   let hint: HTMLElement | null = null;
   document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
     e.preventDefault();
-    const unsaved = [...document.querySelectorAll('textarea, input[type=text]')].some((b) => (b as HTMLTextAreaElement).value.trim() !== '' && !(b as HTMLElement).dataset.saved);
+    const unsaved = hasUnsaved ? hasUnsaved() : [...document.querySelectorAll('textarea, input[type=text]')].some((b) => (b as HTMLTextAreaElement).value.trim() !== '' && !(b as HTMLElement).dataset.saved);
     if (unsaved && performance.now() - armedAt > 3000) {
       armedAt = performance.now();
       hint?.remove();

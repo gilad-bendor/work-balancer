@@ -86,6 +86,8 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 | `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; 4-week trend via `src/daemon/history.ts` |
 | `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
 | `review` | `day.rollover` with `review: true` | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; "Let's start this day!" or ✕ = done for today |
+| `review:fresh` | missing yesterday's daily energy report, Sun–Thu, fresh active/unlocked sensors | **overlay, full, per screen**, focused, not closable | `review` | answer or confirm skip before Continue; budget block has priority; existing notes follow the decision |
+| `reports` | menu *Daily energy reports…*; otherwise one gentle older catch-up on Sun–Thu | floating, 90 %, closable | `reports` | manual: focused/non-intrusive; automatic: no focus/intrusive; includes today/yesterday and skipped/answered dates |
 | `inactivity` (M9) | a gap (5 min idle + uncancelled 10 s pre-warning dim) | **overlay, full, per screen**, focus, intrusive | `inactivity` | **no Esc, no timeout** (D-56) — ends only by Submit (or the escape hatches / fail-open / 04:00); one gap; live timer with seconds; slider "Worked N min of M" + presets (highlighted iff the slider is at their value); the presets submit at once (D-68), the slider enables Submit; other screens: "Please answer on the main screen." |
 
 The menu itself comes from the daemon (`strings.menu`, sent in every menubar spec); a click posts
@@ -106,8 +108,10 @@ latest `policy.transition` into it.
 
 Once a token or the bypass was used today, the block's return is `immediate` (no R-UI-QUIET deferral). While the
 countdown or the block is due (live, enforcing day), the menu has no *Quit* and the quit page refuses (D-61).
-Shared page module `park.ts`: context box + feedback form + Save (action `save`, notes with source `countdown`/`block`) +
+Shared page module `park.ts`: context box + optional feedback form + Save (action `save`, notes with source `countdown`/`block`) +
 debounced `draft`. Strings use `{n}`/`{m}`/`{k}`/`{t}` placeholders filled by `page.ts` `fill()`.
+When daily reports are enabled, the block shows today's `report-form.ts` instead of a second optional energy form;
+parking context, tokens and bypass remain independent.
 **Trial mode:** `POST /api/test/window {"live": true, "page": "block" | "countdown" | "warn" | "nudge" | "inactivity"}`
 (+ `"zeroLimit": true` for the block) shows the real page over synthetic numbers; answers are logged (never their text),
 nothing reaches `data/`.
@@ -125,3 +129,29 @@ excluded — gamma only; the M9 inactivity dialog checked live 2026-10-05; the M
 - **Trying a product page live without touching data:** `POST /api/test/window {"live": true, "page": "inactivity",
   "gapMinutes": 12}` shows the real inactivity dialog over a synthetic gap (TTL ≤ 120 s); the answer goes to the daemon
   log only. `WorkBalancer.preview(url, true)` = a full-screen DEV PREVIEW at the overlay opacity.
+
+## 6. Daily energy reports (D-69)
+
+- One decision per **calendar day**, including days away from this computer. Activation is configured by
+  `dailyReportsStartDay` (initially 2026-10-06); no surprise backlog before that date.
+- **Fresh:** today inside the end-of-day block; missing yesterday in a full-screen welcome on **Sun–Thu** (including
+  survey-only Mon/Wed). No ordinary dismissal until energy 1–5 is recorded or skip confirmed. Answering never lifts
+  a budget block; tokens/bypass/panic/eject/fail-open are unchanged. A short day can be reported from the menu.
+- **Older:** one floating, dismissible catch-up, no queue of successive popups. Closing or "Not now" leaves dates
+  pending. No automatic catch-up immediately after the fresh welcome; its button opens catch-up on request. After
+  dismissal, no second automatic offer that day, including across restarts.
+- **Friday/Saturday:** calendar obligations still exist, but no automatic report windows. On Sunday, Saturday is
+  yesterday/fresh; Friday and Thursday are older.
+- Every form shows **weekday, full date, days ago** (Today / Yesterday · 1 day ago / N days ago). All missing dates,
+  including today/yesterday, are available in the menu window; answered/skipped dates can be amended later.
+- Skip always opens a confirmation explaining the missing score and persistent skipped status; fresh confirmations
+  add stronger wording and a short 0.8 s deliberate delay. Cancel/Esc returns to the report, not out of the welcome.
+  Older confirmations are shorter and have no delay. A failed save leaves the obligation unresolved.
+- `report-form.ts` reuses `feedback.ts`: **energy required**, feelings and comment optional. Daily reports use
+  `report.*` events, never informal feedback notes; the summary displays the last 28 days' status and scores.
+- Mandatory welcome interaction is excluded from worked time; no inactivity request while yesterday is pending.
+  R-UI-QUIET, live gate, panic and visible fail-open still apply. The target date changes the window revision at
+  04:00, so a surviving window does not keep an obsolete form.
+- Lua lifecycle timestamps (not command issue times) drive welcome accounting, including quick completion before
+  the first heartbeat; coverage gaps end exclusions. Adopted automatic catch-up keeps its original revision and
+  focus/intrusive flags, so restarting the daemon does not rebuild the page or discard unsaved reports.

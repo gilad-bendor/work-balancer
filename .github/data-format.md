@@ -44,12 +44,32 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 | `effect.shown` / `effect.closed` | `effect`, `windowId`; `closed` also `by` (`user` · `page` · `system` · `panic` · `failopen` · `load-failed` · `reload`) | written (M7) | Only for effects with `audit: true` (M8: `quick`, `notes`, `summary`, `quit`, `review`; M9: `inactivity`; M10: `warn`, `countdown`, `block`, `nudge`; `test` windows are never logged). M10 reads them back: a `warn` closed by `user`/`page` after its level entry = dismissed; a `nudge` closed by `user`/`page` = snoozed; today's `effect.shown` let a restarted daemon re-show a window without R-UI-QUIET deferral. `shown` when Lua first reports the window; `closed` once per Lua close report (deduped by id + time), or `reload` when an audited window vanished without a report. An `effect.closed` for `review` by `user`/`page` = the morning review is done for that day. |
 | `note.created` | `noteId` (`n-<epochMs>-<6 hex>`), `kind` (`context` · `feedback` · `note`), `text` (trimmed, ≤ 4000 chars; may be `""` for a feedback note), `choices?` (feedback only; only values from the policy's `feedbackChoices`), `energy?` (feedback only; integer 1–5), `source` | written (M8) | `source`: `quick` · `countdown` · `block` · `review` · `manager`. Current day's file. |
 | `note.edited` / `note.dismissed` / `note.undismissed` | `noteId`, (`text` for `edited`) | written (M8) | Event-sourced; state = fold of all `note.*` records over **all** day files in order (`src/notes/notes.ts`; unknown ids / duplicate creates ignored). Edits change the text only. No delete (ledger D-36): "removing" a note = dismissing it. A no-op (same text, already dismissed) writes nothing. |
+| `report.submitted` | `day` (target day key), `energy` (required integer 1–5), `choices` (configured values, ≤ 20), `text` (trimmed, ≤ 4000 chars) | written (D-69) | A daily energy report, separate from optional feedback notes. `ts` is the submission time; appended to the **submission day's file**, even for an older target `day`. |
+| `report.skipped` | `day` (target day key) | written (D-69) | Explicitly confirmed skip; no energy score is invented. Same submission-time routing. A later submission can fill the skipped date. |
 | `config.loaded` | `hash`, `source` (`file` · `snapshot`) | written (M3) | |
 | `config.invalid` | `errors` | written (M3) | |
 | `day.rollover` | `fromDay`, `toDay`, `review` (bool) | written (M8) | Once per day, on the daemon's first tick of the day (04:00, the first tick after a wake, or a start on a day without one). `review: true` = a morning-review day (policy `morningReview`) with notes waiting at that moment: it decides the day's morning review (R-UI-REVIEW). |
 | `panic` | `by` (`hotkey` · `cli` · `unknown`), `at` (when the latch was set) | written (M3) | Logged once per latch transition (a restarted daemon restores today's state from these records). |
 | `resume` | `by` (`cli` · `rollover`) | written (2026-10-05) | The panic latch was cleared: `WorkBalancer.resume()`, or the daemon expired it at 04:00. |
 | `app.quit` | `by` (`menu` · `cli`) | written (M8) | Lua's quit (menu → confirm, or `WorkBalancer.quit()`) asked the daemon to stop; followed by `daemon.stopped` with reason `quit`. |
+
+### Daily reports
+
+[`src/reports/reports.ts`](../src/reports/reports.ts) folds valid `report.*` events across **all** files; the last
+event for a target `day` wins. Identical resubmissions write nothing; failed writes leave the previous state intact.
+Missing dates are derived from **every calendar day** from `dailyReportsStartDay` (inclusive), not from activity or
+existing files. Initial activation: **2026-10-06**; absent/null disables reports. Date age uses civil calendar days
+(DST-safe); the 04:00 boundary applies. Skip confirmations expire after 60 s and are cancelled by a restart.
+`effect.shown`/`effect.closed` for `review:fresh` delimit mandatory welcome interaction, excluded from worked time and
+inactivity credits in both live and historical reconstruction. Ordinary notes review and voluntary reports do not
+change work accounting. The `reports` catch-up window is also audited.
+
+For `review:fresh`, `effect.shown`/`effect.closed` carry optional `at` = actual Lua lifecycle time; `ts` remains
+the audit write time. Lua reports `ui.windowOpenedAt` and retains `openedAt` in close reports, including a window
+completed before its first shown heartbeat. Never derive appearance from a command request: a lost reply means
+the window did not appear. Exclusion ends at the close **or the first loss of continuous sensor coverage**, whichever
+is earlier; `monitor.gap` clips rounded historical coverage. This prevents a delayed reload audit from erasing real
+work done after an overlay crashed.
 
 ### 3.1 `minute` data per provider
 

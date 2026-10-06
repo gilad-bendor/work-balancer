@@ -5,8 +5,13 @@ import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from '../core/env.ts';
 
 export function gateClosedPolicy(dir: string): string {
+  return testPolicy(dir, { liveEffects: false });
+}
+
+/** Keep unrelated policy tests independent of the owner's daily-report activation date. */
+export function testPolicy(dir: string, overrides: { liveEffects?: boolean; dailyReportsStartDay?: string | null } = {}): string {
   const path = join(dir, 'policy-gate-closed.ts');
   const owner = pathToFileURL(join(REPO_ROOT, 'config', 'policy.ts')).href;
-  writeFileSync(path, `import owner from '${owner}';\nexport default { ...owner, liveEffects: false };\n`);
+  writeFileSync(path, `import owner from '${owner}';\nexport default { ...owner, ...${JSON.stringify({ dailyReportsStartDay: null, ...overrides })} };\n`);
   return path;
 }

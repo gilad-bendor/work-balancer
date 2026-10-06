@@ -13,7 +13,7 @@ export interface ParkPanel {
   box: HTMLTextAreaElement;
 }
 
-export function parkPanel(s: Strings, choices: readonly string[], opts: { title?: string; draft?: string; saveLabel?: string; savedText?: string; cmdEnterHint?: string } = {}): ParkPanel {
+export function parkPanel(s: Strings, choices: readonly string[], opts: { title?: string; draft?: string; saveLabel?: string; savedText?: string; cmdEnterHint?: string; showFeedback?: boolean } = {}): ParkPanel {
   const box = el('textarea', { rows: '2', placeholder: s.contextPlaceholder ?? '' });
   box.value = opts.draft ?? '';
   const fb = feedbackForm(s, choices);
@@ -56,7 +56,7 @@ export function parkPanel(s: Strings, choices: readonly string[], opts: { title?
     ...(opts.title ? [el('h2', {}, opts.title)] : []),
     el('label', { class: 'label' }, s.contextLabel ?? ''),
     box,
-    fb.root,
+    ...(opts.showFeedback === false ? [] : [fb.root]),
     msg,
     el('div', { class: 'row end' }, save),
   );

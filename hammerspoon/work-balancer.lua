@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.7.0"
+local VERSION = "0.7.1"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -411,6 +411,7 @@ local function createView(rec, key, target)
   end)
   v:url(url)
   v:show()
+  if not rec.openedAt then rec.openedAt = nowMs() end
   if spec.focus and target.primary then
     local w = v:hswindow()
     if w then pcall(function() w:focus() end) end
@@ -449,7 +450,7 @@ closeWindow = function(id, by)
   if not rec then return end
   S.wins[id] = nil
   destroy(rec)
-  table.insert(S.closedOut, { id = id, by = by, at = nowMs() })
+  table.insert(S.closedOut, { id = id, by = by, at = nowMs(), openedAt = rec.openedAt })
   if #S.closedOut > MAX_ACKS then table.remove(S.closedOut, 1) end
 end
 
@@ -552,6 +553,12 @@ local function actualWindows()
   return out
 end
 
+local function windowOpenedAt()
+  local out = {}
+  for id, rec in pairs(S.wins) do if rec.openedAt then out[id] = rec.openedAt end end
+  return out
+end
+
 --- PANIC-EJECT (R-UI-EJECT): terminate Hammerspoon. A detached killer finishes the job if termination is refused.
 local function eject()
   log("PANIC-EJECT — terminating Hammerspoon")
@@ -620,6 +627,7 @@ local function buildHeartbeat()
     samples = samples,
     ui = {
       windows = actualWindows(), closed = { table.unpack(S.closedOut) }, dimmed = S.dim ~= nil,
+      windowOpenedAt = windowOpenedAt(),
       latches = M.latches, panicBy = S.panicBy, panicAt = S.panicAt,
     },
     acks = { table.unpack(S.acks) },

@@ -6,6 +6,8 @@
 import { act, api, boot, el, fill, isPrimary, windowId } from './page.ts';
 import { hm, timeLabel } from './format.ts';
 import { parkPanel } from './park.ts';
+import type { DailyReport } from '../../reports/reports.ts';
+import { reportForm } from './report-form.ts';
 
 interface Day {
   day: string;
@@ -16,6 +18,7 @@ interface Day {
 }
 
 interface Model {
+  report?: DailyReport | null;
   zeroLimit: boolean;
   workedSeconds: number;
   limitSeconds: number;
@@ -157,16 +160,27 @@ void boot<Model | null>(({ strings: s, model: first }) => {
   }
 
   function renderMain(): void {
-    const park = parkPanel(s, model.feedbackChoices, { title: s.blockPark!, draft: model.draft });
+    const park = parkPanel(s, model.feedbackChoices, { title: s.blockPark!, draft: model.draft, showFeedback: !model.report });
     renderTokens();
     bypassStart();
     document.body.replaceChildren(el('main', { class: 'card block' },
       ...head(),
+      ...(model.report ? [makeReportForm()] : []),
       el('div', { class: 'block-grid' },
         park.root,
         el('section', { class: 'more' }, el('h2', {}, s.blockMoreTitle!), el('p', { class: 'muted' }, s.blockMoreHint!), tokensBox, msg, bypassBox),
       ),
     ));
+  }
+
+  function makeReportForm(): HTMLElement {
+    return reportForm(model.report!, s, model.feedbackChoices, () => {
+      void api<{ model: Model | null }>(`/api/ui/model?win=${encodeURIComponent(windowId)}`).then((r) => {
+        if (!r.model) return;
+        model = r.model;
+        if (model.report) document.querySelector('.daily-report')?.replaceWith(makeReportForm());
+      }).catch(() => { msg.textContent = s.saveFailed!; });
+    });
   }
 
   showNumbers();

@@ -46,6 +46,9 @@ textarea { resize: vertical; line-height: 1.4; }
 .chip.energy { min-width: 44px; }
 .energy-row { margin: 10px 0; }
 .feedback { border-top: 1px solid var(--border); margin-top: 18px; }
+.daily-report { border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 16px 0; }
+dialog { max-width: 760px; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .notes { margin-top: 8px; }
 .note { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 10px 0; }
 .note.dismissed { opacity: 0.55; }
@@ -118,6 +121,7 @@ body.page-block .block-grid .park, body.page-block .block-grid .more, body.page-
 .bypass textarea, .bypass input[type=text] { margin-top: 8px; }
 body.page-block textarea, body.page-block input[type=text] { background: rgba(0, 0, 0, 0.25); color: #ece9e2; border-color: rgba(255, 255, 255, 0.2); }
 body.page-block button:not(.primary):not([aria-pressed="true"]) { background: rgba(255, 255, 255, 0.08); color: #ece9e2; border-color: rgba(255, 255, 255, 0.2); }
+body.page-block dialog button:not(.primary):not([aria-pressed="true"]) { background: var(--card); color: var(--text); border-color: var(--border); }
 /* Titled windows (Lua `titled=1`): the page's background fills the title bar (visible, draggable); content below it. */
 html.titled body { padding-top: 28px; }
 html.titled body.panel > .topbar { border-top: 1px solid var(--border); }

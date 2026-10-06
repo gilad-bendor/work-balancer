@@ -15,6 +15,7 @@ const relaxedWorkday = {
 };
 
 export default {
+  dailyReportsStartDay: '2026-10-06',
   weeklyBudgetMin: 44 * H,
   busyGraceMin: 5,
   ladder: { orangeAtFraction: 0.75, warnBeforeMin: 30, countdownBeforeMin: 10 },

@@ -14,6 +14,7 @@ import type { Store } from '../store/store.ts';
 import type { Notes, NoteSource } from '../notes/notes.ts';
 import { cleanText } from '../notes/notes.ts';
 import { submitContextAndFeedback } from '../effects/product.ts';
+import type { Reports } from '../reports/reports.ts';
 
 /** The warn dim pulse (R-UI-WARN): a few seconds, gentle; Lua caps and always restores. */
 export const WARN_DIM: Omit<DimSpec, 'pulseId'> = { level: 0.6, seconds: 3 };
@@ -36,6 +37,8 @@ export interface WeekInfo {
 }
 
 export interface EnforcementDeps {
+  reports?: Reports;
+  freshReviewDue?: (now: number) => boolean;
   store: Store;
   log: Logger;
   now: () => number;
@@ -151,6 +154,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
     name: 'warn',
     audit: true,
     desired(now) {
+      if (d.freshReviewDue?.(now)) return none;
       const st = d.state(now);
       if (!st?.enforcing || st.level !== 'warn') return none;
       const records = today(now);
@@ -181,6 +185,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
     name: 'countdown',
     audit: true,
     desired(now) {
+      if (d.freshReviewDue?.(now)) return none;
       const st = d.state(now);
       if (!st?.enforcing || st.level !== 'countdown') {
         collapsed = false;
@@ -232,10 +237,14 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
       const c = d.config();
       const st = d.state(now);
       if (!c || !st?.enforcing) return null;
-      return { ...blockModel(c, st, d.week(now), now, draftText(now)), blockActive: st.blockActive };
+      return { ...blockModel(c, st, d.week(now), now, draftText(now)), blockActive: st.blockActive, report: d.reports?.get(dayKey(now), now) ?? null };
     },
     action(_id, action, payload, now) {
       const p = obj(payload);
+      if (action.startsWith('report-')) {
+        if (p.day !== dayKey(now)) return { ok: false, error: 'day' };
+        return d.reports?.action(action, payload, now) ?? { ok: false, error: 'unavailable' };
+      }
       if (action === 'save') return save('block', payload, now);
       if (action === 'draft') return setDraft(payload, now);
       const c = d.config();
@@ -270,6 +279,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
     name: 'nudge',
     audit: true,
     desired(now) {
+      if (d.freshReviewDue?.(now)) return none;
       const c = d.config();
       const st = d.state(now);
       if (!c || !st?.dayPolicy?.breakNudge || st.weekday === 'sat') return none;
