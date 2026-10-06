@@ -10,10 +10,10 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, D-62): budgets/inactivity/nudges on Sun/Tue/Thu. **Daily energy reports implemented** (2026-10-06, D-69): every calendar date from today; fresh welcome Sun–Thu (survey-only exception on Mon/Wed), today's report in the block, dismissible menu/catch-up window including today/yesterday. Fri/Sat remain automatically quiet. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). Deployment/verification: see latest session row. |
+| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, D-62, D-71): office Sun/Tue/Thu **8.5 h**, home Mon/Wed **8 h**; budgets/inactivity/nudges/review on all Sun–Thu. **Daily energy reports implemented** (2026-10-06, D-69): every calendar date from today; fresh welcome Sun–Thu, today's report in the block, dismissible menu/catch-up window including today/yesterday. Fri/Sat remain automatically quiet with a neutral menubar. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). Deployment/verification: see latest session row. |
 | **Next** | **M11 — one week of live use** (Tue 2026-10-06 → Mon 2026-10-12; hardening done 2026-10-05). Then the owner launches **`tbd-06-m11-wrapup`** (on/after Tue 2026-10-13, `scripts/execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait …/tbd-06-m11-wrapup.md`, D-66): week summary from `data/`, his feedback, tuning, M11 done. Owner: sanity-check the M5 numbers (`scripts/prompt-history-report`). Open questions: none. Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.1 + daemon 0.7.2; daily reports and lifecycle hardening deployed 2026-10-06, D-69): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` during a grant), the report menu, budget effects Sun/Tue/Thu and survey-only welcome/catch-up Mon/Wed. Read-only deployment check: healthy, no warning/config errors, today's report available. Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.1 + daemon 0.7.2; daily reports and lifecycle hardening deployed 2026-10-06, D-69): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` during a grant), the report menu, budget effects and welcome/catch-up Sun–Thu. Office/home policy hot-reload verified by matching live snapshot (D-71). Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/tbd-06-m11-wrapup` — **pending**, a top-level successor prompt for the owner to launch on/after Tue 2026-10-13 (M11 wrap-up). `tbd-05-continue-m10` completed 2026-10-05. |
 
 ---
@@ -32,8 +32,8 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 ### 1.2 Time model
 - **R-TIME-1** Day boundary **04:00 local civil time**: if the local hour of `t` is < 4 the day key is the previous civil
   date, else the civil date (calendar arithmetic — **not** `t − 4 h`, which is wrong on DST days). DST-safe (23/25 h days).
-- **R-TIME-2** Week = **Sun 04:00 → next Sun 04:00**. Workdays Sun–Thu. Fri = owner's private day (private work is done on
-  another computer). Sat = Shabbat.
+- **R-TIME-2** Week = **Sun 04:00 → next Sun 04:00**. Office Sun/Tue/Thu; home Mon/Wed. Fri = owner's private day;
+  Sat = Shabbat. Rare personal-day laptop use is tracked without automatic interruptions (D-71).
 - **R-TIME-3** **All** activity on this computer is work, on any day.
 - **R-TIME-4** Exact clock hours are never policy inputs (except the 04:00 boundary). Only *worked time* per day/week is.
 
@@ -65,29 +65,30 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 - **R-DATA-2** Survives restarts; all state (including an active block) is recomputable from data.
 - **R-DATA-3** Feedback and notes are recorded in the same data.
 
-### 1.5 Policy (initial values — owner said "conjure a reasonable policy, I'll change it later")
+### 1.5 Policy (current values — tuned by the owner, D-71)
 - **R-POL-1** Per-weekday policy must be **easy** to edit: one typed file `config/policy.ts`, hot-reloaded.
-- **R-POL-2** Initial policy (all numbers configurable):
+- **R-POL-2** Current policy (all numbers configurable):
 
   | Day | Track | Menubar | Daily budget | Inactivity dialog | Break nudge | Warn → countdown → **block** | Morning review at 04:00 |
   |---|---|---|---|---|---|---|---|
-  | Sun | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
-  | Mon | ✅ | ✅ | — (reference 9 h for colour only) | ❌ | ❌ | ❌ | ❌ |
-  | Tue | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
-  | Wed | ✅ | ✅ | — (reference 9 h for colour only) | ❌ | ❌ | ❌ | ❌ |
-  | Thu | ✅ | ✅ | **9 h** | ✅ | ✅ | ✅ | ✅ |
-  | Fri | ✅ | ✅ | — | ❌ | ❌ | ❌ | ❌ (protects the private day) |
+  | Sun | ✅ | ✅ | **8.5 h** (office) | ✅ | ✅ | ✅ | ✅ |
+  | Mon | ✅ | ✅ | **8 h** (home) | ✅ | ✅ | ✅ | ✅ |
+  | Tue | ✅ | ✅ | **8.5 h** (office) | ✅ | ✅ | ✅ | ✅ |
+  | Wed | ✅ | ✅ | **8 h** (home) | ✅ | ✅ | ✅ | ✅ |
+  | Thu | ✅ | ✅ | **8.5 h** (office) | ✅ | ✅ | ✅ | ✅ |
+  | Fri | ✅ | ✅ (no colours) | — | ❌ | ❌ | ❌ | ❌ (protects the private day) |
   | Sat | ✅ | ✅ (no colours) | — | ❌ | ❌ | ❌ | ❌ (Shabbat: **no popups at all**) |
 
-  - *(2026-10-05, D-35; amended 2026-10-06, D-69)* Budget/inactivity/nudge effects remain **Sun/Tue/Thu only**.
-    Daily energy-report welcome/catch-up also runs on Mon/Wed; Fri/Sat remain automatically quiet.
+  - *(2026-10-06, D-71; supersedes D-35's workday restrictions)* Office and home days share enforcement,
+    inactivity dialogs, nudges and morning review. Fri/Sat use `personalDay`: no daily budget, reference colours or
+    automatic interruptions. Daily energy-report welcome/catch-up remains Sun–Thu.
   - **Weekly budget 44 h** (all days of the week count, R-TIME-3).
   - On enforcing days: **effective daily limit = min(daily budget, weekly budget − worked earlier this week)**, floor 0.
     A heavy week therefore shortens Thursday — protecting Friday. (If the effective limit is 0, see open question Q-3.)
   - Ladder on enforcing days (worked-time based, so it pauses when the owner is idle):
     `ok` (green) → **`orange`** at ≥ 75 % of the effective limit → **`warn`** at limit − 30 worked-min →
     **`countdown`** at limit − 10 worked-min → **`blocked`** at the limit, **until the next 04:00**.
-  - Non-enforcing workdays: colours only (green/orange/red against the 9 h reference); no dialogs from the ladder.
+  - Personal days: neutral menubar, no ladder dialogs; rare laptop use still counts toward the weekly budget.
   - **Ladder arithmetic (normative):** thresholds are clamped to `[0, limit]`; when several levels qualify, the
     **highest** wins (`blocked` > `countdown` > `warn` > `orange` > `ok`). Each dialog is shown once per level entry
     (a level re-entered after a token/bypass expiry does not replay lower-level dialogs). A **limit of 0** blocks only
@@ -171,7 +172,7 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   a window listing **all non-dismissed notes** (context-memory + feedback + free notes), **pre-filled/editable**, each
   with a **Dismiss** button. Closing the window does not dismiss anything. Thursday's notes therefore surface on Sunday.
   *(2026-10-06, D-69)* Missing yesterday's energy report adds the stronger full-screen welcome on all Sun–Thu;
-  notes follow its report/skip decision. Ordinary notes-only review remains Sun/Tue/Thu and dismissible.
+  notes follow its report/skip decision. Ordinary notes-only review is dismissible and runs Sun–Thu (D-71).
 - **R-UI-QUIET** *(2026-10-05, D-34)* **No visual effect starts within 10 s of user input** (typing / mouse): a
   due effect (warn, dim, countdown, block, nudge, dialog) waits for 10 s without input, so it never lands
   mid-keystroke or mid-click. Bounded by a maximum deferral (Q-13), otherwise continuous typing would postpone it forever.
@@ -490,7 +491,7 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
       with a token clipped to 04:00, broken policy cold start), live trials with the owner (monitor hot-plug ×2 — found
       and fixed H-16; `kill -9` Hammerspoon under a block — back in ~5 s), live crash loop (⚠︎ after 3 spawns, recovery
       ~25 s), dev unwritable data dir under a block (fail open + warning). Lua 0.6.2. Review: 0 traps, 3 lows fixed.
-- [ ] One week of live use (Tue 2026-10-06 → Mon 2026-10-12, Sun/Tue/Thu intrusive); collect owner feedback; tune
+- [ ] One week of live use (Tue 2026-10-06 → Mon 2026-10-12, Sun–Thu intrusive since D-71); collect owner feedback; tune
       defaults (decisions logged). **Not to be compressed or simulated.**
 
 ---
@@ -539,7 +540,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-1 | 2026-10-04 | The goal is protecting Fri/Sat energy; hours are the proxy. Friction not prohibition; kind wording; close-the-loop (context-memory) at every stop. | Root-cause analysis with the owner (instructions §1). |
 | D-2 | 2026-10-04 | Policy inputs are worked time per day/week only; clock times only for the 04:00 boundary. | Owner: "Exact hours are never important." |
 | D-3 | 2026-10-04 | Block lasts until 04:00; only tokens or emergency bypass open it. | Owner choice. |
-| D-4 | 2026-10-04 | Initial policy per R-POL-2 (9 h on Sun/Tue/Thu, 44 h/week, ladder 75 % / −30 / −10). | Owner: "conjure a reasonable policy; I'll change it later." |
+| D-4 | 2026-10-04 | Initial policy per R-POL-2 (9 h on Sun/Tue/Thu, 44 h/week, ladder 75 % / −30 / −10). **Daily budgets superseded by D-71.** | Owner: "conjure a reasonable policy; I'll change it later." |
 | D-5 | 2026-10-04 | Architecture: thin Hammerspoon Lua (sensors/actuators/supervisor) + Node 26 TS daemon (all logic), HTTP on 127.0.0.1 with token; UI = `hs.webview` pages served by the daemon. | Testable logic in TS; Lua limited to what only it can do. |
 | D-6 | 2026-10-04 | Lua spawns the daemon via `hs.task` (no launchd plist). | Keeps the "single `require` line" footprint; Hammerspoon supervises. |
 | D-7 | 2026-10-04 | JSONL per 04:00-day in `data/YYYY-MM/`; append-only; event-sourced notes; last-wins minute records. | Git-able, crash-tolerant, mergeable. |
@@ -569,7 +570,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-32 | 2026-10-05 | One menubar menu on **any** click; first item *Quick note…* (supersedes left-click = quick note; F-HS-4 no longer matters). | Owner (Q-1). |
 | D-33 | 2026-10-05 | Inactivity dialog preceded by a ~10 s pre-warning dim; input cancels it. | Owner (Q-2): reading ≠ away. |
 | D-34 | 2026-10-05 | R-UI-QUIET: effects never start within 10 s of input (bounded deferral, Q-13). | Owner (Q-3): never land mid-keystroke. |
-| D-35 | 2026-10-05 | Only Sun/Tue/Thu are intrusive; Mon/Wed/Fri/Sat menubar only (no inactivity dialog, break nudge or morning review there; supersedes D-13's review schedule: notes now surface on Sun/Tue/Thu mornings). Consequence: no inactivity credits on Mon/Wed/Fri, so off-computer work on those days is not counted toward the weekly budget. **Amended by D-69 for daily report windows only; budget/inactivity policy unchanged.** | Owner (Q-4). |
+| D-35 | 2026-10-05 | Only Sun/Tue/Thu are intrusive; Mon/Wed/Fri/Sat menubar only (no inactivity dialog, break nudge or morning review there; supersedes D-13's review schedule: notes now surface on Sun/Tue/Thu mornings). Consequence: no inactivity credits on Mon/Wed/Fri, so off-computer work on those days is not counted toward the weekly budget. **Amended by D-69 for daily reports; workday restrictions superseded by D-71.** | Owner (Q-4). |
 | D-36 | 2026-10-05 | Notes: no delete, no purge — dismiss/un-dismiss only; `note.deleted` dropped from the data model. | Owner (Q-5): notes are temporary reminders. |
 | D-37 | 2026-10-05 | **Before every commit, an adversarial review subagent checks the change**; findings are triaged (fixed, or recorded why not) before committing. M1–M4 commits were reviewed retroactively. | Owner. |
 | D-38 | 2026-10-05 | Sensors: an input is only an idle-counter **reset** (H-7); a synthetic `wake` only > 60 s after an unmatched sleep; the heartbeat's `locked` flag repairs the timeline only when the newest lock/unlock event is > 10 s old. | Live data 2026-10-04 (phantom inputs, false wake) + review M4#1 (fake lock/unlock pair on every unlock). |
@@ -606,6 +607,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-68 | 2026-10-06 | **Inactivity presets auto-submit** (amends D-56): clicking "I am back to work!" (`back`) or "I was working the whole time" (`whole`) resolves the gap immediately; the slider ("some") still needs Submit. All controls are disabled while the answer is sent; on failure they re-enable with "save failed". Page-only change (`src/ui/pages/inactivity.ts`), no daemon change. Accepted risk: a stray synthetic click (F-HS-2) landing on a preset now answers the gap in one click instead of two — rare (the owner is away, the overlay must be under VS Code's button) and bounded to one gap's credit. | Owner: the extra Submit click after a preset was needless friction. |
 | D-69 | 2026-10-06 | **Every-day energy reports** (R-UI-REPORT): fresh = today in block / yesterday in Sun–Thu full-screen welcome, energy required or deliberate confirmed skip; older = one dismissible catch-up, date/weekday/age visible. Menu includes today/yesterday for short workdays. Reports are target-date `report.*` events (submission-day file, last wins); skip stores no score and can be filled later. Initial activation today, 2026-10-06; no pre-feature backlog. Fri/Sat automatically quiet; Mon/Wed get survey-only UI (amends D-35), not budgets/inactivity. Mandatory welcome time is excluded from work/credits; safety exits and block tokens/bypass remain. Last 28 days appear in summary; richer trend-chart backlog remains. | Owner: protect energy and avoid missing days, while keeping honest exits; fresh reports compelling, older reports gentler. |
 | D-70 | 2026-10-06 | **Welcome lifecycle accounting:** actual Lua opening/closing timestamps in optional heartbeat metadata, not command request time; sensor coverage/gap boundaries cap exclusion. Quick report completion remains excluded; lost replies and crashed overlays cannot erase real work. Automatic catch-up adoption keeps its original revision, preserving drafts. Daemon 0.7.2 (releases old accounting latch, D-45), Lua 0.7.1. | Requested GPT-6 Astra adversarial pre-commit review and narrow re-checks; all findings fixed with regressions. |
+| D-71 | 2026-10-06 | **Office/home/personal policy:** `officeWorkday` Sun/Tue/Thu = 8.5 h; `homeWorkday` Mon/Wed = 8 h with the same enforcement, inactivity, nudge and review flags. `personalDay` Fri/Sat = tracking + neutral menubar, no daily budget/reference/automatic effects. Weekly budget stays 44 h including rare personal-day laptop use. Supersedes D-4 daily budgets, D-35 workday restrictions and D-69's survey-only Mon/Wed distinction. | Owner's requested schedule and explicit approval of quiet personal days; protect energy without interrupting occasional personal use. Config hash handles latch changes (D-45); no daemon logic/version change needed. |
 
 ---
 
@@ -744,3 +746,5 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-06 | (no tmp-folder — small change) | Owner: inactivity presets auto-submit (D-68); dev-verified in a browser (back/whole send one `resolve` at once, slider still needs Submit). 196 tests. Live without a restart (pages served by mtime). | — |
 | 2026-10-06 | `.github/tmp/2026-10-06--14-20--daily-reports/` | **Daily reports done/live** (D-69): calendar obligations, required fresh welcome, block report, menu today/yesterday and dismissible older catch-up, confirmed skips, amendments, summary and mandatory-input accounting. Typecheck + **205 tests**; isolated browser walkthrough of dates, validation, save/amend, skip/cancel, hidden drafts, welcome, synthetic block and draft preservation. One graceful daemon restart; healthy live menu/model, no warnings. No Lua changes/reload, synthetic live UI, data rewrites or commits. [Report](./tmp/2026-10-06--14-20--daily-reports/report.md). | — |
 | 2026-10-06 | (same session, pre-commit follow-up) | Owner authorized our daily-report changes plus pre-existing `.gitignore`, excluding `data/`. GPT-6 Astra adversarial review + narrow re-checks: quick completion, crash-gap exclusion, automatic adoption drafts, lost replies and initial Lua timestamp wiring fixed (D-70); **212 tests + typecheck** green. Lua 0.7.1 reloads healthy/console clean; daemon 0.7.2 restarted healthy. Review triage in session report. | — |
+| 2026-10-06 | `.github/tmp/2026-10-06--18-20--workday-policy/` | **Done:** office Sun/Tue/Thu 8.5 h, home Mon/Wed 8 h with full workday effects, quiet neutral personal Fri/Sat (D-71); weekly 44 h unchanged. Updated policy/effect regressions and docs; **214 tests + typecheck** green. Live hot-reload snapshot matches; no restart, synthetic live UI, data edits or commit. [Report](./tmp/2026-10-06--18-20--workday-policy/report.md). | — |
+| 2026-10-06 | (same session, commit follow-up) | Owner requested commit and push of the workday-policy changes. Mandatory adversarial code-review subagent: no significant issues. Commit scope excludes `data/`; validation remains **214 tests + typecheck** green. | — |

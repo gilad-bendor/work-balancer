@@ -300,11 +300,11 @@ test('morning review: decided by day.rollover (review day + notes waiting), show
   const again = await setup(sun + 3600_000, { dir: dir.dir });
   again.tracker.tick(again.clock.now());
   assert.deepEqual(again.beat(), []);
-  // Monday (no review day) and a live instance with the gate closed: nothing.
+  // Home days now also review notes; the live gate still suppresses the window.
   const mon = await setup(local(2026, 10, 12, 9, 0), { dir: dir.dir });
   mon.tracker.tick(mon.clock.now());
-  assert.equal(mon.store.readDay('2026-10-12').find((r) => r.type === 'day.rollover')!.review, false);
-  assert.deepEqual(mon.beat(), []);
+  assert.equal(mon.store.readDay('2026-10-12').find((r) => r.type === 'day.rollover')!.review, true);
+  assert.equal(mon.beat()[0]?.window?.id, 'review');
   const tue = await setup(local(2026, 10, 13, 9, 0), { dir: dir.dir, env: 'live' });
   tue.tracker.tick(tue.clock.now());
   assert.equal(tue.store.readDay('2026-10-13').find((r) => r.type === 'day.rollover')!.review, true);
@@ -341,12 +341,13 @@ test('summary model: today, the week per day vs budgets, 4 weeks, recent feedbac
   t.after(s.cleanup);
   const m = s.model('summary');
   assert.equal(m.today.day, '2026-10-13');
-  assert.equal(m.today.limitSeconds, 9 * 3600 - 0, 'Tuesday budget (only 1 h 4 min worked this week)');
+  assert.equal(m.today.limitSeconds, 8.5 * 3600, 'Tuesday budget (only 1 h 4 min worked this week)');
   assert.equal(m.week.days.length, 7);
   assert.deepEqual(m.week.days.map((d: any) => d.weekday), ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']);
   assert.equal(m.week.days[0].workedSeconds, 64 * 60, '60 inputs, 1/min, + 5 min grace − 1 = 64 min');
-  assert.equal(m.week.days[0].budgetSeconds, 9 * 3600);
-  assert.equal(m.week.days[1].referenceSeconds, 9 * 3600);
+  assert.equal(m.week.days[0].budgetSeconds, 8.5 * 3600);
+  assert.equal(m.week.days[1].budgetSeconds, 8 * 3600);
+  assert.equal(m.week.days[1].referenceSeconds, null);
   assert.equal(m.week.days[3].workedSeconds, null, 'future day');
   assert.equal(m.week.budgetSeconds, 44 * 3600);
   assert.deepEqual(m.weeks.map((w: any) => [w.start, w.workedSeconds, w.current]), [

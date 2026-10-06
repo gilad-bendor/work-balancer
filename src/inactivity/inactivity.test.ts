@@ -167,14 +167,26 @@ test('a gap is clipped to its day and expires at 04:00 (default rule); detection
   assert.deepEqual(restarted.desired().windows, []);
 });
 
-test('only Sun/Tue/Thu (D-35), never Saturday, never with the live gate closed', async (t) => {
-  for (const [start, env] of [[local(2026, 10, 5, 10, 0), 'dev'], [local(2026, 10, 10, 10, 0), 'dev'], [local(2026, 10, 6, 10, 0), 'live']] as const) {
+test('personal days and the closed live gate suppress inactivity dialogs', async (t) => {
+  for (const [start, env] of [[local(2026, 10, 9, 10, 0), 'dev'], [local(2026, 10, 10, 10, 0), 'dev'], [local(2026, 10, 6, 10, 0), 'live']] as const) {
     const s = await setup(start, { env });
     t.after(s.cleanup);
     s.run(start + 10 * S, [start + 5 * S]);
     s.run(start + 20 * MIN);
     assert.equal(s.records('inactivity.detected').length, 0, `${new Date(start).toDateString()} ${env}`);
     assert.deepEqual(s.desired(), { windows: [], dims: [] });
+  }
+});
+
+test('home days show the same inactivity dialog as office days', async (t) => {
+  for (const day of [5, 7]) {
+    const start = local(2026, 10, day, 10, 0);
+    const s = await setup(start);
+    t.after(s.cleanup);
+    s.run(start + 10 * S, [start + 5 * S]);
+    s.run(start + 20 * MIN);
+    assert.equal(s.records('inactivity.detected').length, 1);
+    assert.deepEqual(s.desired().windows.map((w) => w.id), ['inactivity']);
   }
 });
 

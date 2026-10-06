@@ -34,14 +34,14 @@ test('menubar: worked / limit with colour on an enforcing day (observe mode)', a
   s.clock.set(T + 60 * MIN);
   s.tracker.ingest(s.samples({ inputs, since: T }), s.clock.now());
   const mb = s.tracker.menubar(s.clock.now());
-  assert.equal(mb.title, '⏱ 1:00 / 9:00');
+  assert.equal(mb.title, '⏱ 1:00 / 8:30');
   assert.equal(mb.colour, 'green');
-  assert.match(mb.tooltip, /Today: 1:00 of 9:00 — 8:00 left\./);
+  assert.match(mb.tooltip, /Today: 1:00 of 8:30 — 7:30 left\./);
   assert.match(mb.tooltip, /This week: 1:00 of 44:00\./);
   assert.match(mb.tooltip, /Current stretch: 1:00\./);
 });
 
-test('Saturday: grey, no limit; Friday: no colour', async (t) => {
+test('Saturday and Friday: grey, no limit', async (t) => {
   const sat = await setup(local(2026, 10, 10, 12, 0));
   t.after(sat.cleanup);
   const mb = sat.tracker.menubar(sat.clock.now());
@@ -50,7 +50,7 @@ test('Saturday: grey, no limit; Friday: no colour', async (t) => {
   assert.match(mb.tooltip, /Shabbat/);
   const fri = await setup(local(2026, 10, 9, 12, 0));
   t.after(fri.cleanup);
-  assert.equal(fri.tracker.menubar(fri.clock.now()).colour, 'none');
+  assert.equal(fri.tracker.menubar(fri.clock.now()).colour, 'grey');
 });
 
 test('worked time earlier in the week (from disk) shortens the effective limit', async (t) => {

@@ -20,30 +20,32 @@ function input(o: Partial<PolicyInput> = {}): PolicyInput {
   };
 }
 
-test('every weekday: only Sun/Tue/Thu enforce; Saturday is grey; Friday has no colour (R-POL-2, D-35)', () => {
+test('every weekday: office/home budgets enforce; both personal days stay neutral (R-POL-2)', () => {
   const days = ['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'];
   const got = days.map((d, i) => {
     const s = evaluate(input({ day: d, now: at(d, 18), workedTodaySeconds: 7 * H }));
     return [WEEKDAYS[i], s.enforcing, s.colour, s.limitSeconds];
   });
   assert.deepEqual(got, [
-    ['sun', true, 'orange', 9 * H], ['mon', false, 'orange', null], ['tue', true, 'orange', 9 * H], ['wed', false, 'orange', null],
-    ['thu', true, 'orange', 9 * H], ['fri', false, 'none', null], ['sat', false, 'grey', null],
+    ['sun', true, 'orange', 8.5 * H], ['mon', true, 'orange', 8 * H], ['tue', true, 'orange', 8.5 * H], ['wed', true, 'orange', 8 * H],
+    ['thu', true, 'orange', 8.5 * H], ['fri', false, 'grey', null], ['sat', false, 'grey', null],
   ]);
   // Non-enforcing days never leave 'ok', whatever the worked time.
-  assert.equal(evaluate(input({ day: '2026-10-05', workedTodaySeconds: 15 * H })).level, 'ok');
+  for (const day of days.slice(5)) assert.equal(evaluate(input({ day, workedTodaySeconds: 15 * H })).level, 'ok');
 });
 
-test('ladder (9 h): every transition exactly at its threshold — orange 75 %, warn −30 min, countdown −10 min, blocked at the limit', () => {
-  const rows: [number, Level][] = [
-    [0, 'ok'], [6.75 * H - 1, 'ok'], [6.75 * H, 'orange'], [8.5 * H - 1, 'orange'], [8.5 * H, 'warn'],
-    [9 * H - 10 * M - 1, 'warn'], [9 * H - 10 * M, 'countdown'], [9 * H - 1, 'countdown'], [9 * H, 'blocked'], [12 * H, 'blocked'],
-  ];
-  for (const [worked, level] of rows) assert.equal(evaluate(input({ workedTodaySeconds: worked })).level, level, `worked ${worked}`);
-  // Every level appears, in order.
-  assert.deepEqual([...new Set(rows.map(([, l]) => l))], [...LEVELS]);
-  assert.equal(evaluate(input({ workedTodaySeconds: 7 * H })).nextLevelAtSeconds, 8.5 * H);
-  assert.equal(evaluate(input({ workedTodaySeconds: 9 * H })).nextLevelAtSeconds, null);
+test('office and home ladders: every transition exactly at its threshold', () => {
+  for (const [day, budget] of [[SUN, 8.5 * H], ['2026-10-05', 8 * H]] as const) {
+    const rows: [number, Level][] = [
+      [0, 'ok'], [budget * 0.75 - 1, 'ok'], [budget * 0.75, 'orange'], [budget - 30 * M - 1, 'orange'], [budget - 30 * M, 'warn'],
+      [budget - 10 * M - 1, 'warn'], [budget - 10 * M, 'countdown'], [budget - 1, 'countdown'], [budget, 'blocked'], [12 * H, 'blocked'],
+    ];
+    for (const [worked, level] of rows) assert.equal(evaluate(input({ day, now: at(day, 18), workedTodaySeconds: worked })).level, level, `${day}: worked ${worked}`);
+    // Every level appears, in order.
+    assert.deepEqual([...new Set(rows.map(([, l]) => l))], [...LEVELS]);
+    assert.equal(evaluate(input({ day, now: at(day, 18), workedTodaySeconds: 7 * H })).nextLevelAtSeconds, budget - 30 * M);
+    assert.equal(evaluate(input({ day, now: at(day, 18), workedTodaySeconds: budget })).nextLevelAtSeconds, null);
+  }
 });
 
 test('thresholds are clamped to [0, limit]; the highest qualifying level wins (short effective limit)', () => {
@@ -96,8 +98,8 @@ test('grants are clipped to the next 04:00 — also on the 25 h fall-back day', 
 });
 
 test('an inactivity credit that pushes worked time over the limit blocks (worked time is the only input)', () => {
-  const before = evaluate(input({ workedTodaySeconds: 8.9 * H }));
-  const credited = evaluate(input({ workedTodaySeconds: 8.9 * H + 30 * M }));
+  const before = evaluate(input({ workedTodaySeconds: 8.4 * H }));
+  const credited = evaluate(input({ workedTodaySeconds: 8.4 * H + 30 * M }));
   assert.deepEqual([before.level, credited.level, credited.blockActive], ['countdown', 'blocked', true]);
 });
 
@@ -110,7 +112,7 @@ test('the evaluator is pure: the same data gives the same state (what a restart 
   assert.equal(a.blockActive, false);
 });
 
-test('a config change mid-day takes effect immediately (e.g. daily budget 9 h → 10 h unblocks)', () => {
+test('a config change mid-day takes effect immediately (e.g. daily budget 8.5 h → 10 h unblocks)', () => {
   const tenHours: PolicyConfig = { ...ownersPolicy, days: { ...ownersPolicy.days, sun: { ...ownersPolicy.days.sun, dailyBudgetMin: 600 } } };
   assert.equal(evaluate(input({ workedTodaySeconds: 9.2 * H })).level, 'blocked');
   assert.equal(evaluate(input({ workedTodaySeconds: 9.2 * H, config: tenHours })).level, 'orange'); // warn would start at 9:30
@@ -118,11 +120,11 @@ test('a config change mid-day takes effect immediately (e.g. daily budget 9 h �
 
 test('tokens and bypass are usable only while blocked; not on non-enforcing days; not without a config', () => {
   const blocked = evaluate(input({ workedTodaySeconds: 9 * H }));
-  const countdown = evaluate(input({ workedTodaySeconds: 8.9 * H }));
+  const countdown = evaluate(input({ workedTodaySeconds: 8.4 * H }));
   assert.deepEqual([canUseToken(blocked, 10), canUseToken(blocked, 7), canBypass(blocked)], [true, false, true]);
   assert.deepEqual([canUseToken(countdown, 10), canBypass(countdown)], [false, false]);
-  const monday = evaluate(input({ day: '2026-10-05', workedTodaySeconds: 20 * H }));
-  assert.deepEqual([monday.enforcing, canBypass(monday)], [false, false]);
+  const friday = evaluate(input({ day: '2026-10-09', workedTodaySeconds: 20 * H }));
+  assert.deepEqual([friday.enforcing, canBypass(friday)], [false, false]);
   const none = evaluate(input({ config: null, workedTodaySeconds: 20 * H }));
   assert.deepEqual([none.enforcing, none.level, none.blockActive, none.dayPolicy], [false, 'ok', false, null]);
 });
@@ -147,13 +149,13 @@ test('review M6#2: nextLevelAtSeconds is always the next HIGHER level', () => {
 
 test('review M6#3: a block lasts until 04:00 even if worked time shrinks — unless the config changed', () => {
   assert.equal(evaluate(input({ workedTodaySeconds: 8 * H, blockedTodayUnderConfig: 'h1', configHash: 'h1' })).level, 'blocked');
-  assert.equal(evaluate(input({ workedTodaySeconds: 8 * H, blockedTodayUnderConfig: 'h1', configHash: 'h2' })).level, 'orange');
+  assert.equal(evaluate(input({ workedTodaySeconds: 8 * H, blockedTodayUnderConfig: 'h1', configHash: 'h2' })).level, 'warn');
 });
 
 test('review M6#5/#6/#8: budget as reference on a non-enforcing day; corrupt or foreign grants are clipped/ignored; Saturday never enforces', () => {
   const sunOff: PolicyConfig = { ...ownersPolicy, days: { ...ownersPolicy.days, sun: { ...ownersPolicy.days.sun, enforce: false } } };
   const off = evaluate(input({ config: sunOff, workedTodaySeconds: 9.5 * H }));
-  assert.deepEqual([off.enforcing, off.referenceSeconds, off.colour], [false, 9 * H, 'red']);
+  assert.deepEqual([off.enforcing, off.referenceSeconds, off.colour], [false, 8.5 * H, 'red']);
   const t0 = at(SUN, 18);
   const corrupt = evaluate(input({ workedTodaySeconds: 10 * H, now: t0 + 60_000, grants: [{ type: 'token.used', ts: t0, minutes: 10, until: 9e15 }] }));
   assert.equal(corrupt.grant?.until, dayEnd(SUN));

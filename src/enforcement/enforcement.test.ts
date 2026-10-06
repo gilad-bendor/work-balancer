@@ -105,20 +105,20 @@ test('daily report in block: today only, required energy, independent token/bypa
 });
 
 test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, park) → block → token → bypass → restart → 04:00', async (t) => {
-  const day = local(2026, 10, 6, 8, 0); // Tuesday, 9 h budget: orange 6:45, warn 8:30, countdown 8:50, block 9:00
+  const day = local(2026, 10, 6, 8, 30); // Tuesday, 8.5 h budget: orange 6:22:30, warn 8:00, countdown 8:20, block 8:30
   const s = await setup(local(2026, 10, 6, 16, 20), { seed: (st) => seedWork(st, day, local(2026, 10, 6, 16, 20)) });
   t.after(s.cleanup);
 
-  // 8:20 worked: orange; 8 h without a break → the break nudge (and nothing else).
+  // 7:50 worked: orange; a long stretch → the break nudge (and nothing else).
   s.work(local(2026, 10, 6, 16, 20, 30));
   assert.deepEqual(s.records('policy.transition').map((r) => r.to), ['orange']);
   assert.deepEqual(s.ids(), ['nudge']);
-  assert.ok(s.model('nudge').stretchSeconds > 8 * 3600);
+  assert.ok(s.model('nudge').stretchSeconds > 7.5 * 3600);
   assert.equal(s.action('nudge', 'snooze').close, true);
   s.beat({ closed: [{ id: 'nudge', by: 'page', at: s.clock.now() }] });
   assert.deepEqual(s.ids(), [], 'snoozed');
 
-  // 8:30 → warn: the dialog + one dim pulse until the dialog is reported on screen.
+  // 8:00 → warn: the dialog + one dim pulse until the dialog is reported on screen.
   s.work(local(2026, 10, 6, 16, 30, 30));
   assert.deepEqual(s.records('policy.transition').map((r) => r.to), ['orange', 'warn']);
   const warnDims = s.effects.desired(s.clock.now()).dims;
@@ -137,7 +137,7 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   s.work(local(2026, 10, 6, 16, 36));
   assert.deepEqual(s.ids(), ['nudge'], 'the snooze is over; the warn stays dismissed');
 
-  // 8:50 → countdown: not dismissible; the pill; park the thought; the nudge is quiet now.
+  // 8:20 → countdown: not dismissible; the pill; park the thought; the nudge is quiet now.
   s.work(local(2026, 10, 6, 16, 50, 30));
   assert.deepEqual(s.ids(), ['countdown']);
   const c = s.win('countdown')!;
@@ -173,7 +173,7 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   assert.equal(m.draft, 'then fix the flaky test');
   assert.deepEqual(m.tokens, [{ minutes: 10, left: 1 }, { minutes: 5, left: 2 }]);
   assert.equal(m.bypass.phrase, PHRASE);
-  assert.equal(m.limitSeconds, 9 * 3600);
+  assert.equal(m.limitSeconds, 8.5 * 3600);
   assert.equal(m.liftsAt, local(2026, 10, 7, 4, 0));
   assert.deepEqual(m.week.days.map((d: any) => d.weekday), ['sun', 'mon', 'tue']);
   assert.equal(s.action('block', 'close').ok, false, 'not dismissible');
@@ -214,9 +214,9 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   assert.deepEqual(cmds.map((x) => [x.op, x.window?.id]), [['window.open', 'block']], 'not deferred by R-UI-QUIET after a restart');
   assert.equal(r.model('block').tokens.length, 1);
 
-  // 04:00: a new day (Wednesday, not enforcing) — nothing.
+  // 04:00: Wednesday's home budget is fresh; yesterday's saved feedback appears in review.
   r.work(local(2026, 10, 7, 4, 0, 30), { idle: true });
-  assert.deepEqual(r.ids(), []);
+  assert.deepEqual(r.ids(), ['review']);
 });
 
 test('zero limit (week used up): blocked at the first worked second only, with the explanation flag', async (t) => {
@@ -335,7 +335,7 @@ test('review M10: block back at once after a grant (no R-UI-QUIET); dismissals k
   assert.equal(s.model('quit').allowed, false);
   assert.equal(s.action('quit', 'confirm').error, 'enforcing');
 
-  const w = await setup(local(2026, 10, 6, 16, 31), { seed: (st) => seedWork(st, local(2026, 10, 6, 8, 0), local(2026, 10, 6, 16, 31)) });
+  const w = await setup(local(2026, 10, 6, 16, 31), { seed: (st) => seedWork(st, local(2026, 10, 6, 8, 30), local(2026, 10, 6, 16, 31)) });
   t.after(w.cleanup);
   w.work(local(2026, 10, 6, 16, 31, 30));
   assert.ok(w.win('warn'));

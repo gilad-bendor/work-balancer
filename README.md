@@ -14,10 +14,13 @@ and [.github/ledger.md](.github/ledger.md).
    `require("work-balancer")` line to `~/.hammerspoon/init.lua` (backing it up first), reloads Hammerspoon and
    checks health. Safe to re-run.
 
-## What it does today (observe mode)
+## Current policy
 
-The menubar shows today's worked time against today's limit, e.g. `⏱ 5:12 / 9:00`, green → orange (75 %) → red
-(limit); grey on Shabbat; hover for the week total and the current stretch. Nothing is enforced yet. Activity is
+The menubar shows today's worked time against today's limit, e.g. `⏱ 5:12 / 8:30`; hover for the week total and
+the current stretch. Office days (Sun/Tue/Thu) have an **8.5-hour** daily budget; home days (Mon/Wed) have an
+**8-hour** budget. Both use warnings, countdown, blocking, inactivity dialogs, break nudges and morning review.
+Personal days (Fri/Sat) are tracking-only with a neutral menubar and no automatic interruptions or daily limit.
+The **44-hour weekly budget** includes all days and can reduce a workday's effective limit. Activity is
 recorded per minute in `data/YYYY-MM/YYYY-MM-DD.jsonl` (format: [.github/data-format.md](.github/data-format.md));
 the policy lives in [config/policy.ts](config/policy.ts) and is hot-reloaded.
 

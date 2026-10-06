@@ -16,16 +16,21 @@ test("the owner's config/policy.ts is valid and matches R-POL-2", () => {
   assert.equal(ownersPolicy.weeklyBudgetMin, 44 * 60);
   assert.deepEqual(
     Object.entries(ownersPolicy.days).filter(([, d]) => d.enforce).map(([k]) => k),
-    ['sun', 'tue', 'thu'],
+    ['sun', 'mon', 'tue', 'wed', 'thu'],
   );
   assert.equal(ownersPolicy.days.sat.colours, false);
   assert.equal(ownersPolicy.days.sat.inactivityDialog, false);
   assert.equal(ownersPolicy.days.fri.morningReview, false);
-  // D-35: only Sun/Tue/Thu are intrusive at all.
+  for (const day of ['sun', 'tue', 'thu'] as const) assert.equal(ownersPolicy.days[day].dailyBudgetMin, 510);
+  for (const day of ['mon', 'wed'] as const) assert.deepEqual(ownersPolicy.days[day], { ...ownersPolicy.days.sun, dailyBudgetMin: 480 });
+  for (const day of ['fri', 'sat'] as const) assert.deepEqual(ownersPolicy.days[day], {
+    menubar: true, colours: false, dailyBudgetMin: null, referenceMin: null, enforce: false,
+    inactivityDialog: false, breakNudge: false, morningReview: false,
+  });
   const intrusive = Object.entries(ownersPolicy.days)
     .filter(([, d]) => d.enforce || d.inactivityDialog || d.breakNudge || d.morningReview)
     .map(([k]) => k);
-  assert.deepEqual(intrusive, ['sun', 'tue', 'thu']);
+  assert.deepEqual(intrusive, ['sun', 'mon', 'tue', 'wed', 'thu']);
   assert.deepEqual(ownersPolicy.tokensMin, [10, 5, 5]);
 });
 
@@ -34,6 +39,7 @@ test('validation reports clear errors', () => {
   bad.weeklyBudgetMin = -1;
   bad.ladder.countdownBeforeMin = 40;
   bad.days.mon.enforce = true;
+  bad.days.mon.dailyBudgetMin = null;
   delete bad.days.fri;
   bad.days.funday = {};
   bad.days.sat.enforce = true;

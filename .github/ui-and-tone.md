@@ -135,7 +135,7 @@ excluded — gamma only; the M9 inactivity dialog checked live 2026-10-05; the M
 - One decision per **calendar day**, including days away from this computer. Activation is configured by
   `dailyReportsStartDay` (initially 2026-10-06); no surprise backlog before that date.
 - **Fresh:** today inside the end-of-day block; missing yesterday in a full-screen welcome on **Sun–Thu** (including
-  survey-only Mon/Wed). No ordinary dismissal until energy 1–5 is recorded or skip confirmed. Answering never lifts
+  home days Mon/Wed). No ordinary dismissal until energy 1–5 is recorded or skip confirmed. Answering never lifts
   a budget block; tokens/bypass/panic/eject/fail-open are unchanged. A short day can be reported from the menu.
 - **Older:** one floating, dismissible catch-up, no queue of successive popups. Closing or "Not now" leaves dates
   pending. No automatic catch-up immediately after the fresh welcome; its button opens catch-up on request. After

@@ -4,13 +4,14 @@ import type { PolicyConfig } from '../src/policy/config.ts';
 
 const H = 60;
 
-const enforcingWorkday = {
-  menubar: true, colours: true, dailyBudgetMin: 9 * H, referenceMin: null, enforce: true,
+const officeWorkday = {
+  menubar: true, colours: true, dailyBudgetMin: 8.5 * H, referenceMin: null, enforce: true,
   inactivityDialog: true, breakNudge: true, morningReview: true,
 };
-// Only Sun/Tue/Thu are intrusive at all; the other days show the menubar status and nothing more.
-const relaxedWorkday = {
-  menubar: true, colours: true, dailyBudgetMin: null, referenceMin: 9 * H, enforce: false,
+const homeWorkday = { ...officeWorkday, dailyBudgetMin: 8 * H };
+// Occasional personal-day laptop use still counts toward the weekly budget, without automatic interruptions.
+const personalDay = {
+  menubar: true, colours: false, dailyBudgetMin: null, referenceMin: null, enforce: false,
   inactivityDialog: false, breakNudge: false, morningReview: false,
 };
 
@@ -34,17 +35,12 @@ export default {
   overlayOpacity: 0.8,
   feedbackChoices: ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day', 'Other'],
   days: {
-    sun: enforcingWorkday,
-    mon: relaxedWorkday,
-    tue: enforcingWorkday,
-    wed: relaxedWorkday,
-    thu: enforcingWorkday,
-    // Private day: tracked, no budget, no reference colour.
-    fri: { ...relaxedWorkday, referenceMin: null },
-    // Shabbat: tracking only — no colours, no popups at all.
-    sat: {
-      menubar: true, colours: false, dailyBudgetMin: null, referenceMin: null, enforce: false,
-      inactivityDialog: false, breakNudge: false, morningReview: false,
-    },
+    sun: officeWorkday,
+    mon: homeWorkday,
+    tue: officeWorkday,
+    wed: homeWorkday,
+    thu: officeWorkday,
+    fri: personalDay,
+    sat: personalDay,
   },
 } satisfies PolicyConfig;
