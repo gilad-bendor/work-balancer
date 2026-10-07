@@ -17,6 +17,12 @@ that reads `data/`. This is the canonical, versioned list of record types; keep 
   written later): `minute` → `minute`; `monitor.gap`, `inactivity.resolved` → `from`; `inactivity.detected` →
   `lastInputAt`; `system` → `ts`. Everything else (entities, actions) goes to the file of the **current** day.
   Writers split intervals that cross 04:00 into one record per day (gaps are clipped to their day).
+- **Git** (ledger D-72): the live daemon auto-commits *settled* day files — new/changed files whose mtime is before
+  yesterday's 04:00 (no record has touched them for over a day) — and deleted day files, once per 04:00 day, on
+  `main` only (amending a pure-`data/` HEAD; constant message `data: auto-commit day files`), then pushes that
+  one commit with an exact `--force-with-lease` (`src/daemon/data-commit.ts`). A later late record just makes the file
+  eligible again. Bulk deletions (> 2 in one run, or a whole month folder) and changes that are not an append to the
+  committed version are never auto-committed (menubar warning; commit deliberate ones by hand). Files are never rewritten. The GitHub repo is public: pushed data is public.
 
 ## 2. Common fields
 

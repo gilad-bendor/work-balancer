@@ -19,6 +19,7 @@ import { createTestEffect } from '../effects/test-effect.ts';
 import { DEFAULT_QUIET } from '../effects/reconcile.ts';
 import { pagesRoute } from '../ui/serve.ts';
 import { strings } from '../ui/strings.ts';
+import { createDataCommit, type DataCommit } from './data-commit.ts';
 
 export const DAEMON_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
@@ -76,6 +77,8 @@ export interface DaemonOptions {
   tickMs?: number;
   /** Called after a /bridge/shutdown request was answered (main.ts exits the process). */
   onShutdownRequest?: () => void;
+  /** Auto-commit of settled data/ day files (D-72). Default: on for live, off for dev; `null` disables it. */
+  dataCommit?: ((deps: { repoRoot: string; dataDir: string; log: Logger; notBefore: number }) => DataCommit) | null;
 }
 
 /** Resolves to null when another daemon of this env already owns the port. */
@@ -92,6 +95,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
 
   const categories = createCategories({ path: env.categoriesPath, log });
   let tracker: Tracker | null = null;
+  let dataCommit: DataCommit | null = null;
   const effects = createEffectsManager({
     env: env.name, store, log, now: () => clock.now(),
     gateOpen: () => env.name === 'dev' || policy.state().config?.liveEffects === true,
@@ -119,6 +123,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
     if (categories.errors().length) w.push('Categories file has errors — see the daemon log.');
     const se = store.health().writeError;
     if (se) w.push(`Cannot write data: ${se}`);
+    const dc = dataCommit?.warning();
+    if (dc) w.push(dc);
     return w.length ? w.join('\n') : null;
   };
   const menubar = (now: number): MenubarSpec => {
@@ -264,6 +270,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
   }
   tracker = (await opts.createTracker?.({ store, clock, log, policy, startedAt, copilotHome: env.copilotHome, effects, categories })) ?? null;
   log.info('daemon started', { env: env.name, port, pid: process.pid, dataDir: env.dataDir });
+  const makeDataCommit = opts.dataCommit === undefined ? (env.name === 'live' ? createDataCommit : null) : opts.dataCommit;
+  dataCommit = makeDataCommit?.({ repoRoot: env.repoRoot, dataDir: env.dataDir, log, notBefore: clock.now() + 60_000 }) ?? null;
 
   const tick = async (): Promise<void> => {
     try {
@@ -272,6 +280,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
       tracker?.tick(clock.now());
     } catch (e) {
       log.error('tick failed', { error: e as Error });
+    }
+    try {
+      dataCommit?.tick(clock.now());
+    } catch (e) {
+      log.error('data auto-commit tick failed', { error: e as Error });
     }
   };
   const timer = setInterval(() => void tick(), opts.tickMs ?? 5000);

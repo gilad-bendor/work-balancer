@@ -291,7 +291,11 @@ work-balancer/
 - **Privacy:** never store prompt text or Copilot output. Prompt-history stores counts/timestamps/source kinds only.
   Notes and feedback text *are* stored (the owner typed them for this purpose).
 - Never commit `data/` changes yourself unless the owner explicitly asks; never `git add -A` blindly (it would sweep
-  `data/`). **Never** delete or "clean up" files under `data/`.
+  `data/`). **Never** delete or "clean up" files under `data/`. The **live daemon** commits settled day files itself
+  (ledger D-72, `src/daemon/data-commit.ts`): once per day, on `main` only, new/changed day files last modified before
+  yesterday's 04:00 plus deleted day files (bulk deletions and non-append changes are held back with a warning) — `git commit --only` on exactly those paths (amending a pure-`data/` HEAD),
+  then pushes that one commit (`--force-with-lease`, exact lease; never other unpushed commits). Sessions: never `git commit --amend` onto a
+  `data: auto-commit day files` commit (amend only your own commits).
 - **Development and tests must never write to `data/`.** Use the dev instance (§10) whose data dir is under `var/`.
 - The canonical, versioned list of event types and their fields belongs in a topic file `.github/data-format.md`
   (create it in the milestone that first writes data; keep it in sync with the code).
