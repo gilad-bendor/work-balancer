@@ -219,6 +219,40 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   assert.deepEqual(r.ids(), ['review']);
 });
 
+test('countdown draft keeps the feedback form across pill ⇄ full and into the block; a save forgets only what it wrote', async (t) => {
+  const s = await setup(local(2026, 10, 6, 16, 50), { seed: (st) => seedWork(st, local(2026, 10, 6, 8, 30), local(2026, 10, 6, 16, 50)) });
+  t.after(s.cleanup);
+  s.work(local(2026, 10, 6, 16, 50, 30));
+  assert.deepEqual(s.ids(), ['countdown']);
+  assert.equal(s.model('countdown').feedbackDraft, null);
+  // Energy first (as the owner does), then the box: partial drafts must not erase each other.
+  s.action('countdown', 'draft', { feedback: { choices: ['Feeling tired', 7], text: 'long day', energy: 2 } });
+  s.action('countdown', 'draft', { text: 'next: retry logic' });
+  s.action('countdown', 'collapse');
+  s.action('countdown', 'expand');
+  const m = s.model('countdown');
+  assert.equal(m.draft, 'next: retry logic');
+  assert.deepEqual(m.feedbackDraft, { choices: ['Feeling tired'], text: 'long day', energy: 2 });
+  // Invalid energy is dropped; an all-empty form clears the feedback draft.
+  s.action('countdown', 'draft', { text: 'next: retry logic', feedback: { choices: [], text: '', energy: 9 } });
+  assert.equal(s.model('countdown').feedbackDraft, null);
+  s.action('countdown', 'draft', { text: 'next: retry logic', feedback: { choices: [], text: '', energy: 3 } });
+  // The block (after the countdown's Save) carries what was not saved.
+  const saved = s.action('countdown', 'save', { context: 'next: retry logic', feedback: {} });
+  assert.deepEqual([saved.context, saved.feedback, saved.forfeited], ['saved', 'none', true]);
+  assert.deepEqual(s.ids(), ['block']);
+  const b = s.model('block');
+  assert.equal(b.draft, '', 'saved context is not offered again');
+  assert.deepEqual(b.feedbackDraft, { choices: [], text: '', energy: 3 }, 'unsaved feedback is kept');
+  s.action('block', 'save', { context: '', feedback: { choices: [], text: '', energy: 3 } });
+  assert.equal(s.model('block').feedbackDraft, null);
+  // Review: a part cleared just before Save is sent as a draft first (park.ts flushes) — it never comes back.
+  s.action('block', 'draft', { text: 'old thought', feedback: { choices: ['Anxious'], text: '', energy: 1 } });
+  s.action('block', 'draft', { text: 'new thought', feedback: { choices: [], text: '', energy: null } });
+  s.action('block', 'save', { context: 'new thought', feedback: { choices: [], text: '', energy: null } });
+  assert.deepEqual([s.model('block').draft, s.model('block').feedbackDraft], ['', null]);
+});
+
 test('zero limit (week used up): blocked at the first worked second only, with the explanation flag', async (t) => {
   const s = await setup(local(2026, 10, 8, 9, 0), {
     seed: (st) => {

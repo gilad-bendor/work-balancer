@@ -19,7 +19,8 @@ export interface FeedbackForm {
   setValue(value: FeedbackValue): void;
 }
 
-export function feedbackForm(s: Strings, choices: readonly string[]): FeedbackForm {
+/** `onChange`: any choice, energy or comment change (pages use it to keep a draft). */
+export function feedbackForm(s: Strings, choices: readonly string[], onChange?: () => void): FeedbackForm {
   const picked = new Set<string>();
   let energy: number | null = null;
 
@@ -31,6 +32,7 @@ export function feedbackForm(s: Strings, choices: readonly string[]): FeedbackFo
       if (picked.has(c)) picked.delete(c);
       else picked.add(c);
       toggle(b, picked.has(c));
+      onChange?.();
     });
     return b;
   });
@@ -40,11 +42,13 @@ export function feedbackForm(s: Strings, choices: readonly string[]): FeedbackFo
     b.addEventListener('click', () => {
       energy = energy === n ? null : n; // clicking the chosen value again clears it
       energyButtons.forEach((x, i) => toggle(x, energy === i + 1));
+      onChange?.();
     });
     return b;
   });
 
   const comment = el('textarea', { rows: '2', placeholder: s.feedbackComment ?? '' });
+  if (onChange) comment.addEventListener('input', onChange);
 
   const root = el('section', { class: 'feedback' },
     el('h2', {}, s.feedbackTitle ?? ''),

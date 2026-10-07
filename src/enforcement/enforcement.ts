@@ -87,15 +87,31 @@ export interface BlockModel {
   bypass: { minutes: number; phrase: string; usedToday: number };
   feedbackChoices: string[];
   draft: string;
+  feedbackDraft: FeedbackDraft | null;
+}
+
+/** The unsaved feedback form (choices, comment, energy) of the countdown / block, kept like the context draft. */
+export interface FeedbackDraft {
+  choices: string[];
+  text: string;
+  energy: number | null;
+}
+
+export function cleanFeedbackDraft(x: unknown): FeedbackDraft | null {
+  const f = obj(x);
+  const choices = Array.isArray(f.choices) ? f.choices.filter((c): c is string => typeof c === 'string').slice(0, 50).map((c) => c.slice(0, 200)) : [];
+  const text = typeof f.text === 'string' ? f.text.slice(0, 4000) : '';
+  const energy = typeof f.energy === 'number' && Number.isInteger(f.energy) && f.energy >= 1 && f.energy <= 5 ? f.energy : null;
+  return choices.length || text || energy !== null ? { choices, text, energy } : null;
 }
 
 /** The block page's model (also used by the trial mode with a synthetic state). */
-export function blockModel(c: PolicyConfig, st: Pick<PolicyState, 'zeroLimit' | 'workedSeconds' | 'limitSeconds' | 'tokensLeft' | 'bypassesUsed' | 'day'>, week: WeekInfo, now: number, draft: string): BlockModel {
+export function blockModel(c: PolicyConfig, st: Pick<PolicyState, 'zeroLimit' | 'workedSeconds' | 'limitSeconds' | 'tokensLeft' | 'bypassesUsed' | 'day'>, week: WeekInfo, now: number, draft: string, feedbackDraft: FeedbackDraft | null = null): BlockModel {
   return {
     now, zeroLimit: st.zeroLimit, workedSeconds: st.workedSeconds, limitSeconds: st.limitSeconds ?? 0, week,
     liftsAt: dayEnd(st.day), tokens: tokenGroups(st.tokensLeft),
     bypass: { minutes: c.bypass.minutes, phrase: c.bypass.phrase, usedToday: st.bypassesUsed },
-    feedbackChoices: c.feedbackChoices, draft,
+    feedbackChoices: c.feedbackChoices, draft, feedbackDraft,
   };
 }
 
@@ -124,8 +140,9 @@ export interface Enforcement {
 }
 
 export function createEnforcement(d: EnforcementDeps): Enforcement {
-  /** Context-memory text typed in the countdown, carried into the block (today only). */
-  let draft: { day: DayKey; text: string } | null = null;
+  /** Context-memory text and feedback form typed in the countdown, kept across its pill ⇄ full rebuilds and carried
+   * into the block (today only, in memory). */
+  let draft: { day: DayKey; text: string; feedback: FeedbackDraft | null } | null = null;
   /** Countdown collapsed to the pill, until the level leaves `countdown` (in memory: a restart opens it expanded). Not
    * keyed on a record — a failed `policy.transition` write must not make it impossible to shrink (review M10#4). */
   let collapsed = false;
@@ -137,16 +154,28 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
   let quietStretchFrom: number | null = null;
 
   const today = (now: number): AnyRecord[] => d.store.readDay(dayKey(now));
-  const draftText = (now: number): string => (draft && draft.day === dayKey(now) ? draft.text : '');
+  const todaysDraft = (now: number) => (draft && draft.day === dayKey(now) ? draft : null);
+  const draftText = (now: number): string => todaysDraft(now)?.text ?? '';
+  const feedbackDraft = (now: number): FeedbackDraft | null => todaysDraft(now)?.feedback ?? null;
   const none = { windows: [], dims: [] };
   const save = (source: NoteSource, p: unknown, now: number): ActionResult => {
     const r = submitContextAndFeedback(d.notes, source, p);
-    if (r.context === 'saved' && draft?.day === dayKey(now)) draft = null;
+    const current = todaysDraft(now);
+    if (current) {
+      // Only what was written is forgotten; a part that failed stays for a retry.
+      draft = { ...current, text: r.context === 'saved' ? '' : current.text, feedback: r.feedback === 'saved' ? null : current.feedback };
+    }
     return r;
   };
+  /** Updates only the parts present in the payload (`text`, `feedback`). */
   const setDraft = (p: unknown, now: number): ActionResult => {
-    const text = typeof obj(p).text === 'string' ? (obj(p).text as string).slice(0, 4000) : '';
-    draft = { day: dayKey(now), text };
+    const b = obj(p);
+    const current = todaysDraft(now) ?? { day: dayKey(now), text: '', feedback: null };
+    draft = {
+      day: current.day,
+      text: 'text' in b ? (typeof b.text === 'string' ? b.text.slice(0, 4000) : '') : current.text,
+      feedback: 'feedback' in b ? cleanFeedbackDraft(b.feedback) : current.feedback,
+    };
     return { ok: true };
   };
 
@@ -198,7 +227,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
       if (!st) return null;
       return {
         now, remainingSeconds: st.remainingSeconds, workedSeconds: st.workedSeconds, limitSeconds: st.limitSeconds,
-        collapsed, feedbackChoices: d.config()?.feedbackChoices ?? [], draft: draftText(now),
+        collapsed, feedbackChoices: d.config()?.feedbackChoices ?? [], draft: draftText(now), feedbackDraft: feedbackDraft(now),
       };
     },
     action(_id, action, payload, now) {
@@ -237,7 +266,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
       const c = d.config();
       const st = d.state(now);
       if (!c || !st?.enforcing) return null;
-      return { ...blockModel(c, st, d.week(now), now, draftText(now)), blockActive: st.blockActive, report: d.reports?.get(dayKey(now), now) ?? null };
+      return { ...blockModel(c, st, d.week(now), now, draftText(now), feedbackDraft(now)), blockActive: st.blockActive, report: d.reports?.get(dayKey(now), now) ?? null };
     },
     action(_id, action, payload, now) {
       const p = obj(payload);

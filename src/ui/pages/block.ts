@@ -6,6 +6,7 @@
 import { act, api, boot, el, fill, isPrimary, windowId } from './page.ts';
 import { hm, timeLabel } from './format.ts';
 import { parkPanel } from './park.ts';
+import type { FeedbackValue } from './feedback.ts';
 import type { DailyReport } from '../../reports/reports.ts';
 import { reportForm } from './report-form.ts';
 
@@ -28,6 +29,7 @@ interface Model {
   bypass: { minutes: number; phrase: string; usedToday: number };
   feedbackChoices: string[];
   draft: string;
+  feedbackDraft?: FeedbackValue | null;
 }
 
 /** Same comparison as the daemon (enforcement.ts `phraseKey`): case, spacing and punctuation do not matter. */
@@ -160,7 +162,7 @@ void boot<Model | null>(({ strings: s, model: first }) => {
   }
 
   function renderMain(): void {
-    const park = parkPanel(s, model.feedbackChoices, { title: s.blockPark!, draft: model.draft, showFeedback: !model.report });
+    const park = parkPanel(s, model.feedbackChoices, { title: s.blockPark!, draft: model.draft, feedbackDraft: model.feedbackDraft ?? null, showFeedback: !model.report });
     renderTokens();
     bypassStart();
     document.body.replaceChildren(el('main', { class: 'card block' },

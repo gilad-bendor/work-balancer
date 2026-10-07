@@ -3,12 +3,14 @@
 // Its Save ends the day (owner, D-60): the remaining minutes are given up and the block follows.
 // Opened without focus (never steals keystrokes); a click gives it focus.
 import { act, api, boot, el, fill, focusOnInteract, tellLua, windowId } from './page.ts';
-import { parkPanel } from './park.ts';
+import { parkPanel, type ParkPanel } from './park.ts';
+import type { FeedbackValue } from './feedback.ts';
 
 interface Model {
   remainingSeconds: number | null;
   feedbackChoices: string[];
   draft: string;
+  feedbackDraft?: FeedbackValue | null;
 }
 
 const pill = new URLSearchParams(location.search).get('pill') === '1';
@@ -21,7 +23,9 @@ void boot<Model | null>(({ strings: s, model }) => {
     const n = minutesLeft(m);
     title.textContent = pill ? fill(s.countdownPill, { n }) : n > 0 ? fill(s.countdownTitle, { n }) : s.countdownDone!;
   };
+  let park: ParkPanel | null = null;
   const toggle = (action: 'collapse' | 'expand') => async (): Promise<void> => {
+    await park?.flush(); // the rebuilt window starts from the daemon's draft
     try {
       await act(action);
     } catch {
@@ -38,7 +42,7 @@ void boot<Model | null>(({ strings: s, model }) => {
   } else {
     const small = el('button', {}, s.countdownCollapse!);
     small.addEventListener('click', () => void toggle('collapse')());
-    const park = parkPanel(s, model?.feedbackChoices ?? [], { draft: model?.draft ?? '', saveLabel: s.countdownSave!, savedText: s.countdownSaved!, cmdEnterHint: s.countdownCmdEnter! });
+    park = parkPanel(s, model?.feedbackChoices ?? [], { draft: model?.draft ?? '', feedbackDraft: model?.feedbackDraft ?? null, saveLabel: s.countdownSave!, savedText: s.countdownSaved!, cmdEnterHint: s.countdownCmdEnter! });
     document.body.classList.add('scroll');
     document.body.replaceChildren(el('main', { class: 'card' },
       el('div', { class: 'row between' }, title, small),
