@@ -191,8 +191,9 @@ test('review M7 round 2: a dismissed window obeys R-UI-QUIET next time; a reload
 test('M8: every heartbeat reply carries the menu; a quit shutdown logs app.quit (by menu / cli)', async (t) => {
   const { beat, call, daemon } = await start(t);
   const r = await beat();
-  assert.deepEqual(r.menubar.menu.map((m: any) => m.id), ['quick', 'reports', 'summary', 'notes', '-', 'quit']);
-  assert.equal(r.menubar.menu[0].title, 'Quick note…');
+  // `countdown` (Early End-Of-Day) depends on the real weekday here.
+  assert.deepEqual(r.menubar.menu.map((m: any) => m.id).filter((id: string) => id !== 'countdown'), ['reports', 'notes', 'summary', '-', 'quit']);
+  assert.equal(r.menubar.menu[0].title.startsWith('Manage Reports'), true);
   assert.equal((await call('/bridge/ui-request', { open: 'nope' })).status, 404);
   assert.equal((await call('/bridge/shutdown', { reason: 'quit', by: 'menu' })).json.ok, true);
   await new Promise((res) => setTimeout(res, 150));

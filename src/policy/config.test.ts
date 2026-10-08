@@ -55,6 +55,25 @@ test('validation reports clear errors', () => {
   assert.equal(validatePolicy(null).ok, false);
 });
 
+test('reports config: statuses without "Other", stages in order, HH:MM times', () => {
+  assert.equal(ownersPolicy.reports.statuses.includes('Other'), false);
+  assert.deepEqual(ownersPolicy.reports.stages, { afternoonFrom: '11:00', eveningFrom: '14:00', endOfWorkdayAt: '23:59' });
+  const bad = structuredClone(ownersPolicy) as unknown as Record<string, any>;
+  bad.reports.startDay = '2026-02-30';
+  bad.reports.statuses = ['ok', ''];
+  bad.reports.stages = { afternoonFrom: '15:00', eveningFrom: '14:00', endOfWorkdayAt: '24:00' };
+  bad.reports.stubDays = -1;
+  const errors = (validatePolicy(bad) as { errors: string[] }).errors.join('\n');
+  assert.match(errors, /reports.startDay must be a real/);
+  assert.match(errors, /reports.statuses must be/);
+  assert.match(errors, /reports.stages must satisfy 04:00 < afternoonFrom < eveningFrom/);
+  assert.match(errors, /reports.stages.endOfWorkdayAt must be HH:MM/);
+  assert.match(errors, /reports.stubDays must be a number/);
+  const missing = structuredClone(ownersPolicy) as unknown as Record<string, any>;
+  delete missing.reports;
+  assert.match((validatePolicy(missing) as { errors: string[] }).errors.join('\n'), /reports must be an object/);
+});
+
 function loaderSetup() {
   const tmp = makeTmpDir('config');
   const path = join(tmp.dir, 'policy.ts');

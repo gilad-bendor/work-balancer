@@ -1,9 +1,12 @@
-// "Park the thought" (R-UI-CTX + R-UI-FB) for the countdown and the block: the context-memory box and the feedback form,
-// saved through the window's `save` action (notes with source `countdown` / `block`). What was saved is cleared; a part
-// that could not be written keeps its text. Both parts are also sent as a `draft`, so they survive the countdown's
-// pill ⇄ full rebuilds and reappear in the block (a thought typed a minute before the budget ends is not lost).
+// "Park the thought" for the countdown and the block: a note box (R-UI-NOTE) and an end-of-workday report
+// (R-UI-REPORT), saved through the window's `save` action. What was saved is cleared; a part that could not be written
+// keeps its text. Both parts are also sent as a `draft`, so they survive the countdown's pill ⇄ full rebuilds and
+// reappear in the block (a thought typed a minute before the budget ends is not lost). Once today has an end-of-workday
+// report, it is shown instead of a second empty form ("Add another report" opens one).
+import type { ReportView } from '../../reports/reports.ts';
 import { act, el, submitOnCmdEnter } from './page.ts';
-import { feedbackForm, type FeedbackValue } from './feedback.ts';
+import { reportFields, type ReportValue } from './report-fields.ts';
+import { reportBody, reportHead } from './report-card.ts';
 
 type Strings = Record<string, string>;
 type Part = 'saved' | 'failed' | 'none';
@@ -15,19 +18,23 @@ export interface ParkPanel {
   flush(): Promise<void>;
 }
 
-export function parkPanel(s: Strings, choices: readonly string[], opts: { title?: string; draft?: string; feedbackDraft?: FeedbackValue | null; saveLabel?: string; savedText?: string; cmdEnterHint?: string; showFeedback?: boolean } = {}): ParkPanel {
-  const box = el('textarea', { rows: '2', placeholder: s.contextPlaceholder ?? '' });
+export function parkPanel(s: Strings, statuses: readonly string[], opts: {
+  title?: string; draft?: string; reportDraft?: ReportValue | null; recorded?: ReportView[];
+  saveLabel?: string; savedText?: string; cmdEnterHint?: string;
+} = {}): ParkPanel {
+  const box = el('textarea', { rows: '2', placeholder: s.notePlaceholder ?? '' });
   box.value = opts.draft ?? '';
-  const withFeedback = opts.showFeedback !== false;
+  let recorded = opts.recorded ?? [];
+  let showReport = recorded.length === 0 || !!opts.reportDraft;
   let draftTimer: ReturnType<typeof setTimeout> | null = null;
   /** The latest draft request, so a flush also waits for one already on its way. */
   let inFlight: Promise<void> = Promise.resolve();
   const sendDraft = (): Promise<void> => {
     if (draftTimer) clearTimeout(draftTimer);
     draftTimer = null;
-    // Without the form on screen, the feedback draft is left as it is. Chained: drafts reach the daemon in order, each
+    // Without the form on screen, the report draft is left as it is. Chained: drafts reach the daemon in order, each
     // with the values of the moment it is sent.
-    inFlight = inFlight.then(() => act('draft', withFeedback ? { text: box.value, feedback: fb.value() } : { text: box.value })).then(() => {}, () => {});
+    inFlight = inFlight.then(() => act('draft', showReport ? { text: box.value, report: fields.value() } : { text: box.value })).then(() => {}, () => {});
     return inFlight;
   };
   const scheduleDraft = (): void => {
@@ -35,17 +42,33 @@ export function parkPanel(s: Strings, choices: readonly string[], opts: { title?
     draftTimer = setTimeout(() => void sendDraft(), 700);
   };
   const flush = (): Promise<void> => (draftTimer ? sendDraft() : inFlight);
-  const fb = feedbackForm(s, choices, scheduleDraft);
-  if (withFeedback && opts.feedbackDraft) fb.setValue(opts.feedbackDraft);
+  const fields = reportFields(s, statuses, scheduleDraft);
+  if (opts.reportDraft) fields.setValue(opts.reportDraft);
   const msg = el('p', { class: 'msg', role: 'status' });
   const saveLabel = opts.saveLabel ?? s.save ?? '';
   const save = el('button', { class: 'primary' }, saveLabel);
+  const reportSlot = el('div');
+
+  const renderReport = (): void => {
+    const done = recorded.length ? [el('div', { class: 'recorded' },
+      el('p', { class: 'muted' }, s.reportRecordedToday ?? ''),
+      ...recorded.map((r) => el('div', { class: 'report' }, el('div', { class: 'report-head muted' }, reportHead(r, s)), reportBody(r, s))),
+    )] : [];
+    if (showReport) {
+      reportSlot.replaceChildren(...done, fields.root);
+      return;
+    }
+    const another = el('button', {}, s.reportAddAnother ?? '');
+    another.addEventListener('click', () => { showReport = true; renderReport(); });
+    reportSlot.replaceChildren(...done, el('div', { class: 'row' }, another));
+  };
+  renderReport();
 
   box.addEventListener('input', scheduleDraft);
 
   const submit = async (): Promise<void> => {
     if (save.disabled) return;
-    if (!box.value.trim() && fb.isEmpty()) {
+    if (!box.value.trim() && (!showReport || fields.isEmpty())) {
       msg.textContent = s.nothingToSave ?? '';
       return;
     }
@@ -54,10 +77,18 @@ export function parkPanel(s: Strings, choices: readonly string[], opts: { title?
     // Send the last edits first (also a cleared part), so the save forgets exactly what it wrote.
     await flush();
     try {
-      const r = await act<{ context: Part; feedback: Part }>('save', { context: box.value, feedback: fb.value() });
-      if (r.context === 'saved') box.value = '';
-      if (r.feedback === 'saved') fb.reset();
-      msg.textContent = r.ok ? (opts.savedText ?? s.savedForTomorrow ?? '') : r.error === 'empty' ? (s.nothingToSave ?? '') : (s.saveFailed ?? '');
+      const value = fields.value();
+      const r = await act<{ note: Part; report: Part; forfeited?: boolean }>('save', { note: box.value, report: showReport ? value : null });
+      if (r.note === 'saved') box.value = '';
+      if (r.report === 'saved') {
+        fields.reset();
+        recorded = [...recorded, { ...value, id: 0, timestamp: '', day: '', stage: 'end-of-workday', source: 'block', createdAt: 0, skip: false, dismissed: false }];
+        showReport = false;
+        renderReport();
+      }
+      // Saved, but the day could not be ended (the forfeit record failed): say exactly that.
+      msg.textContent = r.ok && r.forfeited === false ? (s.countdownNotEnded ?? '')
+        : r.ok ? (opts.savedText ?? s.savedForTomorrow ?? '') : r.error === 'empty' ? (s.nothingToSave ?? '') : (s.saveFailed ?? '');
     } catch {
       msg.textContent = s.saveFailed ?? '';
     }
@@ -68,13 +99,13 @@ export function parkPanel(s: Strings, choices: readonly string[], opts: { title?
   // `cmdEnterHint`: Cmd+Enter does not submit — the countdown's Save ends the day, never by reflex (review M10#6).
   const onCmdEnter = opts.cmdEnterHint ? () => { msg.textContent = opts.cmdEnterHint!; } : () => void submit();
   submitOnCmdEnter(box, onCmdEnter);
-  submitOnCmdEnter(fb.comment, onCmdEnter);
+  submitOnCmdEnter(fields.feedback, onCmdEnter);
 
   const root = el('section', { class: 'park' },
     ...(opts.title ? [el('h2', {}, opts.title)] : []),
-    el('label', { class: 'label' }, s.contextLabel ?? ''),
+    el('label', { class: 'label' }, s.noteLabel ?? ''),
     box,
-    ...(withFeedback ? [fb.root] : []),
+    reportSlot,
     msg,
     el('div', { class: 'row end' }, save),
   );

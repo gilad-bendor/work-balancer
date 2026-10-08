@@ -63,8 +63,9 @@ The thing being protected is **energy for Friday and Saturday**, not "hours" per
 - **Aggregate** per time range (today, this week, a stretch).
 - **Policy** (per weekday, configurable): daily + weekly budgets of *worked time* → status ladder
   `ok → orange → warn → countdown → blocked` (until the 04:00 day-boundary), plus postpone tokens and emergency bypass.
-- **UI effects**: menubar status (+ left-click quick note, right-click menu), warning dialog, screen dim pulse,
-  countdown, full-screen block, inactivity dialog, feedback form, notes manager, 04:00 morning review, activity summary.
+- **UI effects**: menubar status + menu (Manage Reports, Manage Notes, activity summary, Early End-Of-Day, Quit),
+  warning dialog, screen dim pulse, countdown, full-screen block, inactivity dialog, report form, 04:00 morning review /
+  welcome. **Notes** = reminders he leaves for himself; **reports** = how he is doing (never mixed, ledger D-74).
 - **Data**: append-only JSONL, one file per (04:00-bounded) day: `data/YYYY-MM/YYYY-MM-DD.jsonl`, git-able.
 
 ---
@@ -255,7 +256,8 @@ work-balancer/
 │   ├── store/                      ← JSONL append/read, recovery, schema versions
 │   ├── providers/<name>/           ← interactive, prompt-history, work (digest), [camera later]
 │   ├── policy/                     ← config schema+validation, evaluator, ladder, tokens, bypass
-│   ├── notes/                      ← event-sourced notes (context-memory, feedback, free notes)
+│   ├── notes/                      ← event-sourced notes (reminders: "park the thought")
+│   ├── reports/                    ← event-sourced reports (status, energy, feedback; stages; missing days)
 │   ├── effects/                    ← reconciler + one module per effect
 │   ├── bridge/                     ← HTTP server, auth, heartbeat, command queue, JSON API
 │   ├── hammerspoon/                ← logic of scripts/reload-hammerspoon (install + reload + health)
@@ -289,7 +291,7 @@ work-balancer/
   (`appendFileSync`) so they are serialised by construction; each line `\n`-terminated; if the file does not end with
   `\n` (torn write), prepend one. A write error is never swallowed: log it, show a menubar warning, and fail open.
 - **Privacy:** never store prompt text or Copilot output. Prompt-history stores counts/timestamps/source kinds only.
-  Notes and feedback text *are* stored (the owner typed them for this purpose).
+  Note and report text *are* stored (the owner typed them for this purpose).
 - Never commit `data/` changes yourself unless the owner explicitly asks; never `git add -A` blindly (it would sweep
   `data/`). **Never** delete or "clean up" files under `data/`. The **live daemon** commits settled day files itself
   (ledger D-72, `src/daemon/data-commit.ts`): once per day, on `main` only, new/changed day files last modified before

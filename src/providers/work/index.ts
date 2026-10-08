@@ -3,7 +3,7 @@
 // Sources plug in without changing this module: `interactive` (activity runs + lock/sleep), `prompt-history` (M5,
 // prompt instants as activity), inactivity resolutions (M9, credited intervals).
 import type { PerMinuteInfoProvider, TimeRangeInfoProvider } from '../../core/registry.ts';
-import { clip, normalize, overlap, subtract, total, union, type Interval } from '../../core/intervals.ts';
+import { clip, normalize, subtract, total, union, type Interval } from '../../core/intervals.ts';
 import { dayEnd, dayStart, MINUTE_MS, type DayKey, type MinuteKey } from '../../core/time.ts';
 
 export const PROVIDER = 'work';
@@ -22,10 +22,23 @@ export interface WorkSource {
 
 export interface WorkMinute {
   workSeconds: number;
+  /** The part of `workSeconds` that only the owner's report credits (inactivity dialog: whole / some). */
+  reportedSeconds: number;
+}
+
+/** `reported-as-work` = credited by the owner's answer, not seen at the computer. Timelines show both as one work range. */
+export type WorkState = 'work' | 'reported-as-work';
+
+export interface WorkSegment {
+  from: number;
+  to: number;
+  state: WorkState;
 }
 
 export interface WorkRange {
   workedSeconds: number;
+  /** The part of `workedSeconds` that is reported-as-work. */
+  reportedSeconds: number;
   /** Longest continuous busy stretch inside the range. */
   longestStretchSeconds: number;
   /** Non-busy gaps between busy stretches inside the range. */
@@ -43,9 +56,12 @@ declare module '../../core/registry.ts' {
 export interface WorkProvider extends PerMinuteInfoProvider<WorkMinute>, TimeRangeInfoProvider<WorkRange> {
   /** Busy intervals inside [from, min(to, now)). */
   busy(from: number, to: number): Interval[];
+  /** Busy time inside [from, min(to, now)) by state, sorted (adjacent segments of different states are not merged). */
+  segments(from: number, to: number): WorkSegment[];
   /** Worked seconds of a whole day (past days are cached until a source changes). */
   daySeconds(day: DayKey): number;
-  /** The busy stretch running right now, or null when on a break. */
+  /** The stretch of work at the computer running right now (reported-as-work time is not part of it — it ends a
+   * stretch like a break), or null when on a break. */
   currentStretch(): { from: number; seconds: number } | null;
 }
 
@@ -53,31 +69,48 @@ export function createWorkProvider(opts: { sources: () => readonly WorkSource[];
   const dayCache = new Map<DayKey, { key: string; seconds: number }>();
   const versionKey = (): string => `${opts.graceMs()}|${opts.sources().map((s) => `${s.name}:${s.version()}`).join(',')}`;
 
-  function busy(from: number, to: number): Interval[] {
+  /** Seen work (activity + grace − blocked) and the credited time beyond it, both inside [from, min(to, now)). */
+  function parts(from: number, to: number): { seen: Interval[]; reported: Interval[] } {
     const hi = Math.min(to, opts.now());
-    if (hi <= from) return [];
+    if (hi <= from) return { seen: [], reported: [] };
     const g = opts.graceMs();
     const sources = opts.sources();
     const active = union(sources.flatMap((s) => s.activity?.(from - g, hi) ?? []).map(([a, b]) => [a, b + g] as const));
     const blocked = normalize(sources.flatMap((s) => s.blocked?.(from, hi) ?? []));
     const credited = normalize(sources.flatMap((s) => s.credited?.(from, hi) ?? []));
-    return clip(union(subtract(active, blocked), credited), from, hi);
+    const seen = clip(subtract(active, blocked), from, hi);
+    return { seen, reported: clip(subtract(credited, seen), from, hi) };
+  }
+
+  function busy(from: number, to: number): Interval[] {
+    const p = parts(from, to);
+    return union(p.seen, p.reported);
   }
 
   const provider: WorkProvider = {
     name: PROVIDER,
     dependsOn: ['interactive', 'prompt-history'],
     busy,
+    segments(from, to) {
+      const p = parts(from, to);
+      return [
+        ...p.seen.map(([a, b]): WorkSegment => ({ from: a, to: b, state: 'work' })),
+        ...p.reported.map(([a, b]): WorkSegment => ({ from: a, to: b, state: 'reported-as-work' })),
+      ].sort((x, y) => x.from - y.from);
+    },
     getMinuteInfo(m: MinuteKey) {
       if (m >= opts.now()) return null;
-      return { workSeconds: Math.round(overlap(busy(m, m + MINUTE_MS), m, m + MINUTE_MS) / 1000) };
+      const p = parts(m, m + MINUTE_MS);
+      return { workSeconds: Math.round(total(union(p.seen, p.reported)) / 1000), reportedSeconds: Math.round(total(p.reported) / 1000) };
     },
     getRangeInfo(start, end) {
-      const b = busy(start, end);
+      const p = parts(start, end);
+      const b = union(p.seen, p.reported);
       const acts = opts.sources().flatMap((s) => s.activity?.(start, end) ?? []).filter(([a, bb]) => bb >= start && a < end);
       if (!b.length && !acts.length) return null;
       return {
         workedSeconds: total(b) / 1000,
+        reportedSeconds: total(p.reported) / 1000,
         longestStretchSeconds: b.reduce((mx, [x, y]) => Math.max(mx, y - x), 0) / 1000,
         breaks: Math.max(0, b.length - 1),
         firstActivityAt: acts.length ? Math.max(start, Math.min(...acts.map(([a]) => a))) : null,
@@ -97,7 +130,7 @@ export function createWorkProvider(opts: { sources: () => readonly WorkSource[];
     },
     currentStretch() {
       const now = opts.now();
-      const last = busy(now - 24 * 3600_000, now).at(-1);
+      const last = parts(now - 24 * 3600_000, now).seen.at(-1);
       return last && last[1] >= now ? { from: last[0], seconds: (now - last[0]) / 1000 } : null;
     },
   };

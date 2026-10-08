@@ -80,28 +80,71 @@ test('phrase comparison ignores case, spacing and punctuation; token groups', ()
   assert.deepEqual(tokenGroups([5, 10, 5]), [{ minutes: 10, left: 1 }, { minutes: 5, left: 2 }]);
 });
 
-test('daily report in block: today only, required energy, independent token/bypass exits, block retains priority', async (t) => {
+test('end-of-workday report in the block: saved with the note; independent token/bypass exits; block retains priority', async (t) => {
   const dir = makeTmpDir('block-report');
   t.after(dir.cleanup);
   const now = local(2026, 10, 6, 17, 1);
   const s = await setup(now, {
-    dir: dir.dir, configPath: testPolicy(dir.dir, { dailyReportsStartDay: '2026-10-05' }),
+    dir: dir.dir, configPath: testPolicy(dir.dir, { reportsStartDay: '2026-10-05' }),
     seed: (store) => seedWork(store, local(2026, 10, 6, 8, 0), now),
   });
   s.tracker.tick(now);
   s.tracker.ingest({ since: now - 5000, inputs: [now], apps: [], system: [], locked: false }, now);
-  assert.deepEqual(s.ids(), ['block'], 'work-budget block has priority over yesterday’s pending report');
-  assert.equal(s.model('block').report.day, '2026-10-06');
-  assert.equal(s.action('block', 'report-submit', { day: '2026-10-05', energy: 2 }).error, 'day');
-  assert.equal(s.action('block', 'report-submit', { day: '2026-10-06' }).error, 'energy');
-  assert.equal(s.action('block', 'token', { minutes: 10 }).close, true, 'pending report never prevents a token');
+  assert.deepEqual(s.ids(), ['block'], 'work-budget block has priority over yesterday without a report');
+  assert.deepEqual(s.model('block').recorded, []);
+  assert.deepEqual(s.model('block').reportStatuses.slice(0, 2), ['Too much work', 'Feeling tired']);
+  assert.equal(s.action('block', 'token', { minutes: 10 }).close, true, 'a missing report never prevents a token');
   s.clock.advance(11 * MIN);
   s.tracker.tick(s.clock.now());
   assert.ok(s.ids().includes('block'));
-  assert.equal(s.action('block', 'report-submit', { day: '2026-10-06', energy: 3 }).ok, true);
-  assert.ok(s.ids().includes('block'), 'answering does not release the budget block');
-  assert.equal(s.model('block').report.status, 'answered');
+  const saved = s.action('block', 'save', { note: '', report: { status: ['Productive', 'Other'], feedback: '', energy: 3 } });
+  assert.deepEqual([saved.ok, saved.note, saved.report], [true, 'none', 'saved']);
+  assert.ok(s.ids().includes('block'), 'reporting does not release the budget block');
+  assert.deepEqual(s.model('block').recorded.map((r: any) => [r.stage, r.status, r.energy, r.source, r.timestamp]), [
+    ['end-of-workday', ['Productive'], 3, 'block', '2026-10-06 17:12'],
+  ]);
+  assert.equal(s.action('block', 'report-new', { energy: 2 }).ok, false, 'the block only saves (note + end-of-workday report)');
   assert.equal(s.action('block', 'bypass', { phrase: PHRASE, reason: 'synthetic reason' }).close, true);
+});
+
+test('Early End-Of-Day: the countdown dialog from the menu — closable, focused, not intrusive; Save ends the day', async (t) => {
+  const now = local(2026, 10, 6, 13, 0); // Tuesday, 3:35 worked, back from a lunch break (no nudge)
+  const seed = (st: Store) => seedWork(st, local(2026, 10, 6, 8, 30), local(2026, 10, 6, 12, 0));
+  const s = await setup(now, { env: 'live', seed });
+  t.after(s.cleanup);
+  s.work(now + 30 * S);
+  // Live with the gate closed (observe mode): nothing to end early.
+  assert.ok(!s.tracker.menubar(s.clock.now()).menu!.some((m) => m.id === 'countdown'));
+  const dev = await setup(now, { seed });
+  t.after(dev.cleanup);
+  dev.work(now + 30 * S);
+  assert.ok(dev.tracker.menubar(dev.clock.now()).menu!.some((m) => m.id === 'countdown'));
+  assert.deepEqual(dev.ids(), []);
+  // Panic: nothing to end early (its block could not show).
+  dev.effects.heartbeat({ actual: { windows: {}, dimmed: false, closed: [] }, acks: [], panic: true, now: dev.clock.now() });
+  assert.ok(!dev.tracker.menubar(dev.clock.now()).menu!.some((m) => m.id === 'countdown'));
+  dev.call('POST', '/bridge/ui-request', { open: 'countdown' });
+  assert.equal(dev.win('countdown'), undefined);
+  dev.beat();
+  assert.equal(dev.call('POST', '/bridge/ui-request', { open: 'countdown' }).json.ok, true);
+  const w = dev.win('countdown')!;
+  assert.deepEqual([w.path, w.mode, w.focus, w.closable, w.intrusive], ['/ui/countdown.html?early=1', 'floating', true, true, false]);
+  assert.equal(dev.model('countdown').early, true);
+  // Not now: closing is fine (the owner opened it himself).
+  assert.equal(dev.action('countdown', 'close').close, true);
+  assert.deepEqual(dev.ids(), []);
+  dev.call('POST', '/bridge/ui-request', { open: 'countdown' });
+  dev.beat({ windows: { countdown: dev.win('countdown')!.rev } });
+  dev.call('POST', '/bridge/ui-request', { open: 'countdown' });
+  assert.deepEqual(dev.beat({ windows: { countdown: dev.win('countdown')!.rev } }).map((c) => c.op), ['window.focus'], 'a second click raises it');
+  assert.equal(dev.action('countdown', 'save', { note: ' ', report: {} }).error, 'empty');
+  const saved = dev.action('countdown', 'save', { note: 'pick up the migration tomorrow', report: { energy: 2 } });
+  assert.deepEqual([saved.ok, saved.note, saved.report, saved.forfeited], [true, 'saved', 'saved', true]);
+  assert.deepEqual(dev.records('budget.forfeited').map((r) => r.by), ['early']);
+  assert.deepEqual(dev.ids(), ['block'], 'the screen rests until 04:00');
+  assert.ok(!dev.tracker.menubar(dev.clock.now()).menu!.some((m) => m.id === 'countdown'), 'nothing left to end early');
+  assert.equal(dev.call('POST', '/bridge/ui-request', { open: 'countdown' }).json.ok, true);
+  assert.deepEqual(dev.ids(), ['block'], 'a late request opens nothing');
 });
 
 test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, park) → block → token → bypass → restart → 04:00', async (t) => {
@@ -151,13 +194,14 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   s.action('countdown', 'expand');
   assert.equal(s.win('countdown')!.path, '/ui/countdown.html');
   // An empty (or stray) Save forfeits nothing.
-  assert.equal(s.action('countdown', 'save', { context: '  ', feedback: {} }).error, 'empty');
+  assert.equal(s.action('countdown', 'save', { note: '  ', report: {} }).error, 'empty');
   assert.deepEqual(s.ids(), ['countdown']);
   // Save = done for today (owner, D-60): the rest of the budget is given up and the block follows at once.
   s.action('countdown', 'draft', { text: 'then fix the flaky test' });
-  const saved = s.action('countdown', 'save', { context: '', feedback: { choices: ['Feeling tired'], text: '', energy: 2 } });
-  assert.deepEqual([saved.ok, saved.context, saved.feedback, saved.forfeited], [true, 'none', 'saved', true]);
-  assert.deepEqual(s.records('note.created').map((r) => [r.kind, r.source]), [['feedback', 'countdown']]);
+  const saved = s.action('countdown', 'save', { note: '', report: { status: ['Feeling tired'], feedback: '', energy: 2 } });
+  assert.deepEqual([saved.ok, saved.note, saved.report, saved.forfeited], [true, 'none', 'saved', true]);
+  assert.deepEqual(s.records('report.created').map((r) => [r.stage, r.source]), [['end-of-workday', 'countdown']]);
+  assert.deepEqual(s.records('note.created'), []);
   const forfeit = s.records('budget.forfeited');
   assert.equal(forfeit.length, 1);
   const rem = forfeit[0]!.remainingSeconds as number;
@@ -176,7 +220,9 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   assert.equal(m.limitSeconds, 8.5 * 3600);
   assert.equal(m.liftsAt, local(2026, 10, 7, 4, 0));
   assert.deepEqual(m.week.days.map((d: any) => d.weekday), ['sun', 'mon', 'tue']);
+  assert.equal(m.recorded.length, 1, "the countdown's report is shown, not asked again");
   assert.equal(s.action('block', 'close').ok, false, 'not dismissible');
+  assert.equal(s.action('block', 'save', { note: m.draft, report: null }).note, 'saved');
 
   // A token: two-step on the page; here the action. Wrong sizes / used tokens are refused.
   assert.equal(s.action('block', 'token', { minutes: 7 }).error, 'unavailable');
@@ -214,43 +260,43 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   assert.deepEqual(cmds.map((x) => [x.op, x.window?.id]), [['window.open', 'block']], 'not deferred by R-UI-QUIET after a restart');
   assert.equal(r.model('block').tokens.length, 1);
 
-  // 04:00: Wednesday's home budget is fresh; yesterday's saved feedback appears in review.
+  // 04:00: Wednesday's home budget is fresh; yesterday's saved note appears in review.
   r.work(local(2026, 10, 7, 4, 0, 30), { idle: true });
   assert.deepEqual(r.ids(), ['review']);
 });
 
-test('countdown draft keeps the feedback form across pill ⇄ full and into the block; a save forgets only what it wrote', async (t) => {
+test('countdown draft keeps the report fields across pill ⇄ full and into the block; a save forgets only what it wrote', async (t) => {
   const s = await setup(local(2026, 10, 6, 16, 50), { seed: (st) => seedWork(st, local(2026, 10, 6, 8, 30), local(2026, 10, 6, 16, 50)) });
   t.after(s.cleanup);
   s.work(local(2026, 10, 6, 16, 50, 30));
   assert.deepEqual(s.ids(), ['countdown']);
-  assert.equal(s.model('countdown').feedbackDraft, null);
+  assert.equal(s.model('countdown').reportDraft, null);
   // Energy first (as the owner does), then the box: partial drafts must not erase each other.
-  s.action('countdown', 'draft', { feedback: { choices: ['Feeling tired', 7], text: 'long day', energy: 2 } });
+  s.action('countdown', 'draft', { report: { status: ['Feeling tired', 7], feedback: 'long day', energy: 2 } });
   s.action('countdown', 'draft', { text: 'next: retry logic' });
   s.action('countdown', 'collapse');
   s.action('countdown', 'expand');
   const m = s.model('countdown');
   assert.equal(m.draft, 'next: retry logic');
-  assert.deepEqual(m.feedbackDraft, { choices: ['Feeling tired'], text: 'long day', energy: 2 });
-  // Invalid energy is dropped; an all-empty form clears the feedback draft.
-  s.action('countdown', 'draft', { text: 'next: retry logic', feedback: { choices: [], text: '', energy: 9 } });
-  assert.equal(s.model('countdown').feedbackDraft, null);
-  s.action('countdown', 'draft', { text: 'next: retry logic', feedback: { choices: [], text: '', energy: 3 } });
+  assert.deepEqual(m.reportDraft, { status: ['Feeling tired'], feedback: 'long day', energy: 2 });
+  // Invalid energy is dropped; an all-empty form clears the report draft.
+  s.action('countdown', 'draft', { text: 'next: retry logic', report: { status: [], feedback: '', energy: 9 } });
+  assert.equal(s.model('countdown').reportDraft, null);
+  s.action('countdown', 'draft', { text: 'next: retry logic', report: { status: [], feedback: '', energy: 3 } });
   // The block (after the countdown's Save) carries what was not saved.
-  const saved = s.action('countdown', 'save', { context: 'next: retry logic', feedback: {} });
-  assert.deepEqual([saved.context, saved.feedback, saved.forfeited], ['saved', 'none', true]);
+  const saved = s.action('countdown', 'save', { note: 'next: retry logic', report: {} });
+  assert.deepEqual([saved.note, saved.report, saved.forfeited], ['saved', 'none', true]);
   assert.deepEqual(s.ids(), ['block']);
   const b = s.model('block');
-  assert.equal(b.draft, '', 'saved context is not offered again');
-  assert.deepEqual(b.feedbackDraft, { choices: [], text: '', energy: 3 }, 'unsaved feedback is kept');
-  s.action('block', 'save', { context: '', feedback: { choices: [], text: '', energy: 3 } });
-  assert.equal(s.model('block').feedbackDraft, null);
+  assert.equal(b.draft, '', 'saved note is not offered again');
+  assert.deepEqual(b.reportDraft, { status: [], feedback: '', energy: 3 }, 'unsaved report is kept');
+  s.action('block', 'save', { note: '', report: { status: [], feedback: '', energy: 3 } });
+  assert.equal(s.model('block').reportDraft, null);
   // Review: a part cleared just before Save is sent as a draft first (park.ts flushes) — it never comes back.
-  s.action('block', 'draft', { text: 'old thought', feedback: { choices: ['Anxious'], text: '', energy: 1 } });
-  s.action('block', 'draft', { text: 'new thought', feedback: { choices: [], text: '', energy: null } });
-  s.action('block', 'save', { context: 'new thought', feedback: { choices: [], text: '', energy: null } });
-  assert.deepEqual([s.model('block').draft, s.model('block').feedbackDraft], ['', null]);
+  s.action('block', 'draft', { text: 'old thought', report: { status: ['Anxious'], feedback: '', energy: 1 } });
+  s.action('block', 'draft', { text: 'new thought', report: { status: [], feedback: '', energy: null } });
+  s.action('block', 'save', { note: 'new thought', report: { status: [], feedback: '', energy: null } });
+  assert.deepEqual([s.model('block').draft, s.model('block').reportDraft], ['', null]);
 });
 
 test('zero limit (week used up): blocked at the first worked second only, with the explanation flag', async (t) => {
@@ -296,7 +342,7 @@ test('nothing on the live instance with the gate closed, on Saturday, or while d
   assert.deepEqual(sat.ids(), [], 'Shabbat: no nudge, nothing');
 });
 
-test('break nudge: 90 min of continuous work; "taking a break" = quiet for the stretch; a real break starts over', async (t) => {
+test('break nudge: 90 min of continuous work; "taking a break" restarts the count (kept across a restart); reported time is no stretch', async (t) => {
   const T = local(2026, 10, 6, 9, 0);
   const s = await setup(T);
   t.after(s.cleanup);
@@ -304,22 +350,33 @@ test('break nudge: 90 min of continuous work; "taking a break" = quiet for the s
   assert.deepEqual(s.ids(), []);
   s.work(T + 91 * MIN);
   assert.deepEqual(s.ids(), ['nudge']);
+  const clickedAt = s.clock.now();
   assert.equal(s.action('nudge', 'break').close, true);
+  assert.equal(s.records('nudge.break').length, 1);
   s.beat({ closed: [{ id: 'nudge', by: 'page', at: s.clock.now() }] });
-  s.work(T + 130 * MIN);
-  assert.deepEqual(s.ids(), [], 'quiet for this stretch (he kept working — his call)');
-  s.work(T + 145 * MIN, { idle: true }); // a real break (> 5 min without input) — the inactivity dialog asks about it
-  assert.deepEqual(s.ids(), ['inactivity']);
-  const gapId = s.model('inactivity').gaps[0].gapId;
-  assert.equal(s.action('inactivity', 'resolve', { gapId, choice: 'back' }).ok, true);
-  s.work(T + 145 * MIN + 91 * MIN);
-  assert.deepEqual(s.ids(), ['nudge'], 'a new stretch');
+  s.work(clickedAt + 89 * MIN);
+  assert.deepEqual(s.ids(), [], 'he kept working: the count started again at the click');
+  const r = await setup(s.clock.now(), { dir: s.dir });
+  r.work(clickedAt + 91 * MIN);
+  assert.deepEqual(r.ids(), ['nudge'], '90 min after the click, also after a daemon restart');
+  assert.ok(Math.abs(r.model('nudge').stretchSeconds - 91 * 60) <= 30);
+  r.beat({ closed: [{ id: 'nudge', by: 'user', at: r.clock.now() }] });
+  // Away 20 min, reported as work ("whole"): credited, but not part of a stretch at the computer.
+  r.work(r.clock.now() + 20 * MIN, { idle: true });
+  assert.deepEqual(r.ids(), ['inactivity']);
+  const gapId = r.model('inactivity').gaps[0].gapId;
+  assert.equal(r.action('inactivity', 'resolve', { gapId, choice: 'whole' }).ok, true);
+  const back = r.clock.now();
+  r.work(back + 89 * MIN);
+  assert.deepEqual(r.ids(), [], 'a new stretch from the return');
+  r.work(back + 91 * MIN);
+  assert.deepEqual(r.ids(), ['nudge']);
   // Dismissed with ✕ (by user) = snooze: back after 15 min.
-  s.beat({ closed: [{ id: 'nudge', by: 'user', at: s.clock.now() }] });
-  s.work(s.clock.now() + 14 * MIN);
-  assert.deepEqual(s.ids(), []);
-  s.work(s.clock.now() + 2 * MIN);
-  assert.deepEqual(s.ids(), ['nudge']);
+  r.beat({ closed: [{ id: 'nudge', by: 'user', at: r.clock.now() }] });
+  r.work(r.clock.now() + 14 * MIN);
+  assert.deepEqual(r.ids(), []);
+  r.work(r.clock.now() + 2 * MIN);
+  assert.deepEqual(r.ids(), ['nudge']);
 });
 
 test('trial pages: the real block over synthetic numbers; nothing reaches data/; live needs consent', async (t) => {
@@ -333,7 +390,7 @@ test('trial pages: the real block over synthetic numbers; nothing reaches data/;
   const m = s.model(open.id);
   assert.deepEqual(m.tokens, [{ minutes: 10, left: 1 }, { minutes: 5, left: 2 }]);
   assert.equal(m.bypass.phrase, PHRASE);
-  assert.equal(s.action(open.id, 'save', { context: 'trial text', feedback: {} }).context, 'saved');
+  assert.equal(s.action(open.id, 'save', { note: 'trial text', report: {} }).note, 'saved');
   assert.equal(s.action(open.id, 'bypass', { phrase: 'nope', reason: 'abc' }).error, 'phrase');
   assert.equal(s.action(open.id, 'token', { minutes: 10 }).close, true);
   const z = s.call('POST', '/api/test/window', { page: 'block', zeroLimit: true }).json;

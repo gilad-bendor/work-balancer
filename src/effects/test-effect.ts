@@ -40,7 +40,7 @@ export function createTestEffect(deps: {
   env: 'live' | 'dev';
   now: () => number;
   log?: (msg: string, f: Record<string, unknown>) => void;
-  /** The policy (trial pages show its tokens, bypass sentence and feedback choices). */
+  /** The policy (trial pages show its tokens, bypass sentence and report statuses). */
   config?: () => PolicyConfig | null;
 }): { effect: Effect; routes: Route[] } {
   /** `trial`: a product page shown over synthetic data (the owner tries the real thing; nothing reaches data/). */
@@ -51,7 +51,7 @@ export function createTestEffect(deps: {
     if (t.page === 'inactivity') return { now, gaps: [{ gapId: 'trial', from: t.gapFrom, to: null, maxMinutes: Math.floor((now - t.gapFrom) / 60_000) }] };
     if (!c) return null;
     if (t.page === 'warn') return { now, remainingSeconds: c.ladder.warnBeforeMin * 60, countdownBeforeMin: c.ladder.countdownBeforeMin };
-    if (t.page === 'countdown') return { now, remainingSeconds: 7 * 60, feedbackChoices: c.feedbackChoices, draft: '' };
+    if (t.page === 'countdown') return { now, remainingSeconds: 7 * 60, reportStatuses: c.reports.statuses, draft: '', recorded: [] };
     if (t.page === 'nudge') return { now, stretchSeconds: (c.breakNudge.afterMin + 2) * 60, snoozeMin: c.breakNudge.snoozeMin };
     const limit = t.zeroLimit ? 0 : 9 * 3600;
     const worked = t.zeroLimit ? 25 * 60 : limit;
@@ -66,7 +66,7 @@ export function createTestEffect(deps: {
       return { ok: true };
     };
     switch (action) {
-      case 'save': return { ...done(), context: typeof p.context === 'string' && p.context.trim() ? 'saved' : 'none', feedback: 'saved' };
+      case 'save': return { ...done(), note: typeof p.note === 'string' && p.note.trim() ? 'saved' : 'none', report: 'saved' };
       case 'draft': return { ok: true };
       case 'collapse':
       case 'expand':

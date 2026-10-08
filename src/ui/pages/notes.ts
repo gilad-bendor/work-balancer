@@ -1,5 +1,5 @@
-// Notes manager (menu → "Show status notes", R-UI-MENU-3): waiting notes first, then dismissed, each with its date;
-// edit, dismiss, bring back, add. No delete (D-36).
+// Manage Notes (menu, R-UI-MENU-3): the new-note box first (parking a thought = open it and type), then waiting notes,
+// then dismissed ones, each with its date; edit, dismiss, bring back. No delete (D-36).
 import { act, boot, closeOnEscape, el, submitOnCmdEnter, topBar } from './page.ts';
 import { noteCard, type NoteView } from './notes-view.ts';
 
@@ -14,7 +14,7 @@ void boot<{ notes: NoteView[] } | null>(({ strings: s, model }) => {
     try {
       const r = await act<{ notes: NoteView[] }>(action, payload);
       if (r.ok) {
-        if (action === 'edit' || action === 'dismiss') drafts.delete((payload as { id: string }).id);
+        if (action === 'edit' || action === 'dismiss') drafts.delete((payload as { id: number }).id);
         notes = r.notes;
         render();
         return true;
@@ -26,12 +26,12 @@ void boot<{ notes: NoteView[] } | null>(({ strings: s, model }) => {
     return false;
   }
 
-  const drafts = new Map<string, string>();
+  const drafts = new Map<number, string>();
   const handlers = {
     drafts,
-    edit: (id: string, text: string) => run('edit', { id, text }),
-    dismiss: (id: string) => void run('dismiss', { id }),
-    undismiss: (id: string) => void run('undismiss', { id }),
+    edit: (id: number, text: string) => run('edit', { id, text }),
+    dismiss: (id: number) => void run('dismiss', { id }),
+    undismiss: (id: number) => void run('undismiss', { id }),
   };
 
   function render(): void {
@@ -66,4 +66,5 @@ void boot<{ notes: NoteView[] } | null>(({ strings: s, model }) => {
     msg,
     list,
   ));
+  addBox.focus();
 });

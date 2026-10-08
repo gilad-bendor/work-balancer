@@ -1,10 +1,9 @@
 // Activity summary (menu → "Show activity summary", R-UI-MENU-3): today, this week per day vs budgets, the last 4
-// weeks, recent feedback. Read-only; refreshes itself every minute while open.
+// weeks, recent reports. Read-only; refreshes itself every minute while open.
 import { api, boot, closeOnEscape, el, topBar, windowId } from './page.ts';
 import { dayLabel, hm, timeLabel } from './format.ts';
-import type { NoteView } from './notes-view.ts';
-import type { DailyReport } from '../../reports/reports.ts';
-import { reportLabel } from './report-form.ts';
+import type { ReportView } from '../../reports/reports.ts';
+import { reportHead } from './report-card.ts';
 
 interface DayRow {
   day: string;
@@ -25,8 +24,7 @@ interface Summary {
   };
   week: { start: string; workedSeconds: number; budgetSeconds: number | null; tokensUsed: number; bypassesUsed: number; days: DayRow[] };
   weeks: { start: string; workedSeconds: number; current: boolean }[];
-  feedback: NoteView[];
-  reports?: DailyReport[];
+  reports: ReportView[];
   activeNotes: number;
 }
 
@@ -93,23 +91,14 @@ void boot<Summary | null>(({ strings: s, model }) => {
       ))),
     );
 
-    const feedback = el('section', {},
-      el('h2', {}, s.summaryFeedback!),
-      ...(m.feedback.length ? m.feedback.map((f) => el('div', { class: 'feedback-line' },
-        el('span', { class: 'muted' }, `${dayLabel(f.day)} ${timeLabel(f.createdAt)}`),
-        el('span', {}, [...f.choices, ...(f.energy !== null ? [`${s.energyShort} ${f.energy}/5`] : []), ...(f.text ? [`“${f.text}”`] : [])].join(' · ')),
-      )) : [el('p', { class: 'muted' }, s.summaryNoFeedback!)]),
+    const reports = el('section', {},
+      el('h2', {}, s.summaryReports!),
+      ...(m.reports.length ? m.reports.map((r) => el('div', { class: 'report-line' },
+        el('span', { class: 'muted' }, reportHead(r, s)),
+        el('span', {}, [...r.status, ...(r.energy !== null ? [`${s.energyShort} ${r.energy}/5`] : []), ...(r.feedback ? [`“${r.feedback}”`] : [])].join(' · ')),
+      )) : [el('p', { class: 'muted' }, s.summaryNoReports!)]),
     );
-
-    const reports = el('section', {}, el('h2', {}, s.reportTitle!),
-      ...(m.reports ?? []).map((r) => el('div', { class: 'feedback-line' },
-        el('span', { class: 'muted' }, reportLabel(r, s)),
-        el('span', {}, [
-          r.status === 'answered' ? `${s.energyShort} ${r.energy}/5` : r.status === 'skipped' ? s.reportSkipped : s.reportPending,
-          ...r.choices, r.text,
-        ].filter(Boolean).join(' · ')),
-      )));
-    main.replaceChildren(today, week, weeks, ...((m.reports?.length ?? 0) > 0 ? [reports] : []), feedback);
+    main.replaceChildren(today, week, weeks, reports);
   }
 
   if (model) render(model);

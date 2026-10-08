@@ -1,5 +1,6 @@
-// The M8 product windows: the menu's quick note / status notes / activity summary / quit (user-initiated), and the
-// morning review (system-initiated, R-UI-REVIEW). Wording lives in src/ui/strings.ts; pages in src/ui/pages/.
+// The product windows: the menu's Manage Reports / Manage Notes / activity summary / quit (user-initiated), and the
+// morning review + welcome (system-initiated, R-UI-REVIEW, R-UI-REPORT). Wording lives in src/ui/strings.ts; pages in
+// src/ui/pages/.
 import type { ActionResult, Effect } from '../core/effects.ts';
 import { addDays, dayKey, weekday, type DayKey } from '../core/time.ts';
 import type { PolicyConfig } from '../policy/config.ts';
@@ -7,11 +8,12 @@ import type { Store } from '../store/store.ts';
 import type { Note, NoteResult, Notes, NoteSource } from '../notes/notes.ts';
 import { windowRev, type EffectsManager } from './manager.ts';
 import { userWindowEffect } from './user-window.ts';
-import type { Reports } from '../reports/reports.ts';
+import { REPORT_STAGES, reportView, type Reports, type ReportSource } from '../reports/reports.ts';
 
 export interface ProductDeps {
   effects: EffectsManager;
   notes: Notes;
+  reports: Reports;
   store: Store;
   now: () => number;
   config: () => PolicyConfig | null;
@@ -19,25 +21,21 @@ export interface ProductDeps {
   /** Quit is refused while enforcement is due (countdown / blocked — also during a token): otherwise one cheap token
    * would open the way to stopping the whole day (review M10#5). Default: allowed. */
   quitAllowed?: (now: number) => boolean;
-  reports?: Reports;
   welcomeAllowed?: (now: number) => boolean;
+  /** Yesterday has no report and the welcome should ask for it (default: `reports.freshDue`, Sun–Thu). */
+  welcomeDue?: (now: number) => boolean;
 }
 
 /** A note as pages see it. */
 export interface NoteView {
-  id: string;
-  kind: Note['kind'];
+  id: number;
   text: string;
-  choices: string[];
-  energy: number | null;
   day: DayKey;
   createdAt: number;
   dismissed: boolean;
 }
 
-export const noteView = (n: Note): NoteView => ({
-  id: n.id, kind: n.kind, text: n.text, choices: n.choices, energy: n.energy, day: n.day, createdAt: n.createdAt, dismissed: n.dismissedAt !== null,
-});
+export const noteView = (n: Note): NoteView => ({ id: n.id, text: n.text, day: n.day, createdAt: n.createdAt, dismissed: n.dismissedAt !== null });
 
 const obj = (p: unknown): Record<string, unknown> => (p && typeof p === 'object' ? (p as Record<string, unknown>) : {});
 
@@ -46,51 +44,38 @@ const answer = (r: NoteResult, extra: () => Record<string, unknown>): ActionResu
 
 type Part = 'saved' | 'failed' | 'none';
 
-/** R-UI-CTX + R-UI-FB (quick note, countdown, block): one `context` note and/or one `feedback` note from
- * `{ context, feedback: { text, choices, energy } }`. Each part reports saved/failed/none, so the page clears what was
- * saved and keeps (for a retry) only what failed — never a duplicate. */
-export function submitContextAndFeedback(notes: Notes, source: NoteSource, p: unknown): ActionResult & { context: Part; feedback: Part } {
+/** Countdown and block: one note and/or one end-of-workday report from `{ note, report: { feedback, status, energy } }`.
+ * Each part reports saved/failed/none, so the page clears what was saved and keeps (for a retry) only what failed —
+ * never a duplicate. */
+export function saveNoteAndReport(notes: Notes, reports: Reports, source: NoteSource & ReportSource, p: unknown, now: number): ActionResult & { note: Part; report: Part } {
   const b = obj(p);
-  const fb = obj(b.feedback);
-  const part = (r: NoteResult): Part => (r.ok ? 'saved' : r.error === 'empty' ? 'none' : 'failed');
-  const context: Part = typeof b.context === 'string' && b.context.trim() ? part(notes.create({ kind: 'context', text: b.context, source })) : 'none';
-  const feedback = part(notes.create({ kind: 'feedback', text: fb.text, choices: fb.choices, energy: fb.energy, source }));
-  if (context === 'none' && feedback === 'none') return { ok: false, error: 'empty', context, feedback };
-  if (context === 'failed' || feedback === 'failed') return { ok: false, error: 'write', context, feedback };
-  return { ok: true, context, feedback };
+  const note: Part = typeof b.note === 'string' && b.note.trim() ? (notes.create({ text: b.note, source }).ok ? 'saved' : 'failed') : 'none';
+  const r = reports.createEndOfWorkday(b.report, source, now);
+  const report: Part = r.ok ? 'saved' : r.error === 'empty' ? 'none' : 'failed';
+  if (note === 'none' && report === 'none') return { ok: false, error: 'empty', note, report };
+  if (note === 'failed' || report === 'failed') return { ok: false, error: 'write', note, report };
+  return { ok: true, note, report };
 }
 
-/** edit / dismiss / undismiss / add — shared by the notes manager and the morning review. */
+/** edit / dismiss / undismiss / add — shared by Manage Notes and the morning review. */
 function noteActions(notes: Notes, source: NoteSource, view: () => Record<string, unknown>) {
   return {
-    add: (p: unknown) => answer(notes.create({ kind: 'note', text: obj(p).text, source }), view),
+    add: (p: unknown) => answer(notes.create({ text: obj(p).text, source }), view),
     edit: (p: unknown) => answer(notes.edit(obj(p).id, obj(p).text), view),
     dismiss: (p: unknown) => answer(notes.dismiss(obj(p).id), view),
     undismiss: (p: unknown) => answer(notes.undismiss(obj(p).id), view),
   };
 }
 
+const REPORT_ACTIONS = ['report-new', 'report-add', 'report-arm-skip', 'report-skip', 'report-edit', 'report-dismiss', 'report-undismiss'];
+
 export function registerProductEffects(d: ProductDeps): void {
-  const feedbackChoices = (): string[] => d.config()?.feedbackChoices ?? [];
-
-  d.effects.register(userWindowEffect({
-    name: 'quick',
-    look: { path: '/ui/quick.html', title: 'work-balancer — quick note', w: 900, h: 860 },
-    model: () => ({ feedbackChoices: feedbackChoices() }),
-    actions: {
-      // R-UI-CTX + R-UI-FB: one `context` note and/or one `feedback` note. Each part reports saved/failed/none, so
-      // the page clears what was saved and keeps (for a retry) only what failed — never a duplicate.
-      submit(p) {
-        const r = submitContextAndFeedback(d.notes, 'quick', p);
-        return r.ok ? { ...r, closing: true } : r; // the page shows "Saved." and closes itself
-      },
-    },
-  }));
-
+  const reports = d.reports;
+  const welcomeDue = (now: number): boolean => d.welcomeDue?.(now) ?? (reports.freshDue(now) && !['fri', 'sat'].includes(weekday(dayKey(now))));
   const notesView = () => ({ notes: d.notes.list().map(noteView) });
   d.effects.register(userWindowEffect({
     name: 'notes',
-    look: { path: '/ui/notes.html', title: 'work-balancer — status notes', w: 0.9, h: 0.9 },
+    look: { path: '/ui/notes.html', title: 'work-balancer — manage notes', w: 0.9, h: 0.9 },
     model: notesView,
     actions: noteActions(d.notes, 'manager', notesView),
   }));
@@ -109,56 +94,59 @@ export function registerProductEffects(d: ProductDeps): void {
     actions: { confirm: (_p, now) => ((d.quitAllowed?.(now) ?? true) ? { ok: true, quit: true } : { ok: false, error: 'enforcing' }) },
   }));
 
-  if (d.reports) {
-    const reports = d.reports;
-    const window = userWindowEffect({
-      name: 'reports',
-      look: { path: '/ui/reports.html', title: 'work-balancer — daily energy reports', w: 0.9, h: 0.9 },
-      model: (now) => {
-        const dates = reports.list(now);
-        return {
-          today: dayKey(now), reports: dates, feedbackChoices: feedbackChoices(),
-          preferredDay: manual ? null : dates.find((r) => r.daysAgo >= 2 && r.status === 'pending')?.day ?? null,
-        };
-      },
-      actions: Object.fromEntries(['report-submit', 'report-arm-skip', 'report-skip'].map((action) => [
-        action, (p: unknown, now: number) => reports.action(action, p, now),
-      ])),
-    });
-    let manual = false;
-    let adoptedAutomatic = false;
-    let consideredDay: DayKey | null = null;
-    d.effects.register({
-      ...window,
-      request(now) { manual = true; window.request?.(now); },
-      adopt(ids, now, revisions) {
-        window.adopt?.(ids, now);
-        const spec = window.desired(now).windows[0];
-        manual = !spec || revisions?.reports !== windowRev({ ...spec, focus: false, intrusive: true });
-        adoptedAutomatic = !manual;
-        consideredDay = dayKey(now);
-      },
-      desired(now) {
-        const today = dayKey(now);
-        const wd = weekday(today);
-        if (reports.freshDue(now)) consideredDay = today; // offer catch-up after the fresh checkpoint, not another popup
-        if (!manual && wd !== 'fri' && wd !== 'sat' && d.welcomeAllowed?.(now) && !reports.freshDue(now) && consideredDay !== today) {
-          const shown = d.store.readDay(today).some((r) =>
-            (r.type === 'effect.shown' && (r.windowId === 'reports' || r.windowId === 'review:fresh'))
-            || (r.type === 'day.rollover' && r.review === true));
-          if (shown) consideredDay = today;
-          else if (reports.list(now).some((r) => r.daysAgo >= 2 && r.status === 'pending')) {
-            consideredDay = today;
-            window.request?.(now);
-          }
+  // Manage Reports: from the menu, or once a day (Sun–Thu) as a gentle catch-up when older days have no report.
+  const olderMissing = (now: number) => reports.missing(now).filter((s) => s.daysAgo >= 2);
+  const window = userWindowEffect({
+    name: 'reports',
+    look: { path: '/ui/reports.html', title: 'work-balancer — manage reports', w: 0.9, h: 0.9 },
+    model: (now) => {
+      const c = d.config()?.reports;
+      return {
+        today: dayKey(now),
+        reports: reports.list().slice(0, c?.listMax ?? 1000).map(reportView),
+        stubs: reports.missing(now),
+        statuses: c?.statuses ?? [],
+        stages: REPORT_STAGES,
+        preferredDay: manual ? null : olderMissing(now)[0]?.day ?? null,
+      };
+    },
+    actions: Object.fromEntries(REPORT_ACTIONS.map((action) => [
+      action, (p: unknown, now: number) => reports.action(action, p, now, { source: 'manager' }),
+    ])),
+  });
+  let manual = false;
+  let adoptedAutomatic = false;
+  let consideredDay: DayKey | null = null;
+  d.effects.register({
+    ...window,
+    request(now) { manual = true; window.request?.(now); },
+    adopt(ids, now, revisions) {
+      window.adopt?.(ids, now);
+      const spec = window.desired(now).windows[0];
+      manual = !spec || revisions?.reports !== windowRev({ ...spec, focus: false, intrusive: true });
+      adoptedAutomatic = !manual;
+      consideredDay = dayKey(now);
+    },
+    desired(now) {
+      const today = dayKey(now);
+      const wd = weekday(today);
+      if (welcomeDue(now)) consideredDay = today; // offer catch-up after the fresh checkpoint, not another popup
+      if (!manual && wd !== 'fri' && wd !== 'sat' && d.welcomeAllowed?.(now) && !welcomeDue(now) && consideredDay !== today) {
+        const shown = d.store.readDay(today).some((r) =>
+          (r.type === 'effect.shown' && (r.windowId === 'reports' || r.windowId === 'review:fresh'))
+          || (r.type === 'day.rollover' && r.review === true));
+        if (shown) consideredDay = today;
+        else if (olderMissing(now).length) {
+          consideredDay = today;
+          window.request?.(now);
         }
-        const result = window.desired(now);
-        if (!manual && (wd === 'fri' || wd === 'sat' || (!adoptedAutomatic && !d.welcomeAllowed?.(now)) || reports.freshDue(now))) return { windows: [], dims: [] };
-        return manual ? result : { ...result, windows: result.windows.map((w) => ({ ...w, focus: false, intrusive: true })) };
-      },
-      closed(id, by, now) { window.closed?.(id, by, now); manual = manual && window.isOpen(); adoptedAutomatic = adoptedAutomatic && window.isOpen(); },
-    });
-  }
+      }
+      const result = window.desired(now);
+      if (!manual && (wd === 'fri' || wd === 'sat' || (!adoptedAutomatic && !d.welcomeAllowed?.(now)) || welcomeDue(now))) return { windows: [], dims: [] };
+      return manual ? result : { ...result, windows: result.windows.map((w) => ({ ...w, focus: false, intrusive: true })) };
+    },
+    closed(id, by, now) { window.closed?.(id, by, now); manual = manual && window.isOpen(); adoptedAutomatic = adoptedAutomatic && window.isOpen(); },
+  });
   d.effects.register(createReviewEffect(d));
 }
 
@@ -166,20 +154,28 @@ export function registerProductEffects(d: ProductDeps): void {
  * Morning review (R-UI-REVIEW, D-35): decided once per day by the `day.rollover` record (`review: true` on a review
  * day with notes waiting), then shown until the owner closes it — "done for today" = an `effect.closed` for `review`
  * by `user`/`page` in today's file. Involuntary losses (reload, fail-open) bring it back. Intrusive: live gate,
- * R-UI-QUIET and panic apply.
+ * R-UI-QUIET and panic apply. Yesterday without a report turns it into the full-screen welcome (`review:fresh`).
  */
-export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'store' | 'now' | 'config' | 'reports' | 'welcomeAllowed'>): Effect {
+export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 'store' | 'now' | 'config' | 'welcomeAllowed' | 'welcomeDue'>): Effect {
   let day: DayKey | null = null;
   let decided: boolean | null = null; // null until today's rollover record exists
   let done = false;
   let freshSession = false;
-  const required = (now: number): boolean => d.reports?.freshDue(now) === true && !['fri', 'sat'].includes(weekday(dayKey(now)));
-  const reviewView = () => ({
-    notes: d.notes.active().map(noteView),
-    report: (required(d.now()) || freshSession) ? d.reports?.get(addDays(dayKey(d.now()), -1), d.now()) : null,
-    feedbackChoices: d.config()?.feedbackChoices ?? [],
-    olderCount: d.reports?.list(d.now()).filter((r) => r.daysAgo >= 2 && r.status === 'pending').length ?? 0,
-  });
+  const required = (now: number): boolean => d.welcomeDue?.(now) ?? (d.reports.freshDue(now) && !['fri', 'sat'].includes(weekday(dayKey(now))));
+  const yesterday = (now: number): DayKey => addDays(dayKey(now), -1);
+  const reviewView = () => {
+    const now = d.now();
+    const y = yesterday(now);
+    return {
+      notes: d.notes.active().map(noteView),
+      welcome: (required(now) || freshSession) ? {
+        day: y, weekday: weekday(y), daysAgo: 1, reports: d.reports.ofDay(y).map(reportView),
+      } : null,
+      statuses: d.config()?.reports.statuses ?? [],
+      stages: REPORT_STAGES,
+      olderCount: d.reports.missing(now).filter((s) => s.daysAgo >= 2).length,
+    };
+  };
 
   function sync(now: number): void {
     const today = dayKey(now);
@@ -210,7 +206,7 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'store' | 'now
         freshSession = true;
         return {
           windows: [{
-            id: 'review:fresh', path: `/ui/review.html?day=${addDays(dayKey(now), -1)}`, title: 'work-balancer — welcome to a new day',
+            id: 'review:fresh', path: `/ui/review.html?day=${yesterday(now)}`, title: 'work-balancer — welcome to a new day',
             mode: 'overlay', placement: 'full', perScreen: true, focus: true, closable: false, intrusive: true,
           }], dims: [],
         };
@@ -232,8 +228,10 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'store' | 'now
     model: () => reviewView(),
     action(_id, action, payload, now) {
       if (action.startsWith('report-')) {
-        if (obj(payload).day !== addDays(dayKey(now), -1)) return { ok: false, error: 'day' };
-        return d.reports?.action(action, payload, now) ?? { ok: false, error: 'unavailable' };
+        if (!['report-add', 'report-arm-skip', 'report-skip', 'report-edit'].includes(action)) return { ok: false, error: `unknown action ${action}` };
+        const y = yesterday(now);
+        if (action === 'report-edit' && d.reports.get(obj(payload).id as number)?.day !== y) return { ok: false, error: 'day' };
+        return d.reports.action(action, payload, now, { source: 'review', days: (x) => x === y });
       }
       if (action === 'close') {
         if (required(now) && !d.store.health().writeError) return { ok: false, error: 'report-required' };

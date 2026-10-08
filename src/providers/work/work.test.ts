@@ -74,6 +74,24 @@ test('a grace window crossing 04:00 is split between the two days', () => {
   assert.equal(dayStart('2026-10-05'), local(2026, 10, 5, 4, 0));
 });
 
+test('credited time beyond seen work is reported-as-work: counted, marked, and never part of the current stretch', () => {
+  // Input at T, away (locked) from T+10, credited "whole" [T, T+40), back at T+40 and working.
+  const { p } = provider({
+    runs: [[T, T + 5 * MIN], [T + 40 * MIN, T + 50 * MIN]], blocked: [[T + 10 * MIN, T + 40 * MIN]], credited: [[T, T + 40 * MIN]], now: T + 50 * MIN,
+  });
+  assert.deepEqual(p.busy(T, T + 50 * MIN), [[T, T + 50 * MIN]]);
+  assert.deepEqual(p.segments(T, T + 50 * MIN), [
+    { from: T, to: T + 10 * MIN, state: 'work' },
+    { from: T + 10 * MIN, to: T + 40 * MIN, state: 'reported-as-work' },
+    { from: T + 40 * MIN, to: T + 50 * MIN, state: 'work' },
+  ]);
+  const r = p.getRangeInfo(T, T + 50 * MIN)!;
+  assert.deepEqual([r.workedSeconds, r.reportedSeconds], [50 * 60, 30 * 60]);
+  assert.deepEqual(p.getMinuteInfo(T + 20 * MIN), { workSeconds: 60, reportedSeconds: 60 });
+  assert.deepEqual(p.getMinuteInfo(T + 2 * MIN), { workSeconds: 60, reportedSeconds: 0 });
+  assert.deepEqual(p.currentStretch(), { from: T + 40 * MIN, seconds: 10 * 60 });
+});
+
 test('busy never counts the future: clipped to now; current stretch', () => {
   const { p, setNow } = provider({ runs: [[T, T + 10 * MIN]], now: T + 12 * MIN });
   assert.equal(p.daySeconds('2026-10-04'), 12 * 60);

@@ -1,67 +1,108 @@
-import type { DailyReport } from '../../reports/reports.ts';
-import { api, boot, closeOnEscape, closeWindow, el, focusOnInteract, topBar, windowId } from './page.ts';
-import { reportForm, reportLabel } from './report-form.ts';
+// Manage Reports (menu, R-UI-MENU-3): a new report now (its stage follows the time of day), then every report newest
+// first — edit, dismiss — with a stub for each recent day without one (add one for that day, or skip it). Reports
+// dismissed here stay visible (greyed, "Bring back") until the window closes; reopened, they are gone.
+import type { ReportStub, ReportView } from '../../reports/reports.ts';
+import { act, api, boot, closeOnEscape, closeWindow, el, focusOnInteract, submitOnCmdEnter, topBar, windowId } from './page.ts';
+import { reportFields, type ReportValue } from './report-fields.ts';
+import { reportCard, stubCard } from './report-card.ts';
 
-interface Model { today: string; reports: DailyReport[]; feedbackChoices: string[]; preferredDay?: string | null }
+interface Model {
+  today: string;
+  reports: ReportView[];
+  stubs: ReportStub[];
+  statuses: string[];
+  stages: string[];
+  preferredDay?: string | null;
+}
 
 void boot<Model>(({ strings: s, model }) => {
   focusOnInteract();
-  const main = el('main', { class: 'card wide' });
-  const picker = el('div', { class: 'chips' });
-  const form = el('div');
-  const hint = el('p', { class: 'msg', role: 'status' });
-  const notNow = el('button', {}, s.reportNotNow!);
-  notNow.addEventListener('click', closeWindow);
   let current = model;
-  let selected: string | null = null;
-  const forms = new Map<string, { root: HTMLElement; report: DailyReport }>();
-  closeOnEscape(s.escUnsaved!, () => [...forms.values()].some(({ root }) =>
-    !!root.querySelector('button[aria-pressed=true]')
-    || [...root.querySelectorAll<HTMLTextAreaElement>('textarea')].some((box) => box.value.trim() !== '')));
-  const refresh = async (): Promise<void> => {
+  const dismissedHere = new Map<number, ReportView>();
+  const list = el('div', { class: 'reports' });
+  const msg = el('p', { class: 'msg', role: 'status' });
+  const main = el('main', { class: 'card' });
+  closeOnEscape(s.escUnsaved!, () => !fields.isEmpty() || !!main.querySelector('.report-editor, .catch-up'));
+
+  /** `done`: the card whose action just succeeded (its editor closes); other open editors keep what was typed. */
+  const refresh = async (done: string | null = null): Promise<boolean> => {
     try {
       current = (await api<{ model: Model }>(`/api/ui/model?win=${encodeURIComponent(windowId)}`)).model;
-      render();
-    } catch { hint.textContent = s.saveFailed!; }
+      render(done);
+      return true;
+    } catch { msg.textContent = s.saveFailed!; return false; }
   };
-  function render(): void {
-    const reports = [...current.reports].reverse();
-    for (const [day, cached] of forms) {
-      const latest = reports.find((r) => r.day === day);
-      if (!latest) continue;
-      cached.report.daysAgo = latest.daysAgo;
-      const heading = cached.root.querySelector('h2');
-      if (heading) heading.textContent = reportLabel(latest, s);
-      const question = cached.root.querySelector('.feedback h2');
-      if (question) question.textContent = latest.daysAgo === 0 ? s.reportQuestionToday! : s.reportQuestion!;
-    }
-    if (!selected) selected = current.preferredDay ?? reports.find((r) => r.status === 'pending')?.day ?? reports[0]?.day ?? null;
-    picker.replaceChildren(...reports.map((r) => {
-      const button = el('button', { class: 'chip', 'aria-pressed': String(r.day === selected) },
-        `${reportLabel(r, s)}${r.status === 'pending' ? '' : ` · ${r.status === 'answered' ? s.reportAnswered : s.reportSkipped}`}`);
-      button.addEventListener('click', () => {
-        selected = r.day; render();
-      });
-      return button;
-    }));
-    const report = reports.find((r) => r.day === selected);
-    if (report && !forms.has(report.day)) forms.set(report.day, {
-      report,
-      root: reportForm(report, s, current.feedbackChoices, () => {
-        forms.delete(report.day);
-        void refresh();
-      }),
-    });
-    form.replaceChildren(...(report ? [forms.get(report.day)!.root] : [el('p', {}, s.reportEmpty!)]));
+  const run = async (action: string, payload: unknown, done: string | null = null): Promise<boolean> => {
+    msg.textContent = '';
+    try {
+      const r = await act(action, payload);
+      if (r.ok) return await refresh(done);
+      msg.textContent = r.error === 'empty' ? s.nothingToSave! : s.saveFailed!;
+    } catch { msg.textContent = s.saveFailed!; }
+    return false;
+  };
+  const handlers = {
+    edit: (id: number, value: ReportValue) => run('report-edit', { id, ...value }, `r:${id}`),
+    dismiss: (id: number) => {
+      const r = current.reports.find((x) => x.id === id);
+      void run('report-dismiss', { id }).then((ok) => { if (ok && r) { dismissedHere.set(id, { ...r, dismissed: true }); render(); } });
+    },
+    undismiss: (id: number) => {
+      void run('report-undismiss', { id }).then((ok) => { if (ok) { dismissedHere.delete(id); render(); } });
+    },
+  };
+
+  function render(done: string | null = null): void {
+    // A card being edited or filled in is kept as it is: re-rendering would lose what the owner typed.
+    const open = new Map([...list.querySelectorAll<HTMLElement>('article[data-key]')]
+      .filter((a) => a.dataset.key !== done && a.querySelector('.report-editor, .catch-up'))
+      .map((a) => [a.dataset.key!, a]));
+    type Entry = { id: string; sort: string; el: () => HTMLElement };
+    const live = new Set(current.reports.map((r) => r.id));
+    const reports = [...current.reports, ...[...dismissedHere.values()].filter((r) => !live.has(r.id))];
+    const entries: Entry[] = [
+      ...reports.map((r) => ({ id: `r:${r.id}`, sort: `${r.day} ${r.timestamp} ${String(r.id).padStart(16, '0')}`, el: () => reportCard(r, s, current.statuses, handlers) })),
+      // A stub sorts at the end of its day (above that day's reports — there are none — and below later days).
+      ...current.stubs.map((x) => ({ id: `s:${x.day}`, sort: `${x.day} ~`, el: () => stubCard(x, s, current.statuses, current.stages, () => void refresh(`s:${x.day}`)) })),
+    ].sort((a, b) => (a.sort < b.sort ? 1 : a.sort > b.sort ? -1 : 0));
+    const node = (e: Entry): HTMLElement => {
+      const n = open.get(e.id) ?? e.el();
+      n.dataset.key = e.id;
+      return n;
+    };
+    list.replaceChildren(...(entries.length ? entries.map(node) : [el('p', { class: 'muted' }, s.reportNone!)]));
   }
+
+  const fields = reportFields(s, current.statuses);
+  const save = el('button', { class: 'primary' }, s.reportSave!);
+  const submitNew = async (): Promise<void> => {
+    if (save.disabled) return;
+    if (fields.isEmpty()) { msg.textContent = s.nothingToSave!; return; }
+    save.disabled = true;
+    if (await run('report-new', fields.value())) { fields.reset(); msg.textContent = s.reportSaved!; }
+    save.disabled = false;
+  };
+  save.addEventListener('click', () => void submitNew());
+  submitOnCmdEnter(fields.feedback, () => void submitNew());
+  const notNow = el('button', {}, s.reportNotNow!);
+  notNow.addEventListener('click', closeWindow);
+
   render();
-  main.append(el('p', { class: 'muted' }, s.reportIntro!), picker, hint, form, el('div', { class: 'row end' }, notNow));
-  document.body.replaceChildren(topBar(s.reportTitle!, s.close!), main);
+  main.replaceChildren(
+    el('p', { class: 'muted' }, s.reportsIntro!),
+    el('section', { class: 'report-new' }, el('h2', {}, s.reportNewTitle!), fields.root, el('div', { class: 'row end' }, save)),
+    msg,
+    list,
+    ...(current.preferredDay ? [el('div', { class: 'row end' }, notNow)] : []),
+  );
+  document.body.replaceChildren(topBar(s.reportsTitle!, s.close!), main);
+  if (current.preferredDay) list.querySelector(`[data-day="${current.preferredDay}"]`)?.scrollIntoView({ block: 'center' });
+  // Day change (04:00): the stubs move on.
   setInterval(() => {
     void api<{ model: Model }>(`/api/ui/model?win=${encodeURIComponent(windowId)}`).then((r) => {
       if (r.model.today === current.today) return;
       current = r.model;
       render();
-    }).catch(() => { hint.textContent = s.saveFailed!; });
+    }).catch(() => {});
   }, 30_000);
 });

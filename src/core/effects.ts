@@ -17,7 +17,7 @@ export interface MenubarSpec {
 }
 
 export interface MenuItem {
-  /** Effect name to request (`quick`, `summary`, `notes`, `quit`), or `-` for a separator. */
+  /** Effect name to request (`reports`, `notes`, `summary`, `countdown`, `quit`), or `-` for a separator. */
   id: string;
   title: string;
 }

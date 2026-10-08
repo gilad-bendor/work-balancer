@@ -23,7 +23,7 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; 
   opts.seed?.(store, clock);
   clock.set(start);
   // Live-env tests are about the closed gate: the owner's policy with liveEffects false (whatever his file says).
-  const configPath = testPolicy(tmp.dir, { dailyReportsStartDay: opts.reportsStart ?? null, ...(opts.env === 'live' ? { liveEffects: false } : {}) });
+  const configPath = testPolicy(tmp.dir, { reportsStartDay: opts.reportsStart ?? null, ...(opts.env === 'live' ? { liveEffects: false } : {}) });
   const policy = createPolicyLoader({ path: configPath, snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
@@ -45,32 +45,34 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; 
 }
 
 const types = (store: Store, day: string) => store.readDay(day).map((r) => r.type);
+const report = (timestamp: string, energy: number) => ({ type: 'report.created', reportId: Date.parse(`${timestamp.replace(' ', 'T')}:00+03:00`), timestamp, stage: 'evening', feedback: '', status: [], energy, source: 'manager' });
 
 test('menu windows: a request opens a floating, focused, non-intrusive window — live gate or not; again = focus', async (t) => {
   const s = await setup(local(2026, 10, 5, 11, 0), { env: 'live' }); // live: liveEffects false
   t.after(s.cleanup);
   assert.deepEqual(s.beat(), []);
-  assert.equal(s.request('quick').json.ok, true);
+  assert.equal(s.request('reports').json.ok, true);
   assert.equal(s.request('review').status, 404, 'system effects cannot be requested');
+  assert.equal(s.request('quick').status, 404, 'no quick note any more');
   assert.equal(s.request('nope').status, 404);
   const [open] = s.beat();
   assert.equal(open!.op, 'window.open');
-  assert.equal(open!.window.id, 'quick');
+  assert.equal(open!.window.id, 'reports');
   assert.equal(open!.window.mode, 'floating');
   assert.equal(open!.window.focus, true);
   assert.equal(open!.window.intrusive, false);
   assert.equal(open!.window.closable, true);
-  const shown = { quick: open!.window.rev };
+  const shown = { reports: open!.window.rev };
   assert.deepEqual(s.beat({ windows: shown }), []);
-  s.request('quick');
+  s.request('reports');
   const again = s.beat({ windows: shown });
-  assert.deepEqual(again.map((c) => [c.op, c.windowId]), [['window.focus', 'quick']]);
+  assert.deepEqual(again.map((c) => [c.op, c.windowId]), [['window.focus', 'reports']]);
   assert.deepEqual(s.beat({ windows: shown }), [], 'focus once');
   // The owner closes it (later than the 2 s reopen window): forgotten, audited.
   s.clock.advance(5000);
-  assert.deepEqual(s.beat({ closed: [{ id: 'quick', by: 'user', at: 1 }] }), []);
+  assert.deepEqual(s.beat({ closed: [{ id: 'reports', by: 'user', at: 1 }] }), []);
   const day = s.store.readDay('2026-10-05').filter((r) => r.type.startsWith('effect.'));
-  assert.deepEqual(day.map((r) => [r.type, r.windowId, r.by]), [['effect.shown', 'quick', undefined], ['effect.closed', 'quick', 'user']]);
+  assert.deepEqual(day.map((r) => [r.type, r.windowId, r.by]), [['effect.shown', 'reports', undefined], ['effect.closed', 'reports', 'user']]);
   // Every menu item has a window.
   for (const id of ['summary', 'notes', 'quit']) {
     s.request(id);
@@ -78,7 +80,7 @@ test('menu windows: a request opens a floating, focused, non-intrusive window �
   }
 });
 
-test('daily reports: Thursday to Sunday; fresh welcome is firm, menu includes every date, form input is not work', async (t) => {
+test('reports: Thursday to Sunday; fresh welcome is firm, Manage Reports has every missing day, form input is not work', async (t) => {
   const sun = local(2026, 10, 11, 9, 0);
   const s = await setup(sun, { reportsStart: '2026-10-08' });
   t.after(s.cleanup);
@@ -90,14 +92,22 @@ test('daily reports: Thursday to Sunday; fresh welcome is firm, menu includes ev
   assert.equal(open.window.closable, false);
   assert.equal(open.window.perScreen, true);
   assert.equal(open.window.mode, 'overlay');
-  assert.equal(s.model('review:fresh').report.day, '2026-10-10');
+  assert.equal(s.model('review:fresh').welcome.day, '2026-10-10');
+  assert.deepEqual(s.model('review:fresh').welcome.reports, []);
   assert.equal(s.action('review:fresh', 'close').error, 'report-required');
-  assert.equal(s.action('review:fresh', 'report-submit', { day: '2026-10-08', energy: 2 }).error, 'day');
+  assert.equal(s.action('review:fresh', 'report-add', { day: '2026-10-08', stage: 'evening', energy: 2 }).error, 'day');
+  assert.equal(s.action('review:fresh', 'report-new', { energy: 2 }).ok, false, 'the welcome reports on yesterday only');
   s.beat({ windows: { 'review:fresh': open.window.rev } });
   s.clock.advance(60_000);
   s.tracker.ingest({ since: sun, inputs: [sun + 30_000], apps: [], system: [], locked: false }, s.clock.now());
   assert.equal((s.tracker.status(s.clock.now()) as { workedSeconds: number }).workedSeconds, 0, 'welcome input cannot consume budget');
-  assert.equal(s.action('review:fresh', 'report-submit', { day: '2026-10-10', energy: 4 }).ok, true);
+  assert.equal(s.action('review:fresh', 'report-add', { day: '2026-10-10', stage: 'end-of-workday', energy: 4 }).ok, true);
+  assert.equal(s.model('review:fresh').welcome.reports[0].timestamp, '2026-10-10 23:59');
+  // Answered, then dismissed in Manage Reports: a stub, never a second welcome today.
+  const answered = s.model('review:fresh').welcome.reports[0].id;
+  assert.equal(s.action('reports', 'report-dismiss', { id: answered }).ok, true);
+  assert.ok(s.tracker.menubar(s.clock.now()).menu!.some((m) => m.id === 'quit'), 'not required again (Quit is back)');
+  assert.equal(s.action('reports', 'report-undismiss', { id: answered }).ok, true);
   assert.ok(s.effects.desired(s.clock.now()).windows.some((w) => w.id === 'review:fresh'), 'Continue is still available after recording');
   assert.equal(s.action('review:fresh', 'close').close, true);
   s.beat({ closed: [{ id: 'review:fresh', by: 'page', at: s.clock.now() }] });
@@ -106,11 +116,11 @@ test('daily reports: Thursday to Sunday; fresh welcome is firm, menu includes ev
   const menu = s.beat().find((c) => c.op === 'window.open' && c.window.id === 'reports')!;
   assert.equal(menu.window.intrusive, false);
   assert.equal(menu.window.closable, true);
-  assert.equal(s.model('reports').preferredDay, null, 'manual opening lets today be the initial selection');
-  assert.deepEqual(s.model('reports').reports.map((r: { day: string }) => r.day), ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11']);
-  assert.equal(s.action('reports', 'report-submit', { day: '2026-10-11', energy: 3 }).ok, true, 'today can be reported before leaving a short day');
-  assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /2 pending/);
-  assert.equal(s.model('summary').reports.find((r: { day: string }) => r.day === '2026-10-11').energy, 3);
+  assert.equal(s.model('reports').preferredDay, null);
+  assert.deepEqual(s.model('reports').stubs.map((r: { day: string }) => r.day), ['2026-10-11', '2026-10-09', '2026-10-08']);
+  assert.equal(s.action('reports', 'report-new', { energy: 3 }).ok, true, 'today can be reported before leaving a short day');
+  assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /^Manage Reports \(2 days without a report\)$/);
+  assert.deepEqual(s.model('summary').reports.map((r: { day: string; energy: number }) => [r.day, r.energy]), [['2026-10-11', 3], ['2026-10-10', 4]]);
   s.action('reports', 'close');
   s.request('reports');
   const reopened = s.beat({ closed: [{ id: 'reports', by: 'page', at: s.clock.now() }] }).find((c) => c.window?.id === 'reports')!;
@@ -141,8 +151,21 @@ test('fresh welcome survives restart and changes its revision at 04:00 without r
   again.tracker.ingest({ since: next, inputs: [again.clock.now()], apps: [], system: [], locked: false }, again.clock.now());
   const after = again.effects.desired(again.clock.now()).windows.find((w) => w.id === 'review:fresh')!;
   assert.notEqual(before.path, after.path, 'new target date rebuilds the page rather than leaving yesterday’s form');
-  assert.equal(again.model('review:fresh').report.day, '2026-10-11');
-  assert.equal(again.model('reports').reports.find((r: { day: string }) => r.day === '2026-10-10').status, 'pending');
+  assert.equal(again.model('review:fresh').welcome.day, '2026-10-11');
+  assert.ok(again.model('reports').stubs.some((r: { day: string }) => r.day === '2026-10-10'));
+});
+
+test('the welcome is decided at the rollover: dismissing yesterday\'s report later leaves a stub, not a full-screen welcome', async (t) => {
+  const sun = local(2026, 10, 11, 9, 0);
+  const s = await setup(sun, { reportsStart: '2026-10-08', seed: (store) => store.append(report('2026-10-10 21:00', 4)) });
+  t.after(s.cleanup);
+  s.tracker.tick(sun);
+  assert.equal(s.store.readDay('2026-10-11').find((r) => r.type === 'day.rollover')!.reportMissing, false);
+  s.tracker.ingest({ since: sun - 5000, inputs: [sun], apps: [], system: [], locked: false }, sun);
+  const id = s.model('reports').reports[0].id;
+  assert.equal(s.action('reports', 'report-dismiss', { id }).ok, true);
+  assert.ok(!s.effects.desired(sun).windows.some((w) => w.id === 'review:fresh'));
+  assert.ok(s.model('reports').stubs.some((x: { day: string }) => x.day === '2026-10-10'));
 });
 
 test('rapid welcome completion before first shown heartbeat does not spend the work budget', async (t) => {
@@ -153,7 +176,7 @@ test('rapid welcome completion before first shown heartbeat does not spend the w
   s.tracker.ingest({ since: start - 5000, inputs: [start], apps: [], system: [], locked: false }, start);
   assert.ok(s.beat().some((c) => c.window?.id === 'review:fresh'));
   s.clock.advance(3500);
-  assert.equal(s.action('review:fresh', 'report-submit', { day: '2026-10-10', energy: 3 }).ok, true);
+  assert.equal(s.action('review:fresh', 'report-add', { day: '2026-10-10', stage: 'evening', energy: 3 }).ok, true);
   s.action('review:fresh', 'close');
   s.clock.set(start + 5000);
   s.tracker.ingest({ since: start, inputs: [start + 1000, start + 2000, start + 3000], apps: [], system: [], locked: false }, s.clock.now());
@@ -165,7 +188,7 @@ test('rapid welcome completion before first shown heartbeat does not spend the w
 
 test('automatic catch-up adoption keeps the same revision so drafts survive daemon restart', async (t) => {
   const start = local(2026, 10, 11, 9, 0);
-  const seed = (store: Store) => store.append({ type: 'report.submitted', day: '2026-10-10', energy: 4, choices: [], text: '' });
+  const seed = (store: Store) => store.append(report('2026-10-10 21:00', 4));
   const s = await setup(start, { reportsStart: '2026-10-08', seed });
   t.after(s.cleanup);
   s.tracker.ingest({ since: start - 5000, inputs: [start], apps: [], system: [], locked: false }, start);
@@ -178,7 +201,7 @@ test('automatic catch-up adoption keeps the same revision so drafts survive daem
   assert.equal(again.effects.desired(next).windows.find((w) => w.id === 'reports')!.rev, open.window.rev);
 });
 
-test('daily reports: Friday/Saturday quiet; Monday/Wednesday fresh; live gate and panic; older catch-up once', async (t) => {
+test('reports: Friday/Saturday quiet; Monday/Wednesday fresh; live gate and panic; older catch-up once', async (t) => {
   for (const date of [9, 10, 12, 14]) {
     const now = local(2026, 10, date, 9, 0);
     const s = await setup(now, { reportsStart: '2026-10-08' });
@@ -197,7 +220,7 @@ test('daily reports: Friday/Saturday quiet; Monday/Wednesday fresh; live gate an
   assert.equal(live.request('reports').json.ok, true);
   assert.ok(live.beat().some((c) => c.window?.id === 'reports'), 'manual reports work with the gate closed');
   const old = await setup(sun, { reportsStart: '2026-10-08', seed: (store) => {
-    store.append({ type: 'report.submitted', day: '2026-10-10', energy: 4, choices: [], text: '' });
+    store.append(report('2026-10-10 21:00', 4));
   } });
   t.after(old.cleanup);
   old.tracker.ingest({ since: sun - 5000, inputs: [sun], apps: [], system: [], locked: false }, sun);
@@ -205,28 +228,57 @@ test('daily reports: Friday/Saturday quiet; Monday/Wednesday fresh; live gate an
   assert.ok(open);
   assert.equal(open.window.mode, 'floating');
   assert.equal(open.window.focus, false);
-  assert.equal(old.model('reports').preferredDay, '2026-10-08', 'automatic catch-up starts on an older missing date, not today');
+  assert.equal(old.model('reports').preferredDay, '2026-10-09', 'automatic catch-up points at an older missing date, not today');
   old.beat({ windows: { reports: open.window.rev } });
   old.beat({ closed: [{ id: 'reports', by: 'user', at: sun }] });
   assert.deepEqual(old.beat(), [], 'Not now silences catch-up for this day');
 });
 
-test('quick note: context + feedback → two notes (source quick); saved parts reported; empty refused', async (t) => {
-  const s = await setup(local(2026, 10, 8, 18, 0)); // Thursday
+test('Manage Reports: new / edit / dismiss / bring back; newest first; dismissed ones leave the model', async (t) => {
+  const T = local(2026, 10, 8, 18, 0); // Thursday evening
+  const s = await setup(T, { reportsStart: '2026-10-07' });
   t.after(s.cleanup);
-  s.request('quick');
+  s.request('reports');
   s.beat();
-  assert.deepEqual(s.model('quick').feedbackChoices.slice(0, 2), ['Too much work', 'Feeling tired']);
-  assert.deepEqual(s.action('quick', 'submit', { context: '  ', feedback: { choices: [], text: '', energy: null } }), { ok: false, error: 'empty', context: 'none', feedback: 'none' });
-  const r = s.action('quick', 'submit', { context: 'Sunday: retry logic first', feedback: { choices: ['Feeling tired', 'Made up'], text: 'long day', energy: 2 } });
-  assert.deepEqual(r, { ok: true, context: 'saved', feedback: 'saved', closing: true });
-  assert.deepEqual(s.action('quick', 'submit', { feedback: { choices: ['Productive'] } }), { ok: true, context: 'none', feedback: 'saved', closing: true });
-  const notes = s.store.readDay('2026-10-08').filter((x) => x.type === 'note.created');
-  assert.deepEqual(notes.map((n) => [n.kind, n.source]), [['context', 'quick'], ['feedback', 'quick'], ['feedback', 'quick']]);
-  assert.deepEqual(notes[1]!.choices, ['Feeling tired']);
-  assert.equal(notes[1]!.energy, 2);
-  assert.deepEqual(s.action('quick', 'close'), { ok: true, close: true });
-  assert.deepEqual(s.beat({ windows: { quick: 'r' } }).map((c) => [c.op, c.windowId]), [['window.close', 'quick']]);
+  const m = s.model('reports');
+  assert.deepEqual(m.statuses, ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day']);
+  assert.deepEqual(m.stages, ['morning', 'afternoon', 'evening', 'end-of-workday']);
+  assert.deepEqual(m.stubs.map((x: any) => [x.day, x.daysAgo]), [['2026-10-08', 0], ['2026-10-07', 1]]);
+  assert.deepEqual(s.action('reports', 'report-new', { status: [], feedback: ' ', energy: null }), { ok: false, error: 'empty' });
+  const a = s.action('reports', 'report-new', { status: ['Feeling tired', 'Other'], feedback: 'long day', energy: 2 });
+  assert.deepEqual(a, { ok: true, id: T });
+  s.clock.advance(1000);
+  const b = s.action('reports', 'report-add', { day: '2026-10-07', stage: 'afternoon', status: ['Productive'] });
+  assert.equal(b.ok, true);
+  const list = s.model('reports').reports;
+  assert.deepEqual(list.map((r: any) => [r.timestamp, r.stage, r.status, r.source]), [
+    ['2026-10-08 18:00', 'evening', ['Feeling tired'], 'manager'], ['2026-10-07 12:30', 'afternoon', ['Productive'], 'manager'],
+  ]);
+  assert.deepEqual(s.model('reports').stubs, []);
+  assert.equal(s.action('reports', 'report-edit', { id: T, status: ['Feeling tired'], feedback: 'long day, then fine', energy: 3 }).ok, true);
+  assert.equal(s.model('reports').reports[0].energy, 3);
+  assert.equal(s.action('reports', 'report-dismiss', { id: b.id }).ok, true);
+  assert.deepEqual(s.model('reports').reports.map((r: any) => r.id), [T]);
+  assert.deepEqual(s.model('reports').stubs.map((x: any) => x.day), ['2026-10-07'], 'a dismissed report leaves its day without one');
+  assert.equal(s.action('reports', 'report-undismiss', { id: b.id }).ok, true);
+  assert.equal(s.model('reports').reports.length, 2);
+  assert.deepEqual(types(s.store, '2026-10-08').filter((x) => x.startsWith('report.')),
+    ['report.created', 'report.created', 'report.edited', 'report.dismissed', 'report.undismissed']);
+  assert.equal(s.store.readDay('2026-10-08').some((r) => r.type.startsWith('note.')), false, 'reports are never notes');
+});
+
+test('menu: Manage Reports, Manage Notes, summary, Early End-Of-Day (enforcing day before the countdown), Quit', async (t) => {
+  const s = await setup(local(2026, 10, 8, 10, 0)); // Thursday, enforcing
+  t.after(s.cleanup);
+  s.tracker.ingest({ since: s.clock.now() - 5000, inputs: [s.clock.now()], apps: [], system: [], locked: false }, s.clock.now());
+  const menu = s.tracker.menubar(s.clock.now()).menu!;
+  assert.deepEqual(menu.map((m) => [m.id, m.title]), [
+    ['reports', 'Manage Reports'], ['notes', 'Manage Notes'], ['summary', 'Show activity summary'], ['countdown', 'Early End-Of-Day…'],
+    ['-', ''], ['quit', 'Quit work-balancer…'],
+  ]);
+  const fri = await setup(local(2026, 10, 9, 10, 0));
+  t.after(fri.cleanup);
+  assert.ok(!fri.tracker.menubar(fri.clock.now()).menu!.some((m) => m.id === 'countdown'), 'no budget on Friday: nothing to end early');
 });
 
 test('notes manager: add / edit / dismiss / bring back; model = waiting first, then dismissed', async (t) => {
@@ -243,8 +295,9 @@ test('notes manager: add / edit / dismiss / bring back; model = waiting first, t
   assert.equal(s.action('notes', 'edit', { id: second.id, text: 'second, edited' }).notes[0].text, 'second, edited');
   assert.equal(s.action('notes', 'undismiss', { id: first.id }).notes.map((n: any) => n.text).join(','), 'first,second, edited');
   assert.deepEqual(s.action('notes', 'add', { text: ' ' }), { ok: false, error: 'empty' });
-  assert.deepEqual(s.action('notes', 'edit', { id: 'n-x', text: 'y' }), { ok: false, error: 'unknown' });
+  assert.deepEqual(s.action('notes', 'edit', { id: 1, text: 'y' }), { ok: false, error: 'unknown' });
   assert.equal(s.model('notes').notes.length, 2);
+  assert.deepEqual(Object.keys(s.model('notes').notes[0]).sort(), ['createdAt', 'day', 'dismissed', 'id', 'text']);
   const sources = s.store.readDay('2026-10-08').filter((r) => r.type === 'note.created').map((r) => r.source);
   assert.deepEqual(sources, ['manager', 'manager']);
 });
@@ -275,9 +328,9 @@ test('morning review: decided by day.rollover (review day + notes waiting), show
   const sun = local(2026, 10, 11, 4, 0, 30);
   const seed = (store: Store, clock: ReturnType<typeof fixedClock>) => {
     clock.set(thu);
-    store.append({ type: 'note.created', noteId: 'n-1', kind: 'context', text: 'Sunday: retry logic', source: 'quick' });
-    store.append({ type: 'note.created', noteId: 'n-2', kind: 'note', text: 'done already', source: 'manager' });
-    store.append({ type: 'note.dismissed', noteId: 'n-2' });
+    store.append({ type: 'note.created', noteId: 1, text: 'Sunday: retry logic', source: 'block' });
+    store.append({ type: 'note.created', noteId: 2, text: 'done already', source: 'manager' });
+    store.append({ type: 'note.dismissed', noteId: 2 });
   };
   const s = await setup(sun, { dir: dir.dir, seed });
   s.tracker.tick(s.clock.now());
@@ -289,8 +342,8 @@ test('morning review: decided by day.rollover (review day + notes waiting), show
   assert.equal(open!.window.id, 'review');
   assert.equal(open!.window.intrusive, true);
   assert.equal(open!.window.focus, false, 'never steals focus');
-  assert.deepEqual(s.model('review').notes.map((n: any) => n.id), ['n-1'], 'only waiting notes');
-  assert.equal(s.action('review', 'edit', { id: 'n-1', text: 'Sunday: retry logic, then tests' }).ok, true);
+  assert.deepEqual(s.model('review').notes.map((n: any) => n.id), [1], 'only waiting notes');
+  assert.equal(s.action('review', 'edit', { id: 1, text: 'Sunday: retry logic, then tests' }).ok, true);
   // A Hammerspoon reload (not a dismissal) brings it back.
   s.beat({ windows: { review: open!.window.rev } });
   assert.equal(s.beat({ windows: {} })[0]?.window?.id, 'review');
@@ -322,7 +375,7 @@ test('morning review: no notes waiting → no review; the rollover is written on
   assert.deepEqual(s.beat(), []);
 });
 
-test('summary model: today, the week per day vs budgets, 4 weeks, recent feedback', async (t) => {
+test('summary model: today, the week per day vs budgets, 4 weeks, recent reports', async (t) => {
   const T = local(2026, 10, 13, 12, 0); // Tuesday
   const s = await setup(T, {
     seed: (store, clock) => {
@@ -335,7 +388,8 @@ test('summary model: today, the week per day vs budgets, 4 weeks, recent feedbac
         }
       }
       clock.set(local(2026, 10, 12, 9, 0));
-      store.append({ type: 'note.created', noteId: 'n-f', kind: 'feedback', text: 'ok', choices: ['Productive'], energy: 3, source: 'quick' });
+      store.append({ ...report('2026-10-12 09:00', 3), stage: 'morning', status: ['Productive'] });
+      store.append(report('2026-09-01 21:00', 2)); // older than 4 weeks: not in the summary
     },
   });
   t.after(s.cleanup);
@@ -353,7 +407,7 @@ test('summary model: today, the week per day vs budgets, 4 weeks, recent feedbac
   assert.deepEqual(m.weeks.map((w: any) => [w.start, w.workedSeconds, w.current]), [
     ['2026-09-20', 0, false], ['2026-09-27', 0, false], ['2026-10-04', 64 * 60, false], ['2026-10-11', 64 * 60, true],
   ]);
-  assert.deepEqual(m.feedback.map((f: any) => [f.id, f.choices, f.energy]), [['n-f', ['Productive'], 3]]);
+  assert.deepEqual(m.reports.map((f: any) => [f.timestamp, f.stage, f.status, f.energy]), [['2026-10-12 09:00', 'morning', ['Productive'], 3]]);
 });
 
 test('review M8#2: a window closed before Lua ever reported it shown is still audited (review done survives a restart)', async (t) => {
@@ -362,7 +416,7 @@ test('review M8#2: a window closed before Lua ever reported it shown is still au
   const sun = local(2026, 10, 11, 9, 0);
   const seed = (store: Store, clock: ReturnType<typeof fixedClock>) => {
     clock.set(local(2026, 10, 8, 20, 0));
-    store.append({ type: 'note.created', noteId: 'n-1', kind: 'context', text: 'x', source: 'quick' });
+    store.append({ type: 'note.created', noteId: 1, text: 'x', source: 'block' });
   };
   const s = await setup(sun, { dir: dir.dir, seed });
   s.tracker.tick(s.clock.now());
@@ -379,25 +433,18 @@ test('review M8#2: a window closed before Lua ever reported it shown is still au
 test('review M8#5: a menu click while the window is closing reopens it (by order); raise-then-close stays closed', async (t) => {
   const s = await setup(local(2026, 10, 8, 18, 0));
   t.after(s.cleanup);
-  s.request('quick');
+  s.request('notes');
   const rev = s.beat()[0]!.window.rev;
-  s.beat({ windows: { quick: rev } });
-  // Saved → the page shows "Saved." and closes itself; the owner clicks "Quick note…" meanwhile.
-  assert.equal(s.action('quick', 'submit', { context: 'x' }).ok, true);
-  s.request('quick');
-  s.action('quick', 'close');
-  let r = s.beat({ closed: [{ id: 'quick', by: 'page', at: 1 }] });
-  assert.ok(r.some((c) => c.op === 'window.open' && c.window.id === 'quick'), 'reopened after Saved');
-  s.beat({ windows: { quick: rev } });
-  // A click between the page's close and Lua's report also reopens.
-  s.action('quick', 'close');
-  s.request('quick');
-  r = s.beat({ closed: [{ id: 'quick', by: 'page', at: 2 }] });
+  s.beat({ windows: { notes: rev } });
+  // A click between the page's close and Lua's report reopens.
+  s.action('notes', 'close');
+  s.request('notes');
+  const r = s.beat({ closed: [{ id: 'notes', by: 'page', at: 2 }] });
   assert.ok(r.some((c) => c.op === 'window.open'), 'reopened after a late click');
-  s.beat({ windows: { quick: rev } });
+  s.beat({ windows: { notes: rev } });
   // Raise an open window, then close it on purpose at once: it stays closed.
-  s.request('quick');
-  s.beat({ windows: { quick: rev } });
-  assert.deepEqual(s.beat({ closed: [{ id: 'quick', by: 'user', at: 3 }] }), []);
+  s.request('notes');
+  s.beat({ windows: { notes: rev } });
+  assert.deepEqual(s.beat({ closed: [{ id: 'notes', by: 'user', at: 3 }] }), []);
   assert.deepEqual(s.beat(), []);
 });

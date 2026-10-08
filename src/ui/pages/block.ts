@@ -1,14 +1,13 @@
 // The block (R-UI-BLOCK): full screen on every screen until 04:00 — kind message, today/week numbers (+ a week strip),
-// park the thought (context-memory + feedback), postpone tokens (two-step confirm, F-HS-2: a synthetic click must
+// park the thought (a note + the end-of-workday report), postpone tokens (two-step confirm, F-HS-2: a synthetic click must
 // never spend one), and the emergency bypass (retype the sentence with pasting off, a reason, two-step confirm —
 // R-POL-4). Not dismissible: no ✕, no Esc. A zero limit (week used up) first shows a short explanation (Q-3).
 // Inputs on the primary screen only.
 import { act, api, boot, el, fill, isPrimary, windowId } from './page.ts';
 import { hm, timeLabel } from './format.ts';
 import { parkPanel } from './park.ts';
-import type { FeedbackValue } from './feedback.ts';
-import type { DailyReport } from '../../reports/reports.ts';
-import { reportForm } from './report-form.ts';
+import type { ReportValue } from './report-fields.ts';
+import type { ReportView } from '../../reports/reports.ts';
 
 interface Day {
   day: string;
@@ -19,7 +18,6 @@ interface Day {
 }
 
 interface Model {
-  report?: DailyReport | null;
   zeroLimit: boolean;
   workedSeconds: number;
   limitSeconds: number;
@@ -27,9 +25,10 @@ interface Model {
   liftsAt: number;
   tokens: { minutes: number; left: number }[];
   bypass: { minutes: number; phrase: string; usedToday: number };
-  feedbackChoices: string[];
+  reportStatuses: string[];
   draft: string;
-  feedbackDraft?: FeedbackValue | null;
+  reportDraft?: ReportValue | null;
+  recorded?: ReportView[];
 }
 
 /** Same comparison as the daemon (enforcement.ts `phraseKey`): case, spacing and punctuation do not matter. */
@@ -162,27 +161,16 @@ void boot<Model | null>(({ strings: s, model: first }) => {
   }
 
   function renderMain(): void {
-    const park = parkPanel(s, model.feedbackChoices, { title: s.blockPark!, draft: model.draft, feedbackDraft: model.feedbackDraft ?? null, showFeedback: !model.report });
+    const park = parkPanel(s, model.reportStatuses, { title: s.blockPark!, draft: model.draft, reportDraft: model.reportDraft ?? null, recorded: model.recorded ?? [] });
     renderTokens();
     bypassStart();
     document.body.replaceChildren(el('main', { class: 'card block' },
       ...head(),
-      ...(model.report ? [makeReportForm()] : []),
       el('div', { class: 'block-grid' },
         park.root,
         el('section', { class: 'more' }, el('h2', {}, s.blockMoreTitle!), el('p', { class: 'muted' }, s.blockMoreHint!), tokensBox, msg, bypassBox),
       ),
     ));
-  }
-
-  function makeReportForm(): HTMLElement {
-    return reportForm(model.report!, s, model.feedbackChoices, () => {
-      void api<{ model: Model | null }>(`/api/ui/model?win=${encodeURIComponent(windowId)}`).then((r) => {
-        if (!r.model) return;
-        model = r.model;
-        if (model.report) document.querySelector('.daily-report')?.replaceWith(makeReportForm());
-      }).catch(() => { msg.textContent = s.saveFailed!; });
-    });
   }
 
   showNumbers();

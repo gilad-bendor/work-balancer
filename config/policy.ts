@@ -16,7 +16,16 @@ const personalDay = {
 };
 
 export default {
-  dailyReportsStartDay: '2026-10-06',
+  reports: {
+    // Days without a report (last `stubDays`, from this day on) are asked for — e.g. in the morning welcome.
+    startDay: '2026-10-06',
+    statuses: ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day'],
+    // Stage by time of day: morning from 04:00, afternoon from 11:00, evening from 14:00. A catch-up report picks a
+    // stage instead of a time: it is timed at the middle of that range, or at 23:59 for end-of-workday.
+    stages: { afternoonFrom: '11:00', eveningFrom: '14:00', endOfWorkdayAt: '23:59' },
+    listMax: 1000,
+    stubDays: 10,
+  },
   weeklyBudgetMin: 44 * H,
   busyGraceMin: 5,
   ladder: { orangeAtFraction: 0.75, warnBeforeMin: 30, countdownBeforeMin: 10 },
@@ -33,7 +42,6 @@ export default {
   liveEffects: true,
   // Opacity of full-screen effects (block, overlays, inactivity dialog): 1 = solid; 0.8 still lets you read what is behind.
   overlayOpacity: 0.8,
-  feedbackChoices: ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day', 'Other'],
   days: {
     sun: officeWorkday,
     mon: homeWorkday,

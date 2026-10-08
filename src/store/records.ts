@@ -36,15 +36,6 @@ export interface MonitorGapRecord extends BaseRecord {
   cause: GapCause;
 }
 
-export interface DailyReportRecord extends BaseRecord {
-  type: 'report.submitted' | 'report.skipped';
-  /** Target 04:00-bounded date, distinct from the submission timestamp. */
-  day: string;
-  energy?: number;
-  choices?: string[];
-  text?: string;
-}
-
 /** A record without `v` (filled by the store); `ts` defaults to the store clock's now. */
 export type NewRecord = { type: string; ts?: number } & { [k: string]: unknown };
 

@@ -1,16 +1,13 @@
-// A note as a card (notes manager, morning review): date · kind, feedback choices/energy, text, and the actions the
-// page offers (edit in place, dismiss, bring back).
+// A note as a card (Manage Notes, morning review): its date, the text, and the actions the page offers (edit in place,
+// dismiss, bring back).
 import { el, submitOnCmdEnter } from './page.ts';
 import { dayLabel } from './format.ts';
 
 type Strings = Record<string, string>;
 
 export interface NoteView {
-  id: string;
-  kind: 'context' | 'feedback' | 'note';
+  id: number;
   text: string;
-  choices: string[];
-  energy: number | null;
   day: string;
   createdAt: number;
   dismissed: boolean;
@@ -18,25 +15,17 @@ export interface NoteView {
 
 export interface NoteHandlers {
   /** Unsaved editor text per note id: kept across re-renders (another note's action must not lose it). */
-  drafts?: Map<string, string>;
+  drafts?: Map<number, string>;
   /** Resolves true when saved (the page re-renders); false keeps the editor open with the text. */
-  edit?(id: string, text: string): Promise<boolean>;
-  dismiss?(id: string): void;
-  undismiss?(id: string): void;
+  edit?(id: number, text: string): Promise<boolean>;
+  dismiss?(id: number): void;
+  undismiss?(id: number): void;
 }
-
-const KIND: Record<NoteView['kind'], string> = { context: 'kindContext', feedback: 'kindFeedback', note: 'kindNote' };
 
 export function noteCard(n: NoteView, s: Strings, h: NoteHandlers): HTMLElement {
   const card = el('article', { class: `note${n.dismissed ? ' dismissed' : ''}` });
-  const head = el('div', { class: 'note-head muted' }, `${dayLabel(n.day)} · ${s[KIND[n.kind]] ?? n.kind}`);
+  const head = el('div', { class: 'note-head muted' }, dayLabel(n.day));
   const body = el('div', { class: 'note-body' });
-  if (n.choices.length || n.energy !== null) {
-    body.append(el('div', { class: 'chips' },
-      ...n.choices.map((c) => el('span', { class: 'chip static' }, c)),
-      ...(n.energy !== null ? [el('span', { class: 'chip static' }, `${s.energyShort ?? ''} ${n.energy}/5`)] : []),
-    ));
-  }
   if (n.text) body.append(el('p', { class: 'note-text' }, n.text));
 
   const actions = el('div', { class: 'row' });

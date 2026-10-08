@@ -1,32 +1,32 @@
-// The reusable feedback form (ledger R-UI-FB): multi-select choices from the policy's `feedbackChoices`, a free-text
-// comment, and an optional energy 1–5. Used by the quick note now and by countdown / block / review later (M10).
+// The report fields (ledger R-UI-REPORT): "How are you doing?" statuses (multi-select, from the policy), energy 1–5
+// and a free feedback text. Used by Manage Reports, the welcome, the countdown and the block.
 import { el } from './page.ts';
 
 type Strings = Record<string, string>;
 
-export interface FeedbackValue {
-  choices: string[];
-  text: string;
+export interface ReportValue {
+  status: string[];
+  feedback: string;
   energy: number | null;
 }
 
-export interface FeedbackForm {
+export interface ReportFieldsForm {
   root: HTMLElement;
-  comment: HTMLTextAreaElement;
-  value(): FeedbackValue;
+  feedback: HTMLTextAreaElement;
+  value(): ReportValue;
   isEmpty(): boolean;
   reset(): void;
-  setValue(value: FeedbackValue): void;
+  setValue(value: ReportValue): void;
 }
 
-/** `onChange`: any choice, energy or comment change (pages use it to keep a draft). */
-export function feedbackForm(s: Strings, choices: readonly string[], onChange?: () => void): FeedbackForm {
+/** `onChange`: any status, energy or feedback change (pages use it to keep a draft). */
+export function reportFields(s: Strings, statuses: readonly string[], onChange?: () => void): ReportFieldsForm {
   const picked = new Set<string>();
   let energy: number | null = null;
 
   const toggle = (b: HTMLButtonElement, on: boolean): void => b.setAttribute('aria-pressed', on ? 'true' : 'false');
 
-  const chips = choices.map((c) => {
+  const chips = statuses.map((c) => {
     const b = el('button', { type: 'button', class: 'chip', 'aria-pressed': 'false' }, c);
     b.addEventListener('click', () => {
       if (picked.has(c)) picked.delete(c);
@@ -47,39 +47,39 @@ export function feedbackForm(s: Strings, choices: readonly string[], onChange?: 
     return b;
   });
 
-  const comment = el('textarea', { rows: '2', placeholder: s.feedbackComment ?? '' });
-  if (onChange) comment.addEventListener('input', onChange);
+  const feedback = el('textarea', { rows: '2', placeholder: s.reportFeedbackPlaceholder ?? '' });
+  if (onChange) feedback.addEventListener('input', onChange);
 
-  const root = el('section', { class: 'feedback' },
-    el('h2', {}, s.feedbackTitle ?? ''),
-    el('p', { class: 'muted' }, s.feedbackHint ?? ''),
+  const root = el('section', { class: 'report-fields' },
+    el('h2', {}, s.reportStatusTitle ?? ''),
+    el('p', { class: 'muted' }, s.reportStatusHint ?? ''),
     el('div', { class: 'chips' }, ...chips),
     el('div', { class: 'row energy-row' },
-      el('span', { class: 'muted' }, s.energyLabel ?? ''),
+      el('span', { class: 'muted' }, s.reportEnergyLabel ?? ''),
       el('span', { class: 'muted small' }, s.energyLow ?? ''),
       ...energyButtons,
       el('span', { class: 'muted small' }, s.energyHigh ?? ''),
     ),
-    comment,
+    feedback,
   );
 
   return {
     root,
-    comment,
-    value: () => ({ choices: [...picked], text: comment.value, energy }),
-    isEmpty: () => !picked.size && energy === null && !comment.value.trim(),
+    feedback,
+    value: () => ({ status: [...picked], feedback: feedback.value, energy }),
+    isEmpty: () => !picked.size && energy === null && !feedback.value.trim(),
     reset() {
       picked.clear();
       energy = null;
-      comment.value = '';
+      feedback.value = '';
       [...chips, ...energyButtons].forEach((b) => toggle(b, false));
     },
     setValue(value) {
       picked.clear();
-      for (const choice of value.choices) if (choices.includes(choice)) picked.add(choice);
+      for (const x of value.status) if (statuses.includes(x)) picked.add(x);
       energy = value.energy;
-      comment.value = value.text;
-      chips.forEach((b, i) => toggle(b, picked.has(choices[i]!)));
+      feedback.value = value.feedback;
+      chips.forEach((b, i) => toggle(b, picked.has(statuses[i]!)));
       energyButtons.forEach((b, i) => toggle(b, energy === i + 1));
     },
   };

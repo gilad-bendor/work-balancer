@@ -12,11 +12,11 @@ import { createPromptHistoryProvider } from '../providers/prompt-history/index.t
 import { evaluate, type GrantRecord, type Level, type PolicyState } from '../policy/evaluate.ts';
 import { strings } from '../ui/strings.ts';
 import { createNotes } from '../notes/notes.ts';
-import { noteView, registerProductEffects } from '../effects/product.ts';
+import { registerProductEffects } from '../effects/product.ts';
 import { createHistory } from './history.ts';
 import { createInactivity } from '../inactivity/inactivity.ts';
-import { createEnforcement, type WeekInfo } from '../enforcement/enforcement.ts';
-import { createReports } from '../reports/reports.ts';
+import { canEndEarly, createEnforcement, type WeekInfo } from '../enforcement/enforcement.ts';
+import { createReports, reportView, timestampDay } from '../reports/reports.ts';
 import { reportPeriods, reportWorkSource, withoutReportWork } from '../reports/work.ts';
 
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
@@ -46,7 +46,17 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   const ownerActivity = (from: number, to: number): Interval[] =>
     [...interactive.workSource.activity!(from, to), ...promptHistory.workSource.activity!(from, to)].sort((x, y) => x[0] - y[0] || x[1] - y[1]);
   const reports = createReports({ store, config: () => policy.state().config });
-  const freshReviewDue = (now: number): boolean => reports.freshDue(now) && !['fri', 'sat'].includes(weekday(dayKey(now)));
+  /** The welcome asks for yesterday's report only if yesterday had none at the day's rollover: dismissing yesterday's
+   * report later in the day leaves a stub in Manage Reports, not a full-screen surprise (`reportMissing` absent in
+   * older rollover records = missing). */
+  const freshReviewDue = (now: number): boolean => {
+    if (!reports.freshDue(now) || ['fri', 'sat'].includes(weekday(dayKey(now)))) return false;
+    const today = store.readDay(dayKey(now));
+    const yesterday = addDays(dayKey(now), -1);
+    // Answered (or skipped) today, then dismissed: a stub, not a second welcome.
+    if (today.some((r) => r.type === 'report.created' && timestampDay(r.timestamp) === yesterday)) return false;
+    return today.find((r) => r.type === 'day.rollover')?.reportMissing !== false;
+  };
   const welcomeAllowed = (now: number): boolean =>
     !store.health().writeError && ownerActivity(dayStart(dayKey(now)), now + 1).length > 0
     && interactive.coverageEnd() !== null && now - interactive.coverageEnd()! <= 15_000
@@ -115,7 +125,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   let lastPruneDay: DayKey = today0;
 
   const graceMs = (): number => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000;
-  const notes = createNotes({ store, log, now: () => clock.now(), feedbackChoices: () => policy.state().config?.feedbackChoices ?? [] });
+  const notes = createNotes({ store, log, now: () => clock.now() });
   const dayHistory = createHistory({ store, log, now: () => clock.now(), graceMs });
   /** Day whose `day.rollover` record is known to exist (written by this daemon or found in the file). */
   let rolloverDay: DayKey | null = null;
@@ -128,8 +138,10 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     if (!store.readDay(today).some((r) => r.type === 'day.rollover')) {
       const c = policy.state().config;
       const review = c?.days[weekday(today)].morningReview === true && notes.active().length > 0;
-      if (!store.append({ type: 'day.rollover', fromDay: rolloverDay ?? addDays(today, -1), toDay: today, review })) return; // retried next tick
-      log.info('day rollover', { toDay: today, review });
+      // Without a config nothing is known about reports: absent = missing (decided by the config once it loads).
+      const reportMissing = c ? { reportMissing: reports.freshDue(now) } : {};
+      if (!store.append({ type: 'day.rollover', fromDay: rolloverDay ?? addDays(today, -1), toDay: today, review, ...reportMissing })) return; // retried next tick
+      log.info('day rollover', { toDay: today, review, ...reportMissing });
     }
     rolloverDay = today;
   }
@@ -183,7 +195,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     return { today, earlier, todaySeconds, weekSeconds: earlier + todaySeconds };
   }
 
-  /** The activity summary (R-UI-MENU-3): today, this week per day vs budgets, the last 4 weeks, recent feedback. */
+  /** The activity summary (R-UI-MENU-3): today, this week per day vs budgets, the last 4 weeks, recent reports. */
   function summary(now: number) {
     const c = policy.state().config;
     const { today, todaySeconds, weekSeconds } = weekNumbers(now);
@@ -232,23 +244,28 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
         })),
       },
       weeks,
-      feedback: notes.recentFeedback(8).map(noteView),
-      reports: reports.list(now).filter((r) => r.daysAgo < 28).reverse(),
+      reports: reports.list().filter((r) => r.day > addDays(today, -28)).map(reportView),
       activeNotes: notes.active().length,
     };
   }
 
   if (deps.effects) {
     deps.effects.register(inactivity.effect);
-    registerProductEffects({ effects: deps.effects, notes, store, now: () => clock.now(), config: () => policy.state().config, summary, quitAllowed, reports, welcomeAllowed });
+    registerProductEffects({ effects: deps.effects, notes, reports, store, now: () => clock.now(), config: () => policy.state().config, summary, quitAllowed, welcomeAllowed, welcomeDue: freshReviewDue });
     const enforcement = createEnforcement({
       store, log, now: () => clock.now(), notes, config: () => policy.state().config,
       state: (now) => (policy.state().config ? policyState(now) : null),
       week: weekInfo,
       currentStretch: () => work.currentStretch(),
       reports, freshReviewDue,
+      earlyAllowed: () => earlyAllowed(),
     });
     for (const e of enforcement.effects) deps.effects.register(e);
+  }
+
+  /** Early End-Of-Day only when the block it leads to can be shown: live gate open, no panic, data writable. */
+  function earlyAllowed(): boolean {
+    return !!deps.effects?.gateOpen() && !deps.effects.suppressed() && !store.health().writeError;
   }
 
   /** No Quit while enforcement is due on the live-enabled instance (review M10#5): the countdown or the block —
@@ -342,9 +359,11 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
         ...(st.enforcing && gate ? [strings.tooltipTokens(st.tokensLeft)] : []),
         ...(gate ? [] : [strings.observeMode]),
       ];
-      const pendingReports = reports.list(now).filter((r) => r.status === 'pending').length;
+      const missingReports = reports.missing(now).filter((s) => s.daysAgo >= 1).length;
+      const early = earlyAllowed() && canEndEarly(st);
       const menu = (quitAllowed(now) ? strings.menu : strings.menu.filter((m) => m.id !== 'quit' && m.id !== '-'))
-        .map((m) => m.id === 'reports' ? { ...m, title: strings.reportsMenu(pendingReports) } : { ...m });
+        .filter((m) => m.id !== 'countdown' || early)
+        .map((m) => m.id === 'reports' ? { ...m, title: strings.reportsMenu(missingReports) } : { ...m });
       return {
         title: strings.menubarTitle(todaySeconds, base, grantLeft), colour: st.colour, tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds),
         menu,

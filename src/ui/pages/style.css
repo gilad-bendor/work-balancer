@@ -29,7 +29,7 @@ input[type=text], textarea { font: inherit; width: 100%; padding: 6px 8px; borde
 /* Dev instance: an unmistakable badge (instructions §4.4). */
 body.env-dev::before { content: attr(data-badge); position: fixed; top: 6px; right: 8px; background: #b5651d; color: #fff; font-weight: 700; font-size: 16px; padding: 3px 12px; border-radius: 6px; letter-spacing: 0.08em; }
 
-/* M8: notes, feedback, summary */
+/* M8: notes, reports, summary */
 body.scroll { align-items: flex-start; overflow-y: auto; }
 body.scroll > main.card { margin: 24px auto; }
 .card.wide { max-width: 1060px; }
@@ -45,8 +45,7 @@ textarea { resize: vertical; line-height: 1.4; }
 .chip.static { border: 1px solid var(--border); font-size: 18px; cursor: default; }
 .chip.energy { min-width: 44px; }
 .energy-row { margin: 10px 0; }
-.feedback { border-top: 1px solid var(--border); margin-top: 18px; }
-.daily-report { border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 16px 0; }
+.report-fields { border-top: 1px solid var(--border); margin-top: 18px; }
 dialog { max-width: 760px; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
 dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .notes { margin-top: 8px; }
@@ -55,6 +54,21 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .note-head { font-size: 18px; }
 .note-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .add-note { margin: 12px 0; }
+.reports { margin-top: 8px; }
+.report { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 10px 0; }
+.report.dismissed { opacity: 0.55; }
+.report.skip .report-head { font-style: italic; }
+.report-head { font-size: 18px; font-variant-numeric: tabular-nums; }
+.report-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.report-new { margin-bottom: 18px; }
+.report-new .report-fields { border-top: none; margin-top: 0; }
+/* A recent day without a report: dashed and quiet; today and yesterday stand out (accent, thicker). */
+.report.stub { border-style: dashed; background: transparent; }
+.report.stub .report-head { color: var(--muted); }
+.report.stub.fresh { border: 2px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.report.stub.fresh .report-head { color: var(--text); font-weight: 600; }
+.stage-row { margin: 10px 0; }
+.recorded .report { margin: 6px 0; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 24px; }
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted var(--border); }
 .days { display: flex; flex-direction: column; gap: 6px; }
@@ -65,7 +79,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .bar .fill { height: 100%; background: var(--accent); border-radius: 8px; opacity: 0.75; }
 .bar.enforced .fill { opacity: 1; }
 .bar .mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); opacity: 0.6; }
-.feedback-line { display: flex; gap: 14px; padding: 4px 0; border-bottom: 1px dotted var(--border); }
+.report-line { display: flex; gap: 14px; padding: 4px 0; border-bottom: 1px dotted var(--border); }
 
 /* Large windows (summary, notes): a static top bar with the title and a big close icon; the content scrolls. */
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
@@ -111,8 +125,8 @@ body.page-block.scroll > main.card { margin: 16px auto; }
 @media (max-width: 1150px) { .block-grid { grid-template-columns: 1fr; } }
 .block-grid .park, .block-grid .more { border-top: 1px solid var(--border); margin-top: 14px; }
 .block-grid h2 { margin-top: 14px; }
-.block-grid .feedback h2 { margin-top: 12px; }
-body.page-block .block-grid .park, body.page-block .block-grid .more, body.page-block .feedback { border-color: rgba(255, 255, 255, 0.15); }
+.block-grid .report-fields h2 { margin-top: 12px; }
+body.page-block .block-grid .park, body.page-block .block-grid .more, body.page-block .report-fields { border-color: rgba(255, 255, 255, 0.15); }
 .tokens { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
 .token { padding: 10px 18px; }
 .confirm { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; }

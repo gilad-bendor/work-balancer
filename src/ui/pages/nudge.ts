@@ -1,5 +1,5 @@
 // Break nudge (R-POL-5): after ~90 min of continuous work. Gentle, dismissible, never blocking: "Taking a break now"
-// (quiet for this stretch) or snooze (also ✕ / Esc). Opened without focus; a click gives it focus.
+// (the count restarts from the click) or snooze (also ✕ / Esc). Opened without focus; a click gives it focus.
 import { act, boot, closeOnEscape, el, fill, focusOnInteract, tellLua } from './page.ts';
 import { duration } from './format.ts';
 

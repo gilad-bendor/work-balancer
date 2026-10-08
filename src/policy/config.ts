@@ -25,9 +25,23 @@ export interface DayPolicy {
   morningReview: boolean;
 }
 
+export interface ReportsConfig {
+  /** Days without a report are asked for from this day on (YYYY-MM-DD); null = never. */
+  startDay: string | null;
+  /** The "How are you doing?" values a report may pick from. */
+  statuses: string[];
+  /** Stage of a report by its time of day: morning from 04:00, afternoon from `afternoonFrom`, evening from
+   * `eveningFrom` to the next 04:00 (HH:MM). A catch-up report for an earlier stage is timed at the middle of its range;
+   * an end-of-workday catch-up at `endOfWorkdayAt`. */
+  stages: { afternoonFrom: string; eveningFrom: string; endOfWorkdayAt: string };
+  /** Manage Reports lists at most this many reports. */
+  listMax: number;
+  /** Manage Reports shows a stub for each of the last N days (today included) without a report. */
+  stubDays: number;
+}
+
 export interface PolicyConfig {
-  /** Daily energy obligations begin here; null/absent disables daily reports. */
-  dailyReportsStartDay?: string | null;
+  reports: ReportsConfig;
   /** Weekly budget in worked minutes (week = Sun 04:00 → Sun 04:00; all days count). */
   weeklyBudgetMin: number;
   /** R-INFO-3: a moment is busy if there was input in the preceding N minutes; also the inactivity threshold. */
@@ -44,7 +58,6 @@ export interface PolicyConfig {
   tokensMin: number[];
   bypass: { minutes: number; phrase: string };
   breakNudge: { afterMin: number; snoozeMin: number };
-  feedbackChoices: string[];
   days: Record<Weekday, DayPolicy>;
   /**
    * Live gate (ledger D-48): system-initiated effects (dialogs, dims, countdown, block, nudges, morning review) run on
@@ -57,6 +70,8 @@ export interface PolicyConfig {
   /** Opacity (0.2–1) of every window that covers a whole screen (overlay mode or full placement). Default 1. */
   overlayOpacity?: number;
 }
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export type ValidationResult = { ok: true; config: PolicyConfig } | { ok: false; errors: string[] };
 
@@ -73,7 +88,26 @@ export function validatePolicy(x: unknown): ValidationResult {
     if (v !== null) num(v, path, 0, 24 * 60);
   };
   if (!isObj(x)) return { ok: false, errors: ['the default export must be an object'] };
-  if (x.dailyReportsStartDay != null && !validReportDay(x.dailyReportsStartDay)) errors.push('dailyReportsStartDay must be a real YYYY-MM-DD date or null');
+  if (!isObj(x.reports)) errors.push('reports must be an object');
+  else {
+    const r = x.reports;
+    if (r.startDay !== null && !validReportDay(r.startDay)) errors.push('reports.startDay must be a real YYYY-MM-DD date or null');
+    if (!Array.isArray(r.statuses) || Array.from(r.statuses).some((c) => typeof c !== 'string' || !c.trim())) {
+      errors.push('reports.statuses must be an array of non-empty strings');
+    }
+    num(r.listMax, 'reports.listMax', 1, 100_000);
+    num(r.stubDays, 'reports.stubDays', 0, 366);
+    if (!isObj(r.stages)) errors.push('reports.stages must be an object');
+    else {
+      const { afternoonFrom: a, eveningFrom: e, endOfWorkdayAt: w } = r.stages;
+      for (const [k, v] of [['afternoonFrom', a], ['eveningFrom', e], ['endOfWorkdayAt', w]] as const) {
+        if (typeof v !== 'string' || !HHMM.test(v)) errors.push(`reports.stages.${k} must be HH:MM`);
+      }
+      if (typeof a === 'string' && typeof e === 'string' && HHMM.test(a) && HHMM.test(e) && !('04:00' < a && a < e)) {
+        errors.push('reports.stages must satisfy 04:00 < afternoonFrom < eveningFrom');
+      }
+    }
+  }
 
   num(x.weeklyBudgetMin, 'weeklyBudgetMin', 0, 7 * 24 * 60);
   num(x.busyGraceMin, 'busyGraceMin', 1, 60);
@@ -97,9 +131,6 @@ export function validatePolicy(x: unknown): ValidationResult {
   else {
     num(x.breakNudge.afterMin, 'breakNudge.afterMin', 1, 24 * 60);
     num(x.breakNudge.snoozeMin, 'breakNudge.snoozeMin', 1, 24 * 60);
-  }
-  if (!Array.isArray(x.feedbackChoices) || Array.from(x.feedbackChoices).some((c) => typeof c !== 'string' || !c.trim())) {
-    errors.push('feedbackChoices must be an array of non-empty strings');
   }
   if (x.liveEffects !== undefined) bool(x.liveEffects, 'liveEffects');
   if (x.overlayOpacity !== undefined) num(x.overlayOpacity, 'overlayOpacity', 0.2, 1);

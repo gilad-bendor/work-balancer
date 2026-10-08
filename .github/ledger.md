@@ -10,10 +10,10 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, D-62, D-71): office Sun/Tue/Thu **8.5 h**, home Mon/Wed **8 h**; budgets/inactivity/nudges/review on all Sun–Thu. **Daily energy reports implemented** (2026-10-06, D-69): every calendar date from today; fresh welcome Sun–Thu, today's report in the block, dismissible menu/catch-up window including today/yesterday. Fri/Sat remain automatically quiet with a neutral menubar. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). Deployment/verification: see latest session row. |
+| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, D-62, D-71): office Sun/Tue/Thu **8.5 h**, home Mon/Wed **8 h**; budgets/inactivity/nudges/review on all Sun–Thu. **Notes and reports split** (2026-10-08, D-74): notes = reminders, reports = how he is doing (several per day, stage, skip = empty report, dismiss only); menu *Manage Reports* · *Manage Notes* · summary · *Early End-Of-Day* · Quit; welcome Sun–Thu for yesterday without a report. Fri/Sat remain automatically quiet with a neutral menubar. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). Deployment/verification: see latest session row. |
 | **Next** | **M11 — one week of live use** (Tue 2026-10-06 → Mon 2026-10-12; hardening done 2026-10-05). Then the owner launches **`tbd-06-m11-wrapup`** (on/after Tue 2026-10-13, `scripts/execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait …/tbd-06-m11-wrapup.md`, D-66): week summary from `data/`, his feedback, tuning, M11 done. Owner: sanity-check the M5 numbers (`scripts/prompt-history-report`). Open questions: none. Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.1 + daemon 0.7.3 — **data auto-commit + push of settled day files since 2026-10-07, D-72**; daily reports and lifecycle hardening deployed 2026-10-06, D-69): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` during a grant), the report menu, budget effects and welcome/catch-up Sun–Thu. Office/home policy hot-reload verified by matching live snapshot (D-71). Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.1 + daemon **0.8.0** — notes/reports split and migrated `data/` deployed 2026-10-08, D-74; **data auto-commit + push of settled day files since 2026-10-07, D-72**): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` during a grant), the report menu, budget effects and welcome/catch-up Sun–Thu. Office/home policy hot-reload verified by matching live snapshot (D-71). Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
 | **Active tbd files** | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/tbd-06-m11-wrapup` — **pending**, a top-level successor prompt for the owner to launch on/after Tue 2026-10-13 (M11 wrap-up). `tbd-05-continue-m10` completed 2026-10-05. |
 
 ---
@@ -63,7 +63,7 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 ### 1.4 Data
 - **R-DATA-1** JSONL, append-only, git-able. File per day key: **`data/YYYY-MM/YYYY-MM-DD.jsonl`**.
 - **R-DATA-2** Survives restarts; all state (including an active block) is recomputable from data.
-- **R-DATA-3** Feedback and notes are recorded in the same data.
+- **R-DATA-3** Reports and notes are recorded in the same data (never mixed: D-74).
 - **R-DATA-4** *(owner, 2026-10-07, D-72)* Settled day files (created/changed, last modified before yesterday) and deleted day
   files are committed automatically; a pure-`data/` HEAD is amended (constant message); every commit/amend is followed by
   `git push --force-with-lease` (of the data commit only).
@@ -84,7 +84,7 @@ IDs are stable; reference them in code comments only where it clarifies the *why
 
   - *(2026-10-06, D-71; supersedes D-35's workday restrictions)* Office and home days share enforcement,
     inactivity dialogs, nudges and morning review. Fri/Sat use `personalDay`: no daily budget, reference colours or
-    automatic interruptions. Daily energy-report welcome/catch-up remains Sun–Thu.
+    automatic interruptions. The report welcome/catch-up remains Sun–Thu.
   - **Weekly budget 44 h** (all days of the week count, R-TIME-3).
   - On enforcing days: **effective daily limit = min(daily budget, weekly budget − worked earlier this week)**, floor 0.
     A heavy week therefore shortens Thursday — protecting Friday. (If the effective limit is 0, see open question Q-3.)
@@ -108,48 +108,60 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   as soon as I can."*
 - **R-POL-5 Break nudge**: after **90 min** of continuous work, a gentle, dismissible, non-blocking nudge
   (snooze 15 min). Never blocks.
+  *(2026-10-07, owner, D-73)* Continuous work = work **at the computer**: reported-as-work time (inactivity-dialog
+  credits) is not part of a stretch. **"Taking a break now"** restarts the 90 min count from the click.
 
 ### 1.6 UI effects
 - **R-UI-MENU-1** Menubar item: compact status (worked today vs effective limit, e.g. `5:12 / 9:00`), colour-coded
   (green / orange / red; grey = not monitored / Saturday / daemon down; a warning glyph on errors). Tooltip: week total.
-- **R-UI-MENU-2** *(changed 2026-10-05, D-32)* **Any click** (left or right) opens one menu. Its first item
-  **Quick note…** opens the *quick note* window: context-memory textbox + feedback form (R-UI-FB), submit.
-- **R-UI-MENU-3** The menu: **Quick note…** · **Show activity summary** · **Show status notes** · **Quit**.
+- **R-UI-MENU-2** *(changed 2026-10-05, D-32)* **Any click** (left or right) opens one menu. ~~Its first item
+  **Quick note…** opens the *quick note* window~~ *(superseded 2026-10-08, D-74: no quick note; see R-UI-MENU-3.)*
+- **R-UI-MENU-3** *(2026-10-08, owner, D-74)* The menu: **Manage Reports** (suffix "(N days without a report)", today
+  not counted) · **Manage Notes** · **Show activity summary** · **Early End-Of-Day…** · **Quit**.
+  - *Manage Reports*: a new report now (stage by time of day); the last `reports.listMax` (1000) reports, newest first,
+    each with **Edit** and **Dismiss** (a report dismissed there shows Un-dismiss only until the window closes;
+    reopened, it is gone); for each of the last `reports.stubDays` (10) days without a report a visually distinct
+    **stub** (stronger for today/yesterday) with **Add report for this day** (picks a stage, not a time) and **Skip
+    this day…**.
+  - *Early End-Of-Day*: opens the countdown dialog (R-UI-COUNTDOWN) early, e.g. after a few hours; closable; its Save
+    ends the day like the countdown's. Offered on an enforcing day before the countdown (live gate open, no panic).
   - *Show activity summary*: today (worked, effective limit, remaining, state, tokens left, bypasses, prompts, top apps,
-    longest stretch, breaks, unmonitored gaps), this week per day vs budgets, recent feedback; last 4 weeks trend.
-  - *Show status notes* (= notes manager): **non-dismissed first, then dismissed**, each with its **date**; actions:
-    **edit, dismiss, un-dismiss, add new**. *(2026-10-05, D-36: no delete and no purge — notes are temporary
-    reminders, not book-keeping; "removing" a note = dismissing it.)*
+    longest stretch, breaks, unmonitored gaps), this week per day vs budgets, recent reports (28 days); last 4 weeks trend.
+  - *Manage Notes* (was *Show status notes*; = notes manager): the new-note box, then **non-dismissed first, then
+    dismissed**, each with its **date**; actions: **edit, dismiss, un-dismiss, add new**. *(2026-10-05, D-36: no
+    delete and no purge — notes are temporary reminders, not book-keeping; "removing" a note = dismissing it.)*
   - *Quit*: confirm → logged → Lua sets a **`quit` latch** (supervisor stops restarting) → daemon stops, menubar
     removed, gamma restored, windows closed. The latch lives only in memory: the next Hammerspoon module load (login /
     reload) starts everything again. Not reachable while blocked (the block overlay covers the menubar — by design).
     *(2026-10-05, D-61)* Also not offered (menu item hidden, confirm refused) at `countdown`/`blocked` on an enforcing day
     with the live gate open — including during a token, when the menubar is visible — unless nothing can be enforced
     (panic, store write error).
-- **R-UI-FB Feedback form** (reusable component; appears in quick-note, block, countdown, morning review):
-  predefined **multi-select choices** (initial: *Too much work · Feeling tired · Anxious · Stuck / frustrated ·
-  Productive · Good day · Other*) **+ always a free-text comment**, plus optional energy 1–5. Recorded as a note of kind
-  `feedback`.
-- **R-UI-REPORT Daily energy report** *(2026-10-06, owner, D-69)* — **done**: every calendar day, including short
-  workdays and Friday/Saturday away. Required energy 1–5; feelings/comment optional. Today's report is in the
-  end-of-day block; missing yesterday is a full-screen Sun–Thu welcome (answer or explicitly confirm skip before
-  Continue). Older dates share one dismissible catch-up window. Menu *Daily energy reports…* includes missing
-  today/yesterday, so short workdays can be reported before leaving; answered/skipped dates can be amended.
-  Show date, weekday and days ago. Skip confirmation explains the persistent missing score; stronger wording and
-  0.8 s confirmation delay for today/yesterday, lighter for older dates. Closing older catch-up leaves pending dates
-  intact; no successive popups. Fri/Sat have no automatic UI. Activation 2026-10-06 prevents pre-feature backlog.
-  Reports persist as `report.*`, separate from optional feedback notes; block exits/safety remain unchanged.
-- **R-UI-CTX Context-memory** ("close the loop"): free-text box "What's the next thing you'd do? It will be waiting
-  for you tomorrow." + submit. Present in: countdown, block, quick-note. Recorded as a note of kind `context`.
+- ~~**R-UI-FB Feedback form**~~ and ~~**R-UI-CTX Context-memory**~~ — *superseded 2026-10-08 by R-UI-REPORT and
+  R-UI-NOTE (D-74)*: "feedback notes" are reports, "context notes" are notes; note `kind` is gone.
+- **R-UI-REPORT Reports** *(2026-10-06, D-69; reshaped 2026-10-08, owner, D-74)* — how the owner is doing, never a
+  note. Fields: **Feedback** (text), **Status** ("How are you doing?", a subset of *Too much work · Feeling tired ·
+  Anxious · Stuck / frustrated · Productive · Good day* — no *Other*), **Energy** (1 = drained … 5 = full of energy);
+  at least one, except a **skip** = all three empty (an `isSkipReport()` check). **Timestamp** saved and shown as local
+  `YYYY-MM-DD HH:MM`. **Stage** (optional, never editable): countdown / block ("end-of-day dialog") →
+  `end-of-workday`; otherwise by time of day (configurable): day boundary–10:59 morning, 11:00–13:59 afternoon,
+  14:00–next day boundary evening. Only a **catch-up** report (a recent day without one) lets the owner pick the stage;
+  its timestamp is the middle of that stage's range (end-of-workday: 23:59). Several reports per day; what is tracked
+  is **a day without any report**: the 04:00 welcome asks for yesterday (Sun–Thu, add or confirm skip before Continue),
+  Manage Reports shows stubs. Dismiss only, never delete ("always remembered"); a dismissed report does not count.
+  Show date, weekday and days ago. Skip confirmation: stronger wording + 0.8 s delay for today/yesterday. Fri/Sat
+  have no automatic UI. Block exits/safety unchanged.
+- **R-UI-NOTE Notes** *(was R-UI-CTX; 2026-10-08, D-74)* ("close the loop"): reminders the owner leaves for himself —
+  free-text box "What's the next thing you'd do? It will be waiting for you tomorrow." Present in: countdown, block,
+  Manage Notes, morning review.
 - **R-UI-WARN** Warning dialog (dismissible) + **dim pulse** (few seconds; gamma based; always restored).
   Grayscale is a nice-to-have later (no clean public API).
-- **R-UI-COUNTDOWN** Countdown window: "≈ N min of work left today", context-memory box, feedback; not dismissible but
+- **R-UI-COUNTDOWN** Countdown window: "≈ N min of work left today", note box, end-of-workday report; not dismissible but
   can be collapsed to a small pill. *(2026-10-05, owner, D-60)* Its **Save = done for today**: the remaining minutes are
   given up (`budget.forfeited`) and the block follows until 04:00 (tokens / bypass still work). Cmd+Enter does not save
-  there (review M10#6).
+  there (review M10#6). *(2026-10-08, D-74)* The same dialog opens early from the menu (*Early End-Of-Day*), closable.
 - **R-UI-BLOCK** Full-screen block on **all screens, all spaces, above the menubar and full-screen apps**, until 04:00:
-  kind message, today/week numbers, context-memory box, today's daily report (optional feedback form if reports
-  disabled), token buttons (remaining counts),
+  kind message, today/week numbers, note box, the end-of-workday report (or the one already recorded + "add
+  another"), token buttons (remaining counts),
   emergency-bypass flow. Consequential actions (token, bypass) need a two-step confirm (guards against accidental and
   synthetic clicks — see F-HS-2). Re-asserted on screen/space changes and after restarts.
 - **R-UI-INACT Inactivity dialog**: when inactivity (default 5 min, R-INFO-3) is detected, show a non-focus-stealing
@@ -172,10 +184,10 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   `[gapStart, gapStart + N)` chronologically (N ≤ gap length). "Back" keeps the default rule. A later resolution of
   the same gap replaces the earlier one.
 - **R-UI-REVIEW Morning review at 04:00** (on rollover into Sun–Thu; if the Mac sleeps at 04:00, on first wake after):
-  a window listing **all non-dismissed notes** (context-memory + feedback + free notes), **pre-filled/editable**, each
+  a window listing **all non-dismissed notes**, **pre-filled/editable**, each
   with a **Dismiss** button. Closing the window does not dismiss anything. Thursday's notes therefore surface on Sunday.
-  *(2026-10-06, D-69)* Missing yesterday's energy report adds the stronger full-screen welcome on all Sun–Thu;
-  notes follow its report/skip decision. Ordinary notes-only review is dismissible and runs Sun–Thu (D-71).
+  *(2026-10-06, D-69; D-74)* Yesterday without a report (at the rollover) adds the stronger full-screen welcome on all
+  Sun–Thu; notes follow its report/skip decision. Ordinary notes-only review is dismissible and runs Sun–Thu (D-71).
 - **R-UI-QUIET** *(2026-10-05, D-34)* **No visual effect starts within 10 s of user input** (typing / mouse): a
   due effect (warn, dim, countdown, block, nudge, dialog) waits for 10 s without input, so it never lands
   mid-keystroke or mid-click. Bounded by a maximum deferral (Q-13), otherwise continuous typing would postpone it forever.
@@ -507,6 +519,9 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
 - Gentle Friday notice on first activity ("Friday is your private day").
 - Historical backfill script for `prompt-history`; weekly report (markdown) generated into `data/`.
 - Optional auto-commit of `data/` (owner currently commits manually).
+- *(2026-10-07, owner, D-73)* **Daily timelines** (not built yet): `work` and `reported-as-work` segments
+  (`WorkProvider.segments()`) are drawn as **one** time range — `[work, reported-as-work, work, …]` back to back = a single
+  range.
 - ~~Energy/feedback trend charts in the summary.~~ → superseded by the next item (2026-10-05).
 - *(2026-10-05, owner — **after M11**, once there is real data)* **"Feedback & energy" trend window**: a dedicated menu item, same
   90 % layout as the summary: energy per day (mean + range) over the last weeks beside worked hours per day, choice
@@ -612,6 +627,8 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-70 | 2026-10-06 | **Welcome lifecycle accounting:** actual Lua opening/closing timestamps in optional heartbeat metadata, not command request time; sensor coverage/gap boundaries cap exclusion. Quick report completion remains excluded; lost replies and crashed overlays cannot erase real work. Automatic catch-up adoption keeps its original revision, preserving drafts. Daemon 0.7.2 (releases old accounting latch, D-45), Lua 0.7.1. | Requested GPT-6 Astra adversarial pre-commit review and narrow re-checks; all findings fixed with regressions. |
 | D-71 | 2026-10-06 | **Office/home/personal policy:** `officeWorkday` Sun/Tue/Thu = 8.5 h; `homeWorkday` Mon/Wed = 8 h with the same enforcement, inactivity, nudge and review flags. `personalDay` Fri/Sat = tracking + neutral menubar, no daily budget/reference/automatic effects. Weekly budget stays 44 h including rare personal-day laptop use. Supersedes D-4 daily budgets, D-35 workday restrictions and D-69's survey-only Mon/Wed distinction. | Owner's requested schedule and explicit approval of quiet personal days; protect energy without interrupting occasional personal use. Config hash handles latch changes (D-45); no daemon logic/version change needed. |
 | D-72 | 2026-10-07 | **Data auto-commit** (`src/daemon/data-commit.ts`, daemon 0.7.3, live env only): on the first eligible tick of each 04:00 day (≥ 60 s after a start; a start, 04:00 or the first tick after a wake), on branch `main` only, with no merge/rebase/cherry-pick/revert/bisect/sequencer in progress: commit day files that are new/changed with mtime before **yesterday's 04:00**, plus day files deleted from the working tree that exist in HEAD — `git commit --only --no-verify` on exactly those paths (the owner's other staged/unstaged work untouched; our paths unstaged again if the commit fails). If HEAD is a single-parent pure-`data/` commit (or our own auto-commit emptied by an earlier amend) it is **amended** — so a deleted day file that the amended commit added vanishes from the remote history too, by design; a missing `data/` folder is skipped, and **bulk deletions are held back** — more than 2 in one run, or emptying a whole month folder of HEAD, or any while an earlier hold is unresolved (in memory) — and so are committed day files that are not an append to their HEAD version (append-only; e.g. an older backup restored) — (menubar warning, retried every 15 min; the store recreates today's file within a minute, so a moved-away `data/` would otherwise become "delete everything", amended and force-pushed — review round 5) (`--allow-empty`); message is always `data: auto-commit day files`. Then push **only that data commit**: `git push --force-with-lease=<merge ref>:<upstream sha> <remote> <sha>:<merge ref>`, only when `main` is exactly our commit on top of the upstream tip (fast-forward) or replaces an upstream pure-data tip with the same parent (amend); otherwise the push is skipped and logged (never publishes unpushed code commits, never overwrites a locally rewound or diverged remote); an unpushed auto-commit is retried on later runs. A HEAD re-check right before an amend narrows the race with the owner committing at the same moment (worst case: his commit's message replaced, content kept, not pushed). Failures retry every 15 min; ≥ 3 consecutive failures → menubar warning; tracking never depends on it. **The GitHub repo is public**, so pushed data (notes, feedback, reports, app names, hours) is public. | Owner's request; the owner chose the main repo + amend + force-with-lease after the review flagged the public repo (alternatives offered: separate `data/.git`, local-only ref). Two review rounds: commit only on `main` (a day file committed on another branch vanishes from disk on checkout), deletions only of files in HEAD (`AD`), push only the data commit with an exact lease (a plain force push of `main` could delete remote commits / publish unpushed code). Supersedes Q-9. |
+| D-73 | 2026-10-07 | **Reported-as-work** (owner): the `work` digest splits busy time into `work` (seen: activity + grace − lock/sleep) and `reported-as-work` (inactivity credits beyond it) — `WorkProvider.segments()` (`state`), `reportedSeconds` per minute and range (`/api/status`). Totals, budgets and the ladder are unchanged (no version bump). Nothing new is persisted for it: `inactivity.resolved` already is the owner's report. `currentStretch()` (break nudge, menubar tooltip, summary "Current stretch") counts seen work only, so a reported stretch ends a stretch like a break; longest stretch / breaks in range aggregates still use all busy time. **"Taking a break now"** restarts the nudge count from the click (was: quiet for the rest of the stretch, in memory) — persisted as `nudge.break` (current day; read back after a restart). Future timelines draw work + reported-as-work as one range (§4). | Owner: time away reported as work should be distinguishable, yet the same range on a timeline; the 90 min "without a real break" is about time at the screen; "taking a break" should reset the count. |
+| D-74 | 2026-10-08 | **Notes and reports, completely separate** (owner; supersedes R-UI-FB/R-UI-CTX and D-69's one-report-per-day model): a **note** is a reminder (`note.created {noteId, text, source}`, no `kind`); a **report** is how he is doing (`report.created {reportId, timestamp "YYYY-MM-DD HH:MM", stage?, feedback, status, energy, source}` + `edited/dismissed/undismissed`). Ids = creation epoch ms (+1 on a collision). Several reports per day; a **skip** = an all-empty report (two-step confirm); **dismiss only, never delete** — a dismissed report does not count. Stage: countdown/block → end-of-workday; else by time of day (config `reports.stages`: afternoon 11:00, evening 14:00 → next 04:00); only a catch-up report picks its stage, timed at the stage's middle (end-of-workday 23:59). "A day without any report" (last `reports.stubDays` = 10 days from `startDay`) drives the Sun–Thu welcome (only if yesterday was missing at the rollover: `day.rollover.reportMissing`, so dismissing yesterday's report later does not throw a full-screen welcome mid-day) and the Manage Reports stubs. Menu: Manage Reports (replaces *Quick note…* and *Daily energy reports…*) · Manage Notes (was *Show status notes*) · summary · **Early End-Of-Day** (the countdown dialog opened by the owner — closable, focused, non-intrusive; Save forfeits with `by: early` → block; only on an enforcing day before the countdown, gate open, no panic, store writable) · Quit. Config `feedbackChoices`/`dailyReportsStartDay` → `reports {startDay, statuses (no "Other"), stages, listMax 1000, stubDays 10}`. **Schema stays v1, redefined in place; `data/` rewritten once with the owner's approval** (the only exception to append-only): 3 files (10-06…10-08), feedback notes → reports, the identical 10-06 countdown feedback + daily report merged, dismissals of feedback notes (a "seen" in the review) and orphan dismissals (notes of the deleted 10-04/05 files) dropped; other lines byte-identical; backups in the session's scratch. Daemon 0.8.0. | Owner: two concepts were mixed (feedback cluttering reminders; two parallel ways to say how he feels — 10-06 had the same answer twice); several reports a day show energy over the day; stages make days comparable; readable timestamps in `data/`. |
 
 ---
 
@@ -755,3 +772,5 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-06 | (same session, countdown fix) | Owner bug: countdown energy/choices reset after "Make it small" → "Open" (only the context text was drafted). Fix: the daemon keeps a feedback draft beside the text draft (partial updates, sanitised, cleared only for parts actually saved, carried into the block); the page flushes the pending draft before pill ⇄ full. New regression test, **215 tests + typecheck**; isolated dev-daemon browser walkthrough of the exact flow; live daemon restarted healthy. Pre-commit review: 1 medium (cleared part resurrected on a quick Save) fixed — Save flushes, drafts chained; re-check clean. Committed and pushed on the owner's request. | — |
 | 2026-10-07 | `.github/tmp/2026-10-07--09-29--data-prune-inspection/` | Read-only inspection of `data/` for old-format files. `2026-10-04` (daemon 0.1.0/0.3.0, pre-D-38): 2 596 minute lines for 91 minutes, 64 phantom "input while locked" minutes, partial day, 0:24 worked → **recommend moving it out of `data/`** (untracked in git — archive, do not delete). `2026-10-05` transitional but format-compatible (8:47 worked, categories only from 20:09, test notes) → recommended keep. **Owner decided: delete both permanently** — done; `data/` now starts at 2026-10-06 (this week's total drops by 9:11; 10-05's test notes gone); live daemon restarted healthy. [Report](./tmp/2026-10-07--09-29--data-prune-inspection/report.md). | — |
 | 2026-10-07 | `.github/tmp/2026-10-07--10-05--data-auto-commit/` | **Data auto-commit (D-72, R-DATA-4)**: `src/daemon/data-commit.ts` — once per 04:00 day (≥ 60 s after start), live + `main` only: settled (mtime < yesterday 04:00) new/changed day files + deleted committed day files, `commit --only`, amend a pure-data HEAD, constant message, push only that commit with an exact lease. Owner chose main repo + amend + force-with-lease despite the public repo. Code-review subagent: 3 rounds (public repo, branch checkout deleting data, whole-`main` force push, AD, races) — all fixed or documented. **225 tests + typecheck**; daemon 0.7.3 deployed, first live run = nothing to commit (10-06 settles tomorrow). Q-9 superseded. Review round 4 (empty-commit rule, docs) clean; round 5 broke the missing-`data/` guard (store recreates `data/`) → bulk-deletion hold-back (> 2, a whole month, sticky until resolved; round 6) and non-append changes held back (round 7). Committed on the owner's request (not pushed). [Report](./tmp/2026-10-07--10-05--data-auto-commit/report.md). | — |
+| 2026-10-07 | (no tmp-folder — small change) | Owner: **reported-as-work** (D-73) — `work` digest marks inactivity credits beyond seen work (`segments()` state, `reportedSeconds`), totals unchanged; current stretch / break nudge ignore reported time; "Taking a break now" restarts the nudge count (`nudge.break`, restart-proof); timeline merge noted in §4. **226 tests + typecheck**; live daemon restarted healthy (0.7.3). Not committed. | — |
+| 2026-10-08 | `.github/tmp/2026-10-08--11-09--notes-and-reports/` | **Notes/reports split (D-74)** on the owner's request (intent discussed first; his answers: skip = empty report, end-of-day dialog = countdown + block, **Early End-Of-Day** menu item, catch-up picks a stage, ranges from the 04:00 boundary, dismiss only, no schema bump). New `src/notes/notes.ts`, `src/reports/reports.ts`, product/enforcement/tracker wiring, pages (Manage Reports with stubs, Manage Notes, welcome, countdown/block `park.ts`, summary), strings, config `reports`. Dev browser walkthrough (new/catch-up/skip/edit/dismiss/early end → block). Adversarial review: 13 findings — fixed: deploy order (old daemon served new pages), mid-day welcome after a dismissal (`reportMissing` at rollover), Early End-Of-Day during panic/closed gate, typed text lost on re-render, migration atomicity/daemon check/edge cases, forfeit-failure message, Esc guard, welcome Done across 04:00, menu count without today; kept: v1 (owner), rewrite of committed 10-06 (owner). **236 tests + typecheck**. Deployed: daemon stopped (quit latch) → `data/` migrated (3 files, backups in scratch, re-run = no-op) → Hammerspoon reload → 0.8.0 healthy. Code not committed; the rewritten `data/2026-10/2026-10-06.jsonl` committed alone on the owner's request (309cd15, not pushed). Second adversarial review on request: 10 findings, none high, 7 fixed (see report). Owner: reports count every day, **Shabbat included** (Sunday's welcome asks about Saturday). Pushed on request: 66fe239, fb160f8, 309cd15 (fast-forward; code of this session still uncommitted). Then, on request, the code of this session **and the 2026-10-07 D-73 change** (never committed; interleaved in the same files) committed together after an adversarial review of D-73: nothing serious; fixed a future-dated `nudge.break` silencing the nudge; accepted: a "taking a break" click before 04:00 is forgotten by a daemon restarted after 04:00, and the tooltip/summary stretch ignores the click (spec: nudge count only). [Report](./tmp/2026-10-08--11-09--notes-and-reports/report.md). | — |

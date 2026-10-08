@@ -10,8 +10,10 @@ behaviours, verified API facts) are in [hammerspoon.md](./hammerspoon.md).
 
 - Kind, neutral, never shaming. The owner already carries "not good enough". No "YOU OVERWORKED!", no exclamation
   marks at him, no guilt. Speak like a friend who is on his side: *"That's today's budget. Friday-you will thank you."*
-- Close the loop (principle 1): wherever work stops, offer the context-memory box ("What's the next thing you'd do?
+- Close the loop (principle 1): wherever work stops, offer the note box ("What's the next thing you'd do?
   It will be waiting for you tomorrow.").
+- **Two words, never mixed** (owner, D-74): a **note** is a reminder he leaves for himself; a **report** is how he is
+  doing (status, energy, feedback). Every page, string, id and record uses exactly these two names.
 - Large, calm type (`style.css`: 22 px body, 30 px headings — owner asked for +50 %). Neutral colours; red only as a **status** colour (menubar) — and for the debug eject label, which is a
   safety instruction, not a judgement.
 - Every user-facing string lives in [`src/ui/strings.ts`](../src/ui/strings.ts): `strings` (daemon side: menubar,
@@ -65,7 +67,10 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 - The dev instance adds a `DEV` badge (`body.env-dev`). For a look inside a real `hs.webview` use
   `WorkBalancer.preview('http://127.0.0.1:47622/ui/<page>.html?token=…&win=…')` (it focuses the window so typing works).
 - Per-screen windows: only the primary instance (`primary=1`) shows inputs; the others show the message only.
-- **Shared page modules:** `feedback.ts` (the R-UI-FB form — reuse it in countdown / block, M10), `notes-view.ts`
+- **Shared page modules:** `report-fields.ts` (status chips, energy 1–5, feedback text), `report-card.ts` (a report card
+with edit / dismiss / bring back; a stub card for a recent day without a report; the catch-up form with its stage
+picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday report, countdown / block),
+`notes-view.ts`
   (a note card with edit / dismiss / bring back), `format.ts` (`hm`, `dayLabel`, `timeLabel`). `page.ts` helpers added in
   M8: `topBar(title)` (static top bar + big ✕, for the large windows), `closeOnEscape()` (every dismissible page — never
   the countdown / block), `submitOnCmdEnter(box, fn)` (every text box), `focusOnInteract()` (windows opened without
@@ -81,13 +86,12 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 
 | Window id | Opened by | Mode / size | Page | Notes |
 |---|---|---|---|---|
-| `quick` | menu *Quick note…* | floating, focus, 900×860 | `quick` | context-memory + feedback → `context` and/or `feedback` note (`source: quick`) |
-| `notes` | menu *Show status notes* | floating, focus, 90 % | `notes` | waiting first, then dismissed; add / edit / dismiss / bring back |
+| `reports` | menu *Manage Reports*; otherwise one gentle older catch-up on Sun–Thu | floating, 90 %, closable | `reports` | a new report now (stage by time of day); every report newest first (max `reports.listMax`) with Edit / Dismiss; a stub per recent day without one (`reports.stubDays`), today/yesterday emphasised, with *Add report for this day* (pick a stage) / *Skip this day…*; reports dismissed here show *Bring back* until the window closes |
+| `notes` | menu *Manage Notes* | floating, focus, 90 % | `notes` | the new-note box first (focused: parking a thought = open + type); waiting first, then dismissed; add / edit / dismiss / bring back |
 | `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; 4-week trend via `src/daemon/history.ts` |
 | `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
 | `review` | `day.rollover` with `review: true` | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; "Let's start this day!" or ✕ = done for today |
-| `review:fresh` | missing yesterday's daily energy report, Sun–Thu, fresh active/unlocked sensors | **overlay, full, per screen**, focused, not closable | `review` | answer or confirm skip before Continue; budget block has priority; existing notes follow the decision |
-| `reports` | menu *Daily energy reports…*; otherwise one gentle older catch-up on Sun–Thu | floating, 90 %, closable | `reports` | manual: focused/non-intrusive; automatic: no focus/intrusive; includes today/yesterday and skipped/answered dates |
+| `review:fresh` | yesterday without a report at the day's rollover, Sun–Thu, fresh active/unlocked sensors | **overlay, full, per screen**, focused, not closable | `review` | a catch-up report for yesterday (stage picker) or a confirmed skip before Continue; budget block has priority; existing notes follow |
 | `inactivity` (M9) | a gap (5 min idle + uncancelled 10 s pre-warning dim) | **overlay, full, per screen**, focus, intrusive | `inactivity` | **no Esc, no timeout** (D-56) — ends only by Submit (or the escape hatches / fail-open / 04:00); one gap; live timer with seconds; slider "Worked N min of M" + presets (highlighted iff the slider is at their value); the presets submit at once (D-68), the slider enables Submit; other screens: "Please answer on the main screen." |
 
 The menu itself comes from the daemon (`strings.menu`, sent in every menubar spec); a click posts
@@ -104,14 +108,17 @@ latest `policy.transition` into it.
 | `warn` | level `warn` (≈ 30 worked min left), until dismissed for this entry | floating center 860×400, **no focus** | `warn` | + one 3 s dim pulse (0.6) with its first appearance; Got it / ✕ / Esc |
 | `countdown` | level `countdown` (≈ 10 min left) | floating center 960×820, no focus, **not closable** | `countdown` | "≈ N min of work left today"; park the thought; **Save = done for today** (`budget.forfeited` → block, D-60); "Make it small" → the pill (`?pill=1`, top right 420×150, in memory per entry); its typed text is a draft that reappears in the block |
 | `block` | `blockActive` (blocked, no grant) — and the store can write | **overlay, full, per screen**, focus | `block` | not dismissible; numbers + week strip; park the thought; tokens (two-step: the confirm appears elsewhere, enabled after 0.8 s, disarms after 20 s); emergency bypass (sentence retyped with paste/drop blocked + reason + two-step); zero limit → an explanation first ("I understand"); other screens: message + numbers |
-| `nudge` | ≥ 90 min continuous work on a `breakNudge` day, not at countdown/block | floating top-right 640×330, no focus | `nudge` | "Taking a break now" = quiet for this stretch (memory); ✕ / Esc / "Remind me in 15 min" = snooze (from the `effect.closed` record) |
+| `nudge` | ≥ 90 min continuous work at the computer (reported-as-work time ends a stretch, D-73) on a `breakNudge` day, not at countdown/block | floating top-right 640×330, no focus | `nudge` | "Taking a break now" = the 90 min count restarts from the click (`nudge.break` record, D-73); ✕ / Esc / "Remind me in 15 min" = snooze (from the `effect.closed` record) |
 
 Once a token or the bypass was used today, the block's return is `immediate` (no R-UI-QUIET deferral). While the
 countdown or the block is due (live, enforcing day), the menu has no *Quit* and the quit page refuses (D-61).
-Shared page module `park.ts`: context box + optional feedback form + Save (action `save`, notes with source `countdown`/`block`) +
-debounced `draft`. Strings use `{n}`/`{m}`/`{k}`/`{t}` placeholders filled by `page.ts` `fill()`.
-When daily reports are enabled, the block shows today's `report-form.ts` instead of a second optional energy form;
-parking context, tokens and bypass remain independent.
+Shared page module `park.ts`: note box + end-of-workday report fields + Save (action `save` → a note and/or a report
+`stage: end-of-workday`, source `countdown`/`block`) + debounced `draft`. Once today has an end-of-workday report it is
+shown ("Recorded for today") with *Add another report* instead of a second empty form.
+**Early End-Of-Day** (menu, D-74): the countdown effect's `request()` opens the same dialog (`countdown.html?early=1`)
+non-intrusive, focused and closable (✕ / Esc / "just close this window"); its Save is the countdown's Save
+(`budget.forfeited by: early` → block until 04:00). Offered only on an enforcing day before the countdown, with the live
+gate open, no panic and a writable store. Strings use `{n}`/`{m}`/`{k}`/`{t}` placeholders filled by `page.ts` `fill()`.
 **Trial mode:** `POST /api/test/window {"live": true, "page": "block" | "countdown" | "warn" | "nudge" | "inactivity"}`
 (+ `"zeroLimit": true` for the block) shows the real page over synthetic numbers; answers are logged (never their text),
 nothing reaches `data/`.
@@ -130,25 +137,21 @@ excluded — gamma only; the M9 inactivity dialog checked live 2026-10-05; the M
   "gapMinutes": 12}` shows the real inactivity dialog over a synthetic gap (TTL ≤ 120 s); the answer goes to the daemon
   log only. `WorkBalancer.preview(url, true)` = a full-screen DEV PREVIEW at the overlay opacity.
 
-## 6. Daily energy reports (D-69)
+## 6. Reports (D-69, reshaped by D-74)
 
-- One decision per **calendar day**, including days away from this computer. Activation is configured by
-  `dailyReportsStartDay` (initially 2026-10-06); no surprise backlog before that date.
-- **Fresh:** today inside the end-of-day block; missing yesterday in a full-screen welcome on **Sun–Thu** (including
-  home days Mon/Wed). No ordinary dismissal until energy 1–5 is recorded or skip confirmed. Answering never lifts
-  a budget block; tokens/bypass/panic/eject/fail-open are unchanged. A short day can be reported from the menu.
-- **Older:** one floating, dismissible catch-up, no queue of successive popups. Closing or "Not now" leaves dates
-  pending. No automatic catch-up immediately after the fresh welcome; its button opens catch-up on request. After
-  dismissal, no second automatic offer that day, including across restarts.
-- **Friday/Saturday:** calendar obligations still exist, but no automatic report windows. On Sunday, Saturday is
-  yesterday/fresh; Friday and Thursday are older.
-- Every form shows **weekday, full date, days ago** (Today / Yesterday · 1 day ago / N days ago). All missing dates,
-  including today/yesterday, are available in the menu window; answered/skipped dates can be amended later.
-- Skip always opens a confirmation explaining the missing score and persistent skipped status; fresh confirmations
-  add stronger wording and a short 0.8 s deliberate delay. Cancel/Esc returns to the report, not out of the welcome.
-  Older confirmations are shorter and have no delay. A failed save leaves the obligation unresolved.
-- `report-form.ts` reuses `feedback.ts`: **energy required**, feelings and comment optional. Daily reports use
-  `report.*` events, never informal feedback notes; the summary displays the last 28 days' status and scores.
+- A report = status (multi-select from `reports.statuses`), energy 1–5, feedback text — at least one, except a **skip**
+  (all empty, only via *Skip this day…* with a two-step confirmation) — plus a timestamp and a stage (see
+  data-format.md). Several per day; the obligation is only "no day without a report" (last `stubDays` days, from
+  `startDay`).
+- **Fresh:** the end-of-workday report sits in the countdown / block (`park.ts`); yesterday without a report (decided
+  at the rollover) → the full-screen welcome on **Sun–Thu**: add one for yesterday (pick the part of the day) or
+  confirm a skip, then notes and Continue. Answering never lifts a budget block; tokens/bypass/panic/eject/fail-open
+  are unchanged. A short day can be reported from the menu.
+- **Older:** stubs in Manage Reports and one floating, dismissible automatic catch-up a day, no queue of popups.
+- **Friday/Saturday:** days still count, but no automatic report windows.
+- Headings show **weekday, full date, days ago** (Today / Yesterday / N days ago); a report shows its timestamp and stage.
+- Skip confirmations: fresh (today/yesterday) wording is stronger with a 0.8 s delay; older ones shorter, no delay.
+  Cancel/Esc returns to the form. A failed save leaves the day without a report.
 - Mandatory welcome interaction is excluded from worked time; no inactivity request while yesterday is pending.
   R-UI-QUIET, live gate, panic and visible fail-open still apply. The target date changes the window revision at
   04:00, so a surviving window does not keep an obsolete form.
