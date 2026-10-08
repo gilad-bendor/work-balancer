@@ -4,11 +4,6 @@
 {"v":1,"ts":1791263619362,"type":"system","event":"display-wake"}
 {"v":1,"ts":1791263619753,"type":"system","event":"wake"}
 {"v":1,"ts":1791263621670,"type":"system","event":"unlock"}
-{"v":1,"ts":1791263640483,"type":"note.dismissed","noteId":"n-1791191060673-821706"}
-{"v":1,"ts":1791263642118,"type":"note.dismissed","noteId":"n-1791191117601-1fa79f"}
-{"v":1,"ts":1791263643662,"type":"note.dismissed","noteId":"n-1791191590871-dbe30d"}
-{"v":1,"ts":1791263646887,"type":"note.dismissed","noteId":"n-1791191590875-630ec2"}
-{"v":1,"ts":1791263660546,"type":"note.dismissed","noteId":"n-1791191624435-c8b8ff"}
 {"v":1,"ts":1791263662972,"type":"effect.closed","effect":"review","windowId":"review","by":"page"}
 {"v":1,"ts":1791263714369,"type":"minute","provider":"interactive","minute":1791263580000,"data":{"inputs":[[40310,41034],[44956,44956],[47224,47224],[59958,59999]],"activeSeconds":5,"lastInputAt":1791263639999,"topApps":[{"id":"org.hammerspoon.Hammerspoon","name":"Hammerspoon","s":14}],"categories":{"Work":18},"lockedSeconds":42,"asleepSeconds":40}}
 {"v":1,"ts":1791263774378,"type":"minute","provider":"interactive","minute":1791263640000,"data":{"inputs":[[0,8956],[16956,22974],[25956,27956],[31956,33956],[37956,43956],[45957,59999]],"activeSeconds":44,"lastInputAt":1791263699999,"topApps":[{"id":"com.microsoft.VSCode","name":"Code","s":33},{"id":"org.hammerspoon.Hammerspoon","name":"Hammerspoon","s":27}],"categories":{"Work":60}}}
@@ -760,13 +755,12 @@
 {"v":1,"ts":1791305377994,"type":"config.loaded","hash":"1b048357ff0c","source":"file"}
 {"v":1,"ts":1791305382614,"type":"effect.closed","effect":"countdown","windowId":"countdown","by":"failopen"}
 {"v":1,"ts":1791305387613,"type":"effect.shown","effect":"countdown","windowId":"countdown"}
-{"v":1,"ts":1791305414044,"type":"note.created","noteId":"n-1791305414044-a5adaa","kind":"feedback","text":"","choices":["Productive"],"energy":4,"source":"countdown"}
+{"v":1,"ts":1791305414044,"type":"report.created","reportId":1791305414044,"timestamp":"2026-10-06 19:50","stage":"end-of-workday","feedback":"","status":["Productive"],"energy":4,"source":"countdown"}
 {"v":1,"ts":1791305414051,"type":"budget.forfeited","remainingSeconds":47,"by":"countdown"}
 {"v":1,"ts":1791305418972,"type":"policy.transition","from":"countdown","to":"blocked","configHash":"1b048357ff0c@0.7.2","workedMin":509,"limitMin":510,"weekMin":1061}
 {"v":1,"ts":1791305422617,"type":"effect.closed","effect":"countdown","windowId":"countdown","by":"system"}
 {"v":1,"ts":1791305473972,"type":"minute","provider":"interactive","minute":1791305340000,"data":{"inputs":[[56606,59999]],"activeSeconds":4,"lastInputAt":1791305399999,"topApps":[{"id":"com.microsoft.VSCode","name":"Code","s":41}],"categories":{"Work":41}}}
 {"v":1,"ts":1791305474828,"type":"effect.shown","effect":"block","windowId":"block"}
-{"v":1,"ts":1791305500554,"type":"report.submitted","day":"2026-10-06","energy":4,"choices":["Productive"],"text":""}
 {"v":1,"ts":1791305533021,"type":"system","event":"sleep"}
 {"v":1,"ts":1791305533057,"type":"system","event":"display-sleep"}
 {"v":1,"ts":1791305533436,"type":"system","event":"lock"}
