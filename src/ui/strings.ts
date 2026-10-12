@@ -89,6 +89,7 @@ export const pageStrings = {
   energyShort: 'Energy',
   energyLow: 'drained',
   energyHigh: 'full of energy',
+  energyHalfHint: '⌘-click a neighbour too for a half (e.g. 2.5)',
   stage_morning: 'morning',
   stage_afternoon: 'afternoon',
   stage_evening: 'evening',

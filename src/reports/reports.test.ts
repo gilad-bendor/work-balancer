@@ -109,6 +109,20 @@ test('new / add: at least one field; statuses only from the config; stage by tim
   assert.deepEqual(r.list().map((x) => x.id), [T, T + 1], 'newest first by the time described');
 });
 
+test('energy: 1 … 5 in half steps (two consecutive levels = N + 0.5); anything else is no energy', (t) => {
+  const T = local(2026, 10, 8, 10, 0);
+  const s = setup(T);
+  t.after(s.cleanup);
+  const r = s.make();
+  const src = { source: 'manager' as const };
+  for (const bad of [0.5, 2.25, 5.5, '3', Number.NaN]) assert.equal(r.action('report-new', { energy: bad }, T, src).error, 'empty', String(bad));
+  const half = r.action('report-new', { energy: 2.5 }, T, src).id as number;
+  assert.equal(r.get(half)!.energy, 2.5);
+  assert.equal(r.action('report-edit', { id: half, energy: 4.5 }, T, src).ok, true);
+  assert.equal(s.make().get(half)!.energy, 4.5, 'folded back from the file');
+  assert.equal(r.createEndOfWorkday({ energy: 1.5 }, 'block', T + 1).ok, true);
+});
+
 test('skip = a report with all fields empty, after a two-step confirmation; it can be edited into a real report', (t) => {
   const s = setup(local(2026, 10, 11, 9, 0), () => policy('2026-10-08'));
   t.after(s.cleanup);

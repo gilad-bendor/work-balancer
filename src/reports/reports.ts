@@ -51,7 +51,8 @@ export interface ReportStub {
 export const isSkipReport = (r: ReportFields): boolean => !r.feedback && r.status.length === 0 && r.energy === null;
 const isStage = (x: unknown): x is ReportStage => REPORT_STAGES.includes(x as ReportStage);
 const isSource = (x: unknown): x is ReportSource => REPORT_SOURCES.includes(x as ReportSource);
-const isEnergy = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 1 && x <= 5;
+/** 1 … 5 in half steps: N, or N + 0.5 = "between N and N + 1". */
+export const isEnergy = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x * 2) && x >= 1 && x <= 5;
 
 export function validReportDay(value: unknown): value is DayKey {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

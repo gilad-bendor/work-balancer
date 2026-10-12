@@ -67,7 +67,8 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 - The dev instance adds a `DEV` badge (`body.env-dev`). For a look inside a real `hs.webview` use
   `WorkBalancer.preview('http://127.0.0.1:47622/ui/<page>.html?token=…&win=…')` (it focuses the window so typing works).
 - Per-screen windows: only the primary instance (`primary=1`) shows inputs; the others show the message only.
-- **Shared page modules:** `report-fields.ts` (status chips, energy 1–5, feedback text), `report-card.ts` (a report card
+- **Shared page modules:** `report-fields.ts` (status chips, energy 1–5 — click = one level, ⌘-click a neighbour too =
+  N + 0.5, an illegal ⌘-click blinks the hint (D-77) —, feedback text), `report-card.ts` (a report card
 with edit / dismiss / bring back; a stub card for a recent day without a report; the catch-up form with its stage
 picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday report, countdown / block),
 `notes-view.ts`

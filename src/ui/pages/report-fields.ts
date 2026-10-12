@@ -22,7 +22,10 @@ export interface ReportFieldsForm {
 /** `onChange`: any status, energy or feedback change (pages use it to keep a draft). */
 export function reportFields(s: Strings, statuses: readonly string[], onChange?: () => void): ReportFieldsForm {
   const picked = new Set<string>();
-  let energy: number | null = null;
+  // Energy: no level, one level N, or two consecutive levels N, N + 1 (= N + 0.5).
+  let levels: number[] = [];
+  const energyOf = (): number | null => (levels.length ? Math.min(...levels) + (levels.length - 1) * 0.5 : null);
+  const legal = (x: number[]): boolean => x.length <= 1 || (x.length === 2 && Math.abs(x[0]! - x[1]!) === 1);
 
   const toggle = (b: HTMLButtonElement, on: boolean): void => b.setAttribute('aria-pressed', on ? 'true' : 'false');
 
@@ -37,11 +40,20 @@ export function reportFields(s: Strings, statuses: readonly string[], onChange?:
     return b;
   });
 
-  const energyButtons = [1, 2, 3, 4, 5].map((n) => {
+  const showLevels = (): void => energyButtons.forEach((x, i) => toggle(x, levels.includes(i + 1)));
+  const halfHint = el('p', { class: 'muted small energy-hint' }, s.energyHalfHint ?? '');
+  const energyButtons: HTMLButtonElement[] = [1, 2, 3, 4, 5].map((n) => {
     const b = el('button', { type: 'button', class: 'chip energy', 'aria-pressed': 'false', title: String(n) }, String(n));
-    b.addEventListener('click', () => {
-      energy = energy === n ? null : n; // clicking the chosen value again clears it
-      energyButtons.forEach((x, i) => toggle(x, energy === i + 1));
+    b.addEventListener('click', (e: MouseEvent) => {
+      if (e.metaKey) {
+        // Cmd+Click toggles one level, but only into a legal state; otherwise the hint blinks.
+        const next = levels.includes(n) ? levels.filter((x) => x !== n) : [...levels, n];
+        if (!legal(next)) { halfHint.animate?.([{ opacity: 0.2 }, { opacity: 1 }], { duration: 500 }); return; }
+        levels = next;
+      } else {
+        levels = levels.length === 1 && levels[0] === n ? [] : [n]; // clicking the chosen value again clears it
+      }
+      showLevels();
       onChange?.();
     });
     return b;
@@ -60,27 +72,29 @@ export function reportFields(s: Strings, statuses: readonly string[], onChange?:
       ...energyButtons,
       el('span', { class: 'muted small' }, s.energyHigh ?? ''),
     ),
+    halfHint,
     feedback,
   );
 
   return {
     root,
     feedback,
-    value: () => ({ status: [...picked], feedback: feedback.value, energy }),
-    isEmpty: () => !picked.size && energy === null && !feedback.value.trim(),
+    value: () => ({ status: [...picked], feedback: feedback.value, energy: energyOf() }),
+    isEmpty: () => !picked.size && !levels.length && !feedback.value.trim(),
     reset() {
       picked.clear();
-      energy = null;
+      levels = [];
       feedback.value = '';
       [...chips, ...energyButtons].forEach((b) => toggle(b, false));
     },
     setValue(value) {
       picked.clear();
       for (const x of value.status) if (statuses.includes(x)) picked.add(x);
-      energy = value.energy;
+      const e = value.energy;
+      levels = e === null ? [] : Number.isInteger(e) ? [e] : [Math.floor(e), Math.ceil(e)];
       feedback.value = value.feedback;
       chips.forEach((b, i) => toggle(b, picked.has(statuses[i]!)));
-      energyButtons.forEach((b, i) => toggle(b, energy === i + 1));
+      showLevels();
     },
   };
 }

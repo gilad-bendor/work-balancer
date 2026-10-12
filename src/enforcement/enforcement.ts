@@ -14,7 +14,7 @@ import type { Store } from '../store/store.ts';
 import type { Notes } from '../notes/notes.ts';
 import { cleanText } from '../notes/notes.ts';
 import { saveNoteAndReport } from '../effects/product.ts';
-import { reportView, type Reports, type ReportView } from '../reports/reports.ts';
+import { isEnergy, reportView, type Reports, type ReportView } from '../reports/reports.ts';
 
 /** The warn dim pulse (R-UI-WARN): a few seconds, gentle; Lua caps and always restores. */
 export const WARN_DIM: Omit<DimSpec, 'pulseId'> = { level: 0.6, seconds: 3 };
@@ -105,7 +105,7 @@ export function cleanReportDraft(x: unknown): ReportDraft | null {
   const f = obj(x);
   const status = Array.isArray(f.status) ? f.status.filter((c): c is string => typeof c === 'string').slice(0, 50).map((c) => c.slice(0, 200)) : [];
   const feedback = typeof f.feedback === 'string' ? f.feedback.slice(0, 4000) : '';
-  const energy = typeof f.energy === 'number' && Number.isInteger(f.energy) && f.energy >= 1 && f.energy <= 5 ? f.energy : null;
+  const energy = isEnergy(f.energy) ? f.energy : null;
   return status.length || feedback || energy !== null ? { status, feedback, energy } : null;
 }
 
