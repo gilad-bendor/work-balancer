@@ -166,9 +166,12 @@ export interface Reports {
   missing(now: number): ReportStub[];
   /** Yesterday has no report (the morning welcome asks for it). */
   freshDue(now: number): boolean;
+  /** The day has a (non-dismissed) end-of-workday report, or was deliberately skipped. */
+  hasEndOfDay(day: DayKey): boolean;
   /** Countdown / block: an end-of-workday report, timed now. */
   createEndOfWorkday(fields: unknown, source: ReportSource, now: number): ReportResult;
-  /** Page actions (`report-*`); `days` limits the days catch-up actions may target (default: any missing day). */
+  /** Page actions (`report-*`); `days` limits the days catch-up actions may target (default: any missing day;
+   * `report-end-of-day` requires it). */
   action(action: string, payload: unknown, now: number, opts: { source: ReportSource; days?: (day: DayKey) => boolean }): ActionResult;
 }
 
@@ -201,6 +204,7 @@ export function createReports(d: { store: Store; config: () => PolicyConfig | nu
 
   const list = (): Report[] => [...reports.values()].filter((r) => r.dismissedAt === null).sort(newestFirst);
   const ofDay = (day: DayKey): Report[] => list().filter((r) => r.day === day);
+  const hasEndOfDay = (day: DayKey): boolean => ofDay(day).some((r) => r.stage === 'end-of-workday' || isSkipReport(r));
 
   function missing(now: number): ReportStub[] {
     const c = cfg();
@@ -224,6 +228,7 @@ export function createReports(d: { store: Store; config: () => PolicyConfig | nu
     ofDay,
     missing,
     freshDue: (now) => missing(now).some((s) => s.daysAgo === 1),
+    hasEndOfDay,
     createEndOfWorkday(p, source, now) {
       const fields = clean(p);
       if (isSkipReport(fields)) return { ok: false, error: 'empty' };
@@ -254,6 +259,15 @@ export function createReports(d: { store: Store; config: () => PolicyConfig | nu
           if (isSkipReport(fields)) return { ok: false, error: 'empty' };
           armed.delete(s.day);
           return result(create(catchUpTimestamp(s.day, p.stage, c.stages), p.stage, fields, opts.source, now));
+        }
+        case 'report-end-of-day': {
+          // A past day that ended without an end-of-workday report (e.g. an early end), whether or not it has others.
+          const day = p.day;
+          if (!opts.days || !validReportDay(day) || !c.startDay || day < c.startDay || daysAgo(day, dayKey(now)) < 1 || !opts.days(day)) return { ok: false, error: 'day' };
+          if (hasEndOfDay(day)) return { ok: false, error: 'exists' };
+          const fields = clean(p);
+          if (isSkipReport(fields)) return { ok: false, error: 'empty' };
+          return result(create(catchUpTimestamp(day, 'end-of-workday', c.stages), 'end-of-workday', fields, opts.source, now));
         }
         case 'report-arm-skip': {
           const s = stub();

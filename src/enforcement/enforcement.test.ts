@@ -65,7 +65,8 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; 
       tracker.tick(clock.now());
     }
   };
-  const ids = () => effects.desired(clock.now()).windows.map((w) => w.id).sort();
+  // The morning review (every workday, D-75) has its own tests; here it is noise.
+  const ids = () => effects.desired(clock.now()).windows.map((w) => w.id).filter((id) => id !== 'review').sort();
   const win = (id: string) => effects.desired(clock.now()).windows.find((w) => w.id === id);
   const records = (type: string) => real.readDays('2026-10-01', '2026-10-31').filter((r) => r.type === type);
   return { ...tmp, clock, store: real, tracker, effects, call, action, model, beat, work, ids, win, records };
@@ -136,7 +137,8 @@ test('Early End-Of-Day: the countdown dialog from the menu — closable, focused
   dev.call('POST', '/bridge/ui-request', { open: 'countdown' });
   dev.beat({ windows: { countdown: dev.win('countdown')!.rev } });
   dev.call('POST', '/bridge/ui-request', { open: 'countdown' });
-  assert.deepEqual(dev.beat({ windows: { countdown: dev.win('countdown')!.rev } }).map((c) => c.op), ['window.focus'], 'a second click raises it');
+  const ops = dev.beat({ windows: { countdown: dev.win('countdown')!.rev } }).filter((c) => c.window?.id !== 'review').map((c) => c.op);
+  assert.deepEqual(ops, ['window.focus'], 'a second click raises it');
   assert.equal(dev.action('countdown', 'save', { note: ' ', report: {} }).error, 'empty');
   const saved = dev.action('countdown', 'save', { note: 'pick up the migration tomorrow', report: { energy: 2 } });
   assert.deepEqual([saved.ok, saved.note, saved.report, saved.forfeited], [true, 'saved', 'saved', true]);
@@ -262,7 +264,9 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
 
   // 04:00: Wednesday's home budget is fresh; yesterday's saved note appears in review.
   r.work(local(2026, 10, 7, 4, 0, 30), { idle: true });
-  assert.deepEqual(r.ids(), ['review']);
+  assert.deepEqual(r.ids(), []);
+  assert.ok(r.win('review'));
+  assert.ok(r.model('review').notes.length > 0);
 });
 
 test('countdown draft keeps the report fields across pill ⇄ full and into the block; a save forgets only what it wrote', async (t) => {

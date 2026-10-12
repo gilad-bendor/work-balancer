@@ -125,6 +125,8 @@ export const pageStrings = {
   reviewIntro: "Here's what you left for yourself. Edit what changed, dismiss what's done — closing keeps the rest.",
   reviewDone: "Let's start this day!",
   reviewEmpty: 'Nothing waiting — a clean start.',
+  reviewEndOfDayTitle: 'How did yesterday end?',
+  reviewEndOfDayHint: 'Yesterday has no end-of-day report. If you like, add one now — or just start the day.',
   // Activity summary (R-UI-MENU-3)
   summaryTitle: 'Activity summary',
   summaryToday: 'Today',

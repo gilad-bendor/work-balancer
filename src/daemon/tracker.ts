@@ -131,17 +131,16 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   let rolloverDay: DayKey | null = null;
 
   /** One `day.rollover` per day (current day's file): written on the first tick of a day — at 04:00, on the first
-   * tick after a wake, or at a start on a day the daemon has not seen. It also decides the morning review (D-35). */
+   * tick after a wake, or at a start on a day the daemon has not seen. The morning review starts from it (D-75). */
   function rollover(now: number): void {
     const today = dayKey(now);
     if (rolloverDay === today) return;
     if (!store.readDay(today).some((r) => r.type === 'day.rollover')) {
       const c = policy.state().config;
-      const review = c?.days[weekday(today)].morningReview === true && notes.active().length > 0;
       // Without a config nothing is known about reports: absent = missing (decided by the config once it loads).
       const reportMissing = c ? { reportMissing: reports.freshDue(now) } : {};
-      if (!store.append({ type: 'day.rollover', fromDay: rolloverDay ?? addDays(today, -1), toDay: today, review, ...reportMissing })) return; // retried next tick
-      log.info('day rollover', { toDay: today, review, ...reportMissing });
+      if (!store.append({ type: 'day.rollover', fromDay: rolloverDay ?? addDays(today, -1), toDay: today, ...reportMissing })) return; // retried next tick
+      log.info('day rollover', { toDay: today, ...reportMissing });
     }
     rolloverDay = today;
   }

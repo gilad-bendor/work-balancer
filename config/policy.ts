@@ -19,7 +19,7 @@ export default {
   reports: {
     // Days without a report (last `stubDays`, from this day on) are asked for — e.g. in the morning welcome.
     startDay: '2026-10-06',
-    statuses: ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day'],
+    statuses: ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Procrastinating', 'Productive', 'Good day'],
     // Stage by time of day: morning from 04:00, afternoon from 11:00, evening from 14:00. A catch-up report picks a
     // stage instead of a time: it is timed at the middle of that range, or at 23:59 for end-of-workday.
     stages: { afternoonFrom: '11:00', eveningFrom: '14:00', endOfWorkdayAt: '23:59' },

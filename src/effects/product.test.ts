@@ -16,14 +16,16 @@ import type { ActualUi, UiCommand } from '../core/effects.ts';
 
 type Cmd = UiCommand & Record<string, any>;
 
-async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; reportsStart?: string; seed?: (store: Store, clock: ReturnType<typeof fixedClock>) => void } = {}) {
+async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; reportsStart?: string; noMorningReview?: boolean; seed?: (store: Store, clock: ReturnType<typeof fixedClock>) => void } = {}) {
   const tmp = opts.dir ? { dir: opts.dir, cleanup() {} } : makeTmpDir('product');
   const clock = fixedClock(start);
   const store = createStore({ dataDir: join(tmp.dir, 'data'), clock, log: silentLogger });
   opts.seed?.(store, clock);
   clock.set(start);
   // Live-env tests are about the closed gate: the owner's policy with liveEffects false (whatever his file says).
-  const configPath = testPolicy(tmp.dir, { reportsStartDay: opts.reportsStart ?? null, ...(opts.env === 'live' ? { liveEffects: false } : {}) });
+  const configPath = testPolicy(tmp.dir, {
+    reportsStartDay: opts.reportsStart ?? null, ...(opts.env === 'live' ? { liveEffects: false } : {}), ...(opts.noMorningReview ? { morningReview: false as const } : {}),
+  });
   const policy = createPolicyLoader({ path: configPath, snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
@@ -189,13 +191,13 @@ test('rapid welcome completion before first shown heartbeat does not spend the w
 test('automatic catch-up adoption keeps the same revision so drafts survive daemon restart', async (t) => {
   const start = local(2026, 10, 11, 9, 0);
   const seed = (store: Store) => store.append(report('2026-10-10 21:00', 4));
-  const s = await setup(start, { reportsStart: '2026-10-08', seed });
+  const s = await setup(start, { reportsStart: '2026-10-08', seed, noMorningReview: true });
   t.after(s.cleanup);
   s.tracker.ingest({ since: start - 5000, inputs: [start], apps: [], system: [], locked: false }, start);
   const open = s.beat().find((c) => c.window?.id === 'reports')!;
   s.beat({ windows: { reports: open.window.rev } });
   const next = start + 5000;
-  const again = await setup(next, { reportsStart: '2026-10-08', dir: s.dir });
+  const again = await setup(next, { reportsStart: '2026-10-08', dir: s.dir, noMorningReview: true });
   again.tracker.ingest({ since: start, inputs: [], apps: [], system: [], locked: false }, next);
   assert.deepEqual(again.beat({ windows: { reports: open.window.rev } }), [], 'no replacement command destroying the existing webview');
   assert.equal(again.effects.desired(next).windows.find((w) => w.id === 'reports')!.rev, open.window.rev);
@@ -219,7 +221,7 @@ test('reports: Friday/Saturday quiet; Monday/Wednesday fresh; live gate and pani
   assert.deepEqual(live.beat(), [], 'live gate suppresses fresh report');
   assert.equal(live.request('reports').json.ok, true);
   assert.ok(live.beat().some((c) => c.window?.id === 'reports'), 'manual reports work with the gate closed');
-  const old = await setup(sun, { reportsStart: '2026-10-08', seed: (store) => {
+  const old = await setup(sun, { reportsStart: '2026-10-08', noMorningReview: true, seed: (store) => {
     store.append(report('2026-10-10 21:00', 4));
   } });
   t.after(old.cleanup);
@@ -232,6 +234,13 @@ test('reports: Friday/Saturday quiet; Monday/Wednesday fresh; live gate and pani
   old.beat({ windows: { reports: open.window.rev } });
   old.beat({ closed: [{ id: 'reports', by: 'user', at: sun }] });
   assert.deepEqual(old.beat(), [], 'Not now silences catch-up for this day');
+  // On a morning-review day the review carries the catch-up (one morning window, no queue of popups).
+  const rev = await setup(sun, { reportsStart: '2026-10-08', seed: (store) => store.append(report('2026-10-10 21:00', 4)) });
+  t.after(rev.cleanup);
+  rev.tracker.tick(sun);
+  rev.tracker.ingest({ since: sun - 5000, inputs: [sun], apps: [], system: [], locked: false }, sun);
+  assert.deepEqual(rev.beat().map((c) => c.window?.id), ['review']);
+  assert.equal(rev.model('review').olderCount, 2, '10-09 and 10-08');
 });
 
 test('Manage Reports: new / edit / dismiss / bring back; newest first; dismissed ones leave the model', async (t) => {
@@ -241,7 +250,7 @@ test('Manage Reports: new / edit / dismiss / bring back; newest first; dismissed
   s.request('reports');
   s.beat();
   const m = s.model('reports');
-  assert.deepEqual(m.statuses, ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Productive', 'Good day']);
+  assert.deepEqual(m.statuses, ['Too much work', 'Feeling tired', 'Anxious', 'Stuck / frustrated', 'Procrastinating', 'Productive', 'Good day']);
   assert.deepEqual(m.stages, ['morning', 'afternoon', 'evening', 'end-of-workday']);
   assert.deepEqual(m.stubs.map((x: any) => [x.day, x.daysAgo]), [['2026-10-08', 0], ['2026-10-07', 1]]);
   assert.deepEqual(s.action('reports', 'report-new', { status: [], feedback: ' ', energy: null }), { ok: false, error: 'empty' });
@@ -321,7 +330,7 @@ test('a restarted daemon adopts open menu windows; a Hammerspoon reload ends the
   assert.deepEqual(audit, ['effect.shown:', 'effect.closed:reload']);
 });
 
-test('morning review: decided by day.rollover (review day + notes waiting), shown until closed, done survives a restart', async (t) => {
+test('morning review: from the day.rollover on, shown until closed, done survives a restart', async (t) => {
   const dir = makeTmpDir('product-review');
   t.after(dir.cleanup);
   const thu = local(2026, 10, 8, 20, 0);
@@ -335,7 +344,7 @@ test('morning review: decided by day.rollover (review day + notes waiting), show
   const s = await setup(sun, { dir: dir.dir, seed });
   s.tracker.tick(s.clock.now());
   const roll = s.store.readDay('2026-10-11').filter((r) => r.type === 'day.rollover');
-  assert.deepEqual(roll.map((r) => [r.fromDay, r.toDay, r.review]), [['2026-10-10', '2026-10-11', true]]);
+  assert.deepEqual(roll.map((r) => [r.fromDay, r.toDay]), [['2026-10-10', '2026-10-11']]);
   s.tracker.tick(s.clock.now());
   assert.equal(types(s.store, '2026-10-11').filter((x) => x === 'day.rollover').length, 1, 'once per day');
   const [open] = s.beat();
@@ -353,25 +362,97 @@ test('morning review: decided by day.rollover (review day + notes waiting), show
   const again = await setup(sun + 3600_000, { dir: dir.dir });
   again.tracker.tick(again.clock.now());
   assert.deepEqual(again.beat(), []);
-  // Home days now also review notes; the live gate still suppresses the window.
+  // Home days review too; the live gate still suppresses the window.
   const mon = await setup(local(2026, 10, 12, 9, 0), { dir: dir.dir });
   mon.tracker.tick(mon.clock.now());
-  assert.equal(mon.store.readDay('2026-10-12').find((r) => r.type === 'day.rollover')!.review, true);
   assert.equal(mon.beat()[0]?.window?.id, 'review');
   const tue = await setup(local(2026, 10, 13, 9, 0), { dir: dir.dir, env: 'live' });
   tue.tracker.tick(tue.clock.now());
-  assert.equal(tue.store.readDay('2026-10-13').find((r) => r.type === 'day.rollover')!.review, true);
   assert.deepEqual(tue.beat(), [], 'live gate closed');
 });
 
-test('morning review: no notes waiting → no review; the rollover is written on the first tick after 04:00', async (t) => {
-  const s = await setup(local(2026, 10, 10, 23, 0)); // Saturday night
+test('morning review: every workday, whatever yesterday left behind — no notes, yesterday already reported (an early end)', async (t) => {
+  const dir = makeTmpDir('product-review-empty');
+  t.after(dir.cleanup);
+  // Sunday: a morning report, then the owner leaves early — no countdown, no block, no note parked.
+  const seed = (store: Store, clock: ReturnType<typeof fixedClock>) => {
+    clock.set(local(2026, 10, 11, 10, 35));
+    store.append({ ...report('2026-10-11 10:35', 3), stage: 'morning' });
+  };
+  const s = await setup(local(2026, 10, 11, 23, 0), { dir: dir.dir, reportsStart: '2026-10-11', seed });
+  s.tracker.tick(s.clock.now());
+  s.clock.set(local(2026, 10, 12, 4, 0, 5)); // Monday, the Mac awake and nobody at it
+  s.tracker.tick(s.clock.now());
+  const roll = s.store.readDay('2026-10-12').find((r) => r.type === 'day.rollover')!;
+  assert.deepEqual([roll.fromDay, roll.toDay, roll.reportMissing], ['2026-10-11', '2026-10-12', false]);
+  const [open] = s.beat();
+  assert.equal(open?.window.id, 'review', 'the good-morning window, not the full-screen welcome');
+  assert.equal(open?.window.focus, false);
+  assert.deepEqual(s.model('review').notes, []);
+  assert.equal(s.model('review').welcome, null);
+  // …and it offers the end-of-day report that Sunday never got (optional; timed at the end of that day).
+  assert.deepEqual([s.model('review').endOfDay.day, s.model('review').endOfDay.missing], ['2026-10-11', true]);
+  assert.equal(s.action('review', 'report-end-of-day', { day: '2026-10-12', energy: 2 }).error, 'day', 'yesterday only');
+  assert.equal(s.action('review', 'report-end-of-day', { day: '2026-10-11' }).error, 'empty');
+  assert.equal(s.action('review', 'report-end-of-day', { day: '2026-10-11', status: ['Feeling tired'], energy: 2 }).ok, true);
+  assert.equal(s.action('review', 'report-end-of-day', { day: '2026-10-11', energy: 3 }).error, 'exists', 'one is enough');
+  const eod = s.model('review').endOfDay;
+  assert.equal(eod.missing, false);
+  assert.deepEqual(eod.reports.map((r: any) => [r.timestamp, r.stage, r.status, r.energy, r.source]), [['2026-10-11 23:59', 'end-of-workday', ['Feeling tired'], 2, 'review']]);
+  assert.equal(s.action('review', 'report-edit', { id: eod.reports[0].id, status: [], energy: 3 }).ok, true);
+  s.beat({ windows: { review: open!.window.rev } });
+  assert.deepEqual(s.beat({ closed: [{ id: 'review', by: 'page', at: s.clock.now() }] }), []);
+  // A daemon (version) restart later that morning does not bring it back.
+  const again = await setup(local(2026, 10, 12, 9, 30), { dir: dir.dir, reportsStart: '2026-10-11' });
+  again.tracker.tick(again.clock.now());
+  assert.deepEqual(again.beat(), []);
+  // A rollover written before this rule (`review: false`, no notes) still gets the review.
+  const old = await setup(local(2026, 10, 13, 9, 0), { dir: dir.dir, reportsStart: '2026-10-11', seed: (store, clock) => {
+    clock.set(local(2026, 10, 13, 4, 0, 2));
+    store.append({ type: 'day.rollover', fromDay: '2026-10-12', toDay: '2026-10-13', review: false, reportMissing: false });
+    store.append({ ...report('2026-10-12 21:00', 3) });
+  } });
+  old.tracker.tick(old.clock.now());
+  assert.deepEqual(old.beat().map((c) => c.window?.id), ['review']);
+});
+
+test('morning review: no end-of-day question after Saturday (no workday), nor beside the full-screen welcome', async (t) => {
+  const sun = local(2026, 10, 11, 9, 0);
+  const s = await setup(sun, { reportsStart: '2026-10-08', seed: (store) => store.append(report('2026-10-10 21:00', 4)) });
+  t.after(s.cleanup);
+  s.tracker.tick(sun);
+  assert.equal(s.beat()[0]?.window?.id, 'review');
+  assert.equal(s.model('review').endOfDay, null);
+  assert.equal(s.action('review', 'report-end-of-day', { day: '2026-10-10', energy: 3 }).error, 'day');
+  const mon = local(2026, 10, 12, 9, 0);
+  const w = await setup(mon, { reportsStart: '2026-10-08' });
+  t.after(w.cleanup);
+  w.tracker.tick(mon);
+  w.tracker.ingest({ since: mon - 5000, inputs: [mon], apps: [], system: [], locked: false }, mon);
+  assert.equal(w.beat().find((c) => c.op === 'window.open')?.window.id, 'review:fresh');
+  assert.equal(w.model('review:fresh').endOfDay, null, 'the welcome asks about yesterday itself');
+  // A deliberately skipped workday is not asked about either.
+  const tue = local(2026, 10, 13, 9, 0);
+  const k = await setup(tue, { reportsStart: '2026-10-08', seed: (store) => store.append({ ...report('2026-10-12 23:59', 1), energy: null }) });
+  t.after(k.cleanup);
+  k.tracker.tick(tue);
+  assert.equal(k.beat()[0]?.window?.id, 'review');
+  assert.equal(k.model('review').endOfDay.missing, false);
+  assert.equal(k.action('review', 'report-end-of-day', { day: '2026-10-12', energy: 3 }).error, 'exists');
+});
+
+test('morning review: none on Friday or Saturday; the rollover is written on the first tick after 04:00', async (t) => {
+  const s = await setup(local(2026, 10, 9, 3, 0)); // Thursday night
   t.after(s.cleanup);
   s.tracker.tick(s.clock.now());
-  s.clock.set(local(2026, 10, 11, 4, 0, 5)); // Sunday
+  s.clock.set(local(2026, 10, 9, 4, 0, 5)); // Friday
   s.tracker.tick(s.clock.now());
-  const roll = s.store.readDay('2026-10-11').find((r) => r.type === 'day.rollover')!;
-  assert.deepEqual([roll.fromDay, roll.toDay, roll.review], ['2026-10-10', '2026-10-11', false]);
+  const roll = s.store.readDay('2026-10-09').find((r) => r.type === 'day.rollover')!;
+  assert.deepEqual([roll.fromDay, roll.toDay], ['2026-10-08', '2026-10-09']);
+  assert.deepEqual(s.beat(), []);
+  s.clock.set(local(2026, 10, 10, 4, 0, 5)); // Saturday
+  s.tracker.tick(s.clock.now());
+  assert.ok(s.store.readDay('2026-10-10').some((r) => r.type === 'day.rollover'));
   assert.deepEqual(s.beat(), []);
 });
 

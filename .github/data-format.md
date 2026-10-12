@@ -56,7 +56,7 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 | `report.dismissed` / `report.undismissed` | `reportId` | written (D-74) | Never deleted. A dismissed report does not count (no day coverage, not in summaries, not listed). |
 | `config.loaded` | `hash`, `source` (`file` · `snapshot`) | written (M3) | |
 | `config.invalid` | `errors` | written (M3) | |
-| `day.rollover` | `fromDay`, `toDay`, `review` (bool), `reportMissing` (bool, since D-74) | written (M8) | Once per day, on the daemon's first tick of the day (04:00, the first tick after a wake, or a start on a day without one). `review: true` = a morning-review day (policy `morningReview`) with notes waiting at that moment: it decides the day's morning review (R-UI-REVIEW). `reportMissing` = yesterday had no report at that moment: only then may the welcome ask for it today (absent = true). |
+| `day.rollover` | `fromDay`, `toDay`, `reportMissing` (bool, since D-74); `review` (bool, written until 0.8.0 — ignored since D-75) | written (M8) | Once per day, on the daemon's first tick of the day (04:00, the first tick after a wake, or a start on a day without one). The day's morning review starts from it on every `morningReview` day (R-UI-REVIEW, D-75). `reportMissing` = yesterday had no report at that moment: only then may the welcome ask for it today (absent = true). |
 | `panic` | `by` (`hotkey` · `cli` · `unknown`), `at` (when the latch was set) | written (M3) | Logged once per latch transition (a restarted daemon restores today's state from these records). |
 | `resume` | `by` (`cli` · `rollover`) | written (2026-10-05) | The panic latch was cleared: `WorkBalancer.resume()`, or the daemon expired it at 04:00. |
 | `app.quit` | `by` (`menu` · `cli`) | written (M8) | Lua's quit (menu → confirm, or `WorkBalancer.quit()`) asked the daemon to stop; followed by `daemon.stopped` with reason `quit`. |
@@ -66,7 +66,10 @@ Status: **written** = implemented; **planned** = designed, not yet written by an
 [`src/reports/reports.ts`](../src/reports/reports.ts) folds `report.*` across **all** files. A day is **missing** when it
 has no non-dismissed report (a skip counts); only the last `reports.stubDays` days (today included) from
 `reports.startDay` are considered (`null` = none). Missing yesterday → the Sun–Thu welcome, if `day.rollover` said
-`reportMissing`; older missing days → stubs in Manage Reports (and its once-a-day automatic catch-up). Skip
+`reportMissing`; older missing days → stubs in Manage Reports, offered by the morning review's catch-up button (a
+workday without a morning review: Manage Reports' own once-a-day automatic catch-up). A workday without an
+`end-of-workday` report (and not skipped) gets an optional one from the next morning review (D-76): `stage:
+end-of-workday`, timestamp = that day's `reports.stages.endOfWorkdayAt`, `source: review`, at most one per day. Skip
 confirmations (server nonce) expire after 60 s and are cancelled by a restart. Date age uses civil calendar days
 (DST-safe); timestamps are local wall-clock strings, never converted back to instants.
 `effect.shown`/`effect.closed` for `review:fresh` delimit mandatory welcome interaction, excluded from worked time and

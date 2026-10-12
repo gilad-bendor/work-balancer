@@ -45,7 +45,11 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string }
       tracker.tick(clock.now());
     }
   };
-  const desired = () => effects.desired(clock.now());
+  // The morning review (every workday, D-75) has its own tests; here it is noise.
+  const desired = () => {
+    const d = effects.desired(clock.now());
+    return { ...d, windows: d.windows.filter((w) => w.id !== 'review') };
+  };
   const action = (act: string, payload?: unknown) =>
     effects.routes().find((r) => r.path === '/api/ui/action')!.handle({ body: { win: 'inactivity', action: act, payload }, query: new URLSearchParams(), path: '' }) as { json: any };
   const model = () => (effects.routes().find((r) => r.path === '/api/ui/model')!.handle({ body: null, query: new URLSearchParams('win=inactivity'), path: '' }) as { json: any }).json.model;

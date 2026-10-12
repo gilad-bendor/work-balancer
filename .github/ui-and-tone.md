@@ -86,11 +86,11 @@ picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday re
 
 | Window id | Opened by | Mode / size | Page | Notes |
 |---|---|---|---|---|
-| `reports` | menu *Manage Reports*; otherwise one gentle older catch-up on Sun–Thu | floating, 90 %, closable | `reports` | a new report now (stage by time of day); every report newest first (max `reports.listMax`) with Edit / Dismiss; a stub per recent day without one (`reports.stubDays`), today/yesterday emphasised, with *Add report for this day* (pick a stage) / *Skip this day…*; reports dismissed here show *Bring back* until the window closes |
+| `reports` | menu *Manage Reports*; otherwise one gentle older catch-up on a Sun–Thu day **without** a morning review (on review days the review's catch-up button replaces it, D-75) | floating, 90 %, closable | `reports` | a new report now (stage by time of day); every report newest first (max `reports.listMax`) with Edit / Dismiss; a stub per recent day without one (`reports.stubDays`), today/yesterday emphasised, with *Add report for this day* (pick a stage) / *Skip this day…*; reports dismissed here show *Bring back* until the window closes |
 | `notes` | menu *Manage Notes* | floating, focus, 90 % | `notes` | the new-note box first (focused: parking a thought = open + type); waiting first, then dismissed; add / edit / dismiss / bring back |
 | `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; 4-week trend via `src/daemon/history.ts` |
 | `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
-| `review` | `day.rollover` with `review: true` | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; "Let's start this day!" or ✕ = done for today |
+| `review` | **every** `morningReview` day (Sun–Thu), from the day's `day.rollover` — whatever yesterday left behind (D-75) | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; yesterday a workday without an end-of-workday report → an optional "How did yesterday end?" form first (action `report-end-of-day`, timed at the day's `endOfWorkdayAt`; once saved it stays shown, editable, D-76); waiting notes (none: "a clean start", no intro); "Let's start this day!" or ✕ = done for today |
 | `review:fresh` | yesterday without a report at the day's rollover, Sun–Thu, fresh active/unlocked sensors | **overlay, full, per screen**, focused, not closable | `review` | a catch-up report for yesterday (stage picker) or a confirmed skip before Continue; budget block has priority; existing notes follow |
 | `inactivity` (M9) | a gap (5 min idle + uncancelled 10 s pre-warning dim) | **overlay, full, per screen**, focus, intrusive | `inactivity` | **no Esc, no timeout** (D-56) — ends only by Submit (or the escape hatches / fail-open / 04:00); one gap; live timer with seconds; slider "Worked N min of M" + presets (highlighted iff the slider is at their value); the presets submit at once (D-68), the slider enables Submit; other screens: "Please answer on the main screen." |
 
@@ -147,7 +147,8 @@ excluded — gamma only; the M9 inactivity dialog checked live 2026-10-05; the M
   at the rollover) → the full-screen welcome on **Sun–Thu**: add one for yesterday (pick the part of the day) or
   confirm a skip, then notes and Continue. Answering never lifts a budget block; tokens/bypass/panic/eject/fail-open
   are unchanged. A short day can be reported from the menu.
-- **Older:** stubs in Manage Reports and one floating, dismissible automatic catch-up a day, no queue of popups.
+- **Older:** stubs in Manage Reports; the morning review's catch-up button ("Catch up on older days… (N)"), or on a
+  workday without a morning review one floating, dismissible automatic catch-up a day — no queue of popups.
 - **Friday/Saturday:** days still count, but no automatic report windows.
 - Headings show **weekday, full date, days ago** (Today / Yesterday / N days ago); a report shows its timestamp and stage.
 - Skip confirmations: fresh (today/yesterday) wording is stronger with a 0.8 s delay; older ones shorter, no delay.

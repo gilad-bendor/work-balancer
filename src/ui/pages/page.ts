@@ -118,18 +118,22 @@ export function submitOnCmdEnter(box: HTMLElement, submit: () => void): void {
   });
 }
 
+/** A text box holds typed text that was not saved. */
+export const hasTypedText = (): boolean =>
+  [...document.querySelectorAll('textarea, input[type=text]')].some((b) => (b as HTMLTextAreaElement).value.trim() !== '' && !(b as HTMLElement).dataset.saved);
+
 /**
  * Esc closes a dismissible window (never used by the countdown / block). An open note editor takes Esc first. With
  * unsaved text in a box, the first Esc only says so; a second Esc within 3 s closes (review M8#4: never lose his words
  * to a stray key).
  */
-export function closeOnEscape(unsavedHint: string, hasUnsaved?: () => boolean): void {
+export function closeOnEscape(unsavedHint: string, hasUnsaved: () => boolean = hasTypedText): void {
   let armedAt = -Infinity;
   let hint: HTMLElement | null = null;
   document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
     e.preventDefault();
-    const unsaved = hasUnsaved ? hasUnsaved() : [...document.querySelectorAll('textarea, input[type=text]')].some((b) => (b as HTMLTextAreaElement).value.trim() !== '' && !(b as HTMLElement).dataset.saved);
+    const unsaved = hasUnsaved();
     if (unsaved && performance.now() - armedAt > 3000) {
       armedAt = performance.now();
       hint?.remove();

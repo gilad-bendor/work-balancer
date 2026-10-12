@@ -69,6 +69,10 @@ function noteActions(notes: Notes, source: NoteSource, view: () => Record<string
 
 const REPORT_ACTIONS = ['report-new', 'report-add', 'report-arm-skip', 'report-skip', 'report-edit', 'report-dismiss', 'report-undismiss'];
 
+/** A morning-review day per the policy: the day's first window is the morning review (or the welcome), whatever
+ * yesterday left behind (D-75). */
+const reviewDay = (config: PolicyConfig | null, day: DayKey): boolean => config?.days[weekday(day)].morningReview === true;
+
 export function registerProductEffects(d: ProductDeps): void {
   const reports = d.reports;
   const welcomeDue = (now: number): boolean => d.welcomeDue?.(now) ?? (reports.freshDue(now) && !['fri', 'sat'].includes(weekday(dayKey(now))));
@@ -132,9 +136,9 @@ export function registerProductEffects(d: ProductDeps): void {
       const wd = weekday(today);
       if (welcomeDue(now)) consideredDay = today; // offer catch-up after the fresh checkpoint, not another popup
       if (!manual && wd !== 'fri' && wd !== 'sat' && d.welcomeAllowed?.(now) && !welcomeDue(now) && consideredDay !== today) {
-        const shown = d.store.readDay(today).some((r) =>
-          (r.type === 'effect.shown' && (r.windowId === 'reports' || r.windowId === 'review:fresh'))
-          || (r.type === 'day.rollover' && r.review === true));
+        // On a morning-review day the review offers the catch-up itself: one morning window, never a queue of popups.
+        const shown = reviewDay(d.config(), today) || d.store.readDay(today).some((r) =>
+          r.type === 'effect.shown' && (r.windowId === 'reports' || r.windowId === 'review:fresh'));
         if (shown) consideredDay = today;
         else if (olderMissing(now).length) {
           consideredDay = today;
@@ -151,25 +155,37 @@ export function registerProductEffects(d: ProductDeps): void {
 }
 
 /**
- * Morning review (R-UI-REVIEW, D-35): decided once per day by the `day.rollover` record (`review: true` on a review
- * day with notes waiting), then shown until the owner closes it — "done for today" = an `effect.closed` for `review`
- * by `user`/`page` in today's file. Involuntary losses (reload, fail-open) bring it back. Intrusive: live gate,
- * R-UI-QUIET and panic apply. Yesterday without a report turns it into the full-screen welcome (`review:fresh`).
+ * Morning review (R-UI-REVIEW, D-75): on every morning-review day, from the day's `day.rollover` record on (its first
+ * tick: 04:00, a wake, a start), until the owner closes it — "done for today" = an `effect.closed` for `review` /
+ * `review:fresh` by `user`/`page` in today's file. It does not depend on how yesterday ended (notes waiting or not).
+ * Involuntary losses (reload, fail-open) bring it back. Intrusive: live gate, R-UI-QUIET and panic apply. Yesterday
+ * without a report turns it into the full-screen welcome (`review:fresh`).
  */
 export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 'store' | 'now' | 'config' | 'welcomeAllowed' | 'welcomeDue'>): Effect {
   let day: DayKey | null = null;
-  let decided: boolean | null = null; // null until today's rollover record exists
+  let started = false; // today's rollover record exists
   let done = false;
   let freshSession = false;
   const required = (now: number): boolean => d.welcomeDue?.(now) ?? (d.reports.freshDue(now) && !['fri', 'sat'].includes(weekday(dayKey(now))));
   const yesterday = (now: number): DayKey => addDays(dayKey(now), -1);
+  // Only after a workday: Friday/Saturday never have an end-of-workday (no countdown, no block).
+  const endOfDayAsked = (y: DayKey): boolean => {
+    const c = d.config();
+    return c?.days[weekday(y)].enforce === true && !!c.reports.startDay && y >= c.reports.startDay;
+  };
   const reviewView = () => {
     const now = d.now();
     const y = yesterday(now);
+    const welcome = required(now) || freshSession;
     return {
       notes: d.notes.active().map(noteView),
-      welcome: (required(now) || freshSession) ? {
+      welcome: welcome ? {
         day: y, weekday: weekday(y), daysAgo: 1, reports: d.reports.ofDay(y).map(reportView),
+      } : null,
+      // Yesterday ended without an end-of-workday report (e.g. an early end): an optional one, timed at its end.
+      endOfDay: !welcome && endOfDayAsked(y) ? {
+        day: y, weekday: weekday(y), daysAgo: 1, missing: !d.reports.hasEndOfDay(y),
+        reports: d.reports.ofDay(y).filter((r) => r.stage === 'end-of-workday').map(reportView),
       } : null,
       statuses: d.config()?.reports.statuses ?? [],
       stages: REPORT_STAGES,
@@ -181,15 +197,14 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 's
     const today = dayKey(now);
     if (day !== today) {
       day = today;
-      decided = null;
+      started = false;
       done = false;
       freshSession = false;
     }
-    if (decided !== null) return;
+    if (started) return;
     const records = d.store.readDay(today);
-    const rollover = records.find((r) => r.type === 'day.rollover');
-    if (!rollover) return;
-    decided = rollover.review === true && d.config()?.days[weekday(today)].morningReview === true;
+    if (!records.some((r) => r.type === 'day.rollover')) return;
+    started = true;
     done = records.some((r) => r.type === 'effect.closed' && (r.windowId === 'review' || r.windowId === 'review:fresh') && (r.by === 'user' || r.by === 'page'));
     const freshAudit = records.filter((r) => r.windowId === 'review:fresh' && (r.type === 'effect.shown' || r.type === 'effect.closed')).at(-1);
     freshSession = freshAudit?.type === 'effect.shown';
@@ -211,7 +226,7 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 's
           }], dims: [],
         };
       }
-      if (!decided || done) return { windows: [], dims: [] };
+      if (!started || done || !reviewDay(d.config(), dayKey(now))) return { windows: [], dims: [] };
       if (d.store.health().writeError) return { windows: [], dims: [] };
       return {
         windows: [{
@@ -228,9 +243,10 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 's
     model: () => reviewView(),
     action(_id, action, payload, now) {
       if (action.startsWith('report-')) {
-        if (!['report-add', 'report-arm-skip', 'report-skip', 'report-edit'].includes(action)) return { ok: false, error: `unknown action ${action}` };
+        if (!['report-add', 'report-arm-skip', 'report-skip', 'report-edit', 'report-end-of-day'].includes(action)) return { ok: false, error: `unknown action ${action}` };
         const y = yesterday(now);
         if (action === 'report-edit' && d.reports.get(obj(payload).id as number)?.day !== y) return { ok: false, error: 'day' };
+        if (action === 'report-end-of-day' && !endOfDayAsked(y)) return { ok: false, error: 'day' };
         return d.reports.action(action, payload, now, { source: 'review', days: (x) => x === y });
       }
       if (action === 'close') {
