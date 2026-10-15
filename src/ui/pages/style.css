@@ -68,6 +68,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .report.stub.fresh { border: 2px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .report.stub.fresh .report-head { color: var(--text); font-weight: 600; }
 .stage-row { margin: 10px 0; }
+.bold-note { font-weight: 700; font-size: 24px; margin: 16px 0; padding-left: 12px; border-left: 4px solid var(--accent); }
 .recorded .report { margin: 6px 0; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 24px; }
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted var(--border); }

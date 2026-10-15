@@ -48,6 +48,14 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; 
 
 const types = (store: Store, day: string) => store.readDay(day).map((r) => r.type);
 const report = (timestamp: string, energy: number) => ({ type: 'report.created', reportId: Date.parse(`${timestamp.replace(' ', 'T')}:00+03:00`), timestamp, stage: 'evening', feedback: '', status: [], energy, source: 'manager' });
+/** Ten minutes of input at 10:00 on a day. */
+const workOn = (store: Store, clock: ReturnType<typeof fixedClock>, day: number) => {
+  for (let i = 0; i < 10; i++) {
+    const m = local(2026, 10, day, 10, i);
+    clock.set(m + 60_000);
+    store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m } });
+  }
+};
 
 test('menu windows: a request opens a floating, focused, non-intrusive window — live gate or not; again = focus', async (t) => {
   const s = await setup(local(2026, 10, 5, 11, 0), { env: 'live' }); // live: liveEffects false
@@ -84,7 +92,7 @@ test('menu windows: a request opens a floating, focused, non-intrusive window �
 
 test('reports: Thursday to Sunday; fresh welcome is firm, Manage Reports has every missing day, form input is not work', async (t) => {
   const sun = local(2026, 10, 11, 9, 0);
-  const s = await setup(sun, { reportsStart: '2026-10-08' });
+  const s = await setup(sun, { reportsStart: '2026-10-08', seed: (store, clock) => workOn(store, clock, 10) });
   t.after(s.cleanup);
   s.tracker.tick(sun);
   assert.deepEqual(s.beat(), [], 'no automatic overlay while the owner is absent');
@@ -155,6 +163,60 @@ test('fresh welcome survives restart and changes its revision at 04:00 without r
   assert.notEqual(before.path, after.path, 'new target date rebuilds the page rather than leaving yesterday’s form');
   assert.equal(again.model('review:fresh').welcome.day, '2026-10-11');
   assert.ok(again.model('reports').stubs.some((r: { day: string }) => r.day === '2026-10-10'));
+});
+
+test('the welcome after a day without work asks about today; yesterday stays missing and can be reported too', async (t) => {
+  const thu = local(2026, 10, 15, 8, 26); // Wednesday 14 had no work at all
+  const s = await setup(thu, { reportsStart: '2026-10-12', seed: (store, clock) => workOn(store, clock, 13) });
+  t.after(s.cleanup);
+  s.tracker.tick(thu);
+  assert.equal(s.store.readDay('2026-10-15').find((r) => r.type === 'day.rollover')!.yesterdaySeconds, 0);
+  s.tracker.ingest({ since: thu - 5000, inputs: [thu], apps: [], system: [], locked: false }, thu);
+  assert.ok(s.beat().some((c) => c.window?.id === 'review:fresh'));
+  const w = s.model('review:fresh').welcome;
+  assert.deepEqual([w.day, w.today.day, w.today.reports], ['2026-10-14', '2026-10-15', []]);
+  assert.equal(s.model('review:fresh').olderCount, 2, '10-13 and 10-12');
+  assert.equal(s.action('review:fresh', 'close').error, 'report-required');
+  s.clock.advance(60_000);
+  const r = s.action('review:fresh', 'report-new', { feedback: 'tired', energy: 1 });
+  assert.equal(r.ok, true);
+  const today = s.model('review:fresh').welcome.today.reports;
+  assert.deepEqual(today.map((x: any) => [x.timestamp, x.stage, x.day, x.source]), [['2026-10-15 08:27', 'morning', '2026-10-15', 'review']]);
+  assert.ok(s.tracker.menubar(s.clock.now()).menu!.some((m) => m.id === 'quit'), 'answered: no longer required');
+  assert.equal(s.action('review:fresh', 'report-edit', { id: r.id, feedback: 'tired', energy: 2 }).ok, true);
+  assert.equal(s.action('review:fresh', 'report-new', { energy: 3 }).ok, true, 'another one while the welcome is open');
+  assert.ok(s.model('reports').stubs.some((x: { day: string }) => x.day === '2026-10-14'), 'yesterday still has no report');
+  assert.equal(s.action('review:fresh', 'report-add', { day: '2026-10-13', stage: 'evening', energy: 1 }).error, 'day', 'older days only in Manage Reports');
+  assert.equal(s.action('review:fresh', 'close').close, true);
+  s.beat({ closed: [{ id: 'review:fresh', by: 'page', at: s.clock.now() }] });
+  assert.equal(s.action('review:fresh', 'report-new', { energy: 3 }).error, 'day', 'closed: no more reports from here');
+  // Late work for Wednesday (decided at the rollover) and a restart: answered, no second welcome.
+  s.store.append({ type: 'minute', provider: 'interactive', minute: local(2026, 10, 14, 23, 0), data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: local(2026, 10, 14, 23, 0) } });
+  const again = await setup(s.clock.now() + 60_000, { reportsStart: '2026-10-12', dir: s.dir });
+  again.tracker.tick(again.clock.now());
+  again.tracker.ingest({ since: again.clock.now() - 5000, inputs: [again.clock.now()], apps: [], system: [], locked: false }, again.clock.now());
+  assert.ok(!again.effects.desired(again.clock.now()).windows.some((x) => x.id === 'review:fresh'));
+  assert.ok(again.model('reports').stubs.some((x: { day: string }) => x.day === '2026-10-14'));
+  // Instead of a today report: reporting yesterday answers it too.
+  const y = await setup(thu, { reportsStart: '2026-10-12' });
+  t.after(y.cleanup);
+  y.tracker.tick(thu);
+  y.tracker.ingest({ since: thu - 5000, inputs: [thu], apps: [], system: [], locked: false }, thu);
+  assert.ok(y.model('review:fresh').welcome.today);
+  assert.equal(y.action('review:fresh', 'report-add', { day: '2026-10-14', stage: 'end-of-workday', energy: 1 }).ok, true);
+  assert.equal(y.action('review:fresh', 'close').close, true);
+  // A report for today written before the welcome showed (e.g. from the menu): no welcome.
+  const early = await setup(thu, { reportsStart: '2026-10-12', seed: (store, clock) => {
+    clock.set(local(2026, 10, 15, 4, 0, 2));
+    store.append({ type: 'day.rollover', fromDay: '2026-10-14', toDay: '2026-10-15', reportMissing: true, yesterdaySeconds: 0 });
+    clock.set(local(2026, 10, 15, 7, 0));
+    store.append({ ...report('2026-10-15 07:00', 3), stage: 'morning' });
+  } });
+  t.after(early.cleanup);
+  early.tracker.tick(thu);
+  early.tracker.ingest({ since: thu - 5000, inputs: [thu], apps: [], system: [], locked: false }, thu);
+  assert.ok(!early.effects.desired(thu).windows.some((x) => x.id === 'review:fresh'));
+  assert.equal(early.action('review', 'report-new', { energy: 3 }).error, 'day', 'the floating review takes no today report');
 });
 
 test('the welcome is decided at the rollover: dismissing yesterday\'s report later leaves a stub, not a full-screen welcome', async (t) => {

@@ -55,7 +55,15 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     const yesterday = addDays(dayKey(now), -1);
     // Answered (or skipped) today, then dismissed: a stub, not a second welcome.
     if (today.some((r) => r.type === 'report.created' && timestampDay(r.timestamp) === yesterday)) return false;
+    // Yesterday without work: the welcome asks about today, and a report for today answers it.
+    if (welcomeAsksToday(now, today) && today.some((r) => r.type === 'report.created' && timestampDay(r.timestamp) === dayKey(now))) return false;
     return today.find((r) => r.type === 'day.rollover')?.reportMissing !== false;
+  };
+  /** Decided at the rollover (`yesterdaySeconds`), so late records for yesterday cannot flip it mid-day; a rollover
+   * written before D-78 falls back to the current number. */
+  const welcomeAsksToday = (now: number, records = store.readDay(dayKey(now))): boolean => {
+    const recorded = records.find((r) => r.type === 'day.rollover')?.yesterdaySeconds;
+    return (typeof recorded === 'number' ? recorded : work.daySeconds(addDays(dayKey(now), -1))) === 0;
   };
   const welcomeAllowed = (now: number): boolean =>
     !store.health().writeError && ownerActivity(dayStart(dayKey(now)), now + 1).length > 0
@@ -139,8 +147,9 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       const c = policy.state().config;
       // Without a config nothing is known about reports: absent = missing (decided by the config once it loads).
       const reportMissing = c ? { reportMissing: reports.freshDue(now) } : {};
-      if (!store.append({ type: 'day.rollover', fromDay: rolloverDay ?? addDays(today, -1), toDay: today, ...reportMissing })) return; // retried next tick
-      log.info('day rollover', { toDay: today, ...reportMissing });
+      const yesterdaySeconds = work.daySeconds(addDays(today, -1));
+      if (!store.append({ type: 'day.rollover', fromDay: rolloverDay ?? addDays(today, -1), toDay: today, ...reportMissing, yesterdaySeconds })) return; // retried next tick
+      log.info('day rollover', { toDay: today, ...reportMissing, yesterdaySeconds });
     }
     rolloverDay = today;
   }
@@ -250,7 +259,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
 
   if (deps.effects) {
     deps.effects.register(inactivity.effect);
-    registerProductEffects({ effects: deps.effects, notes, reports, store, now: () => clock.now(), config: () => policy.state().config, summary, quitAllowed, welcomeAllowed, welcomeDue: freshReviewDue });
+    registerProductEffects({ effects: deps.effects, notes, reports, store, now: () => clock.now(), config: () => policy.state().config, summary, quitAllowed, welcomeAllowed, welcomeDue: freshReviewDue, welcomeAsksToday: (now) => welcomeAsksToday(now) });
     const enforcement = createEnforcement({
       store, log, now: () => clock.now(), notes, config: () => policy.state().config,
       state: (now) => (policy.state().config ? policyState(now) : null),
@@ -300,9 +309,10 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     },
 
     tick(now) {
-      rollover(clock.now());
+      // After the flush and the poll: the rollover records yesterday's worked time, including its last minute (D-78).
       interactive.flushMinutes(now);
       promptHistory.poll(now);
+      rollover(clock.now());
       try {
         inactivity.tick(now);
       } catch (e) {

@@ -12,10 +12,15 @@ export function ageLabel(daysAgo: number, s: Strings): string {
   return daysAgo === 0 ? s.reportToday! : daysAgo === 1 ? s.reportYesterday! : fill(s.reportDaysAgo, { n: daysAgo });
 }
 
+/** "Wednesday 7 October 2026". */
+export function dayDate(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return dateFormat.format(new Date(y!, m! - 1, d!, 12));
+}
+
 /** "Wednesday 7 October 2026 · Yesterday". */
 export function dayHeading(day: string, daysAgo: number, s: Strings): string {
-  const [y, m, d] = day.split('-').map(Number);
-  return `${dateFormat.format(new Date(y!, m! - 1, d!, 12))} · ${ageLabel(daysAgo, s)}`;
+  return `${dayDate(day)} · ${ageLabel(daysAgo, s)}`;
 }
 
 export const stageLabel = (stage: string | null, s: Strings): string => (stage ? s[`stage_${stage}`] ?? stage : '');
@@ -136,6 +141,8 @@ export function confirmSkip(stub: ReportStub, s: Strings, host: HTMLElement, don
 export function catchUpForm(stub: ReportStub, s: Strings, statuses: readonly string[], stages: readonly string[], opts: {
   onSaved(): void;
   onCancel?: () => void;
+  /** The day is no longer offered here (e.g. a new day began): the page refreshes instead of retrying. */
+  onDayRefused?: () => void;
   /** Offer "Skip this day…" inside the form (the welcome). */
   skip?: boolean;
 }): HTMLElement {
@@ -162,6 +169,7 @@ export function catchUpForm(stub: ReportStub, s: Strings, statuses: readonly str
     try {
       const r = await act(today ? 'report-new' : 'report-add', today ? fields.value() : { day: stub.day, stage, ...fields.value() });
       if (r.ok) { opts.onSaved(); return; }
+      if (r.error === 'day' && opts.onDayRefused) { opts.onDayRefused(); return; }
       msg.textContent = r.error === 'empty' ? s.nothingToSave! : s.saveFailed!;
     } catch { msg.textContent = s.saveFailed!; }
     busy(false);

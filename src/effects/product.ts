@@ -24,6 +24,8 @@ export interface ProductDeps {
   welcomeAllowed?: (now: number) => boolean;
   /** Yesterday has no report and the welcome should ask for it (default: `reports.freshDue`, Sun–Thu). */
   welcomeDue?: (now: number) => boolean;
+  /** Yesterday had no work: the welcome asks about today (default: about yesterday). */
+  welcomeAsksToday?: (now: number) => boolean;
 }
 
 /** A note as pages see it. */
@@ -159,15 +161,17 @@ export function registerProductEffects(d: ProductDeps): void {
  * tick: 04:00, a wake, a start), until the owner closes it — "done for today" = an `effect.closed` for `review` /
  * `review:fresh` by `user`/`page` in today's file. It does not depend on how yesterday ended (notes waiting or not).
  * Involuntary losses (reload, fail-open) bring it back. Intrusive: live gate, R-UI-QUIET and panic apply. Yesterday
- * without a report turns it into the full-screen welcome (`review:fresh`).
+ * without a report turns it into the full-screen welcome (`review:fresh`); after a day without work it asks about today
+ * and only notes yesterday (which can also be reported there).
  */
-export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 'store' | 'now' | 'config' | 'welcomeAllowed' | 'welcomeDue'>): Effect {
+export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 'store' | 'now' | 'config' | 'welcomeAllowed' | 'welcomeDue' | 'welcomeAsksToday'>): Effect {
   let day: DayKey | null = null;
   let started = false; // today's rollover record exists
   let done = false;
   let freshSession = false;
   const required = (now: number): boolean => d.welcomeDue?.(now) ?? (d.reports.freshDue(now) && !['fri', 'sat'].includes(weekday(dayKey(now))));
   const yesterday = (now: number): DayKey => addDays(dayKey(now), -1);
+  const askToday = (now: number): boolean => d.welcomeAsksToday?.(now) === true;
   // Only after a workday: Friday/Saturday never have an end-of-workday (no countdown, no block).
   const endOfDayAsked = (y: DayKey): boolean => {
     const c = d.config();
@@ -176,11 +180,13 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 's
   const reviewView = () => {
     const now = d.now();
     const y = yesterday(now);
+    const t = dayKey(now);
     const welcome = required(now) || freshSession;
     return {
       notes: d.notes.active().map(noteView),
       welcome: welcome ? {
         day: y, weekday: weekday(y), daysAgo: 1, reports: d.reports.ofDay(y).map(reportView),
+        today: askToday(now) ? { day: t, weekday: weekday(t), daysAgo: 0, reports: d.reports.ofDay(t).map(reportView) } : null,
       } : null,
       // Yesterday ended without an end-of-workday report (e.g. an early end): an optional one, timed at its end.
       endOfDay: !welcome && endOfDayAsked(y) ? {
@@ -243,9 +249,13 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 's
     model: () => reviewView(),
     action(_id, action, payload, now) {
       if (action.startsWith('report-')) {
-        if (!['report-add', 'report-arm-skip', 'report-skip', 'report-edit', 'report-end-of-day'].includes(action)) return { ok: false, error: `unknown action ${action}` };
         const y = yesterday(now);
-        if (action === 'report-edit' && d.reports.get(obj(payload).id as number)?.day !== y) return { ok: false, error: 'day' };
+        const t = dayKey(now);
+        const today = askToday(now) && (required(now) || freshSession);
+        if (action === 'report-new') return today ? d.reports.action(action, payload, now, { source: 'review' }) : { ok: false, error: 'day' };
+        if (!['report-add', 'report-arm-skip', 'report-skip', 'report-edit', 'report-end-of-day'].includes(action)) return { ok: false, error: `unknown action ${action}` };
+        const editDay = action === 'report-edit' ? d.reports.get(obj(payload).id as number)?.day : null;
+        if (action === 'report-edit' && editDay !== y && !(today && editDay === t)) return { ok: false, error: 'day' };
         if (action === 'report-end-of-day' && !endOfDayAsked(y)) return { ok: false, error: 'day' };
         return d.reports.action(action, payload, now, { source: 'review', days: (x) => x === y });
       }
