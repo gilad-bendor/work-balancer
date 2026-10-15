@@ -22,6 +22,7 @@ import { reportPeriods, reportWorkSource, withoutReportWork } from '../reports/w
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
 export const GAP_MIN_MS = 30_000;
 const DEFAULT_GRACE_MIN = 5;
+const NO_WORK_BELOW_SECONDS = 30 * 60;
 
 export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   const { store, clock, log, policy } = deps;
@@ -60,10 +61,10 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     return today.find((r) => r.type === 'day.rollover')?.reportMissing !== false;
   };
   /** Decided at the rollover (`yesterdaySeconds`), so late records for yesterday cannot flip it mid-day; a rollover
-   * written before D-78 falls back to the current number. */
+   * written before D-78 falls back to the current number. Under 30 min counts as no work (owner, Q-16). */
   const welcomeAsksToday = (now: number, records = store.readDay(dayKey(now))): boolean => {
     const recorded = records.find((r) => r.type === 'day.rollover')?.yesterdaySeconds;
-    return (typeof recorded === 'number' ? recorded : work.daySeconds(addDays(dayKey(now), -1))) === 0;
+    return (typeof recorded === 'number' ? recorded : work.daySeconds(addDays(dayKey(now), -1))) < NO_WORK_BELOW_SECONDS;
   };
   const welcomeAllowed = (now: number): boolean =>
     !store.health().writeError && ownerActivity(dayStart(dayKey(now)), now + 1).length > 0

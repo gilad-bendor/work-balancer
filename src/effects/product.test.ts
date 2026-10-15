@@ -48,9 +48,9 @@ async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; 
 
 const types = (store: Store, day: string) => store.readDay(day).map((r) => r.type);
 const report = (timestamp: string, energy: number) => ({ type: 'report.created', reportId: Date.parse(`${timestamp.replace(' ', 'T')}:00+03:00`), timestamp, stage: 'evening', feedback: '', status: [], energy, source: 'manager' });
-/** Ten minutes of input at 10:00 on a day. */
+/** Thirty minutes of input from 10:00 on a day (more than the welcome's "no work" threshold). */
 const workOn = (store: Store, clock: ReturnType<typeof fixedClock>, day: number) => {
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 30; i++) {
     const m = local(2026, 10, day, 10, i);
     clock.set(m + 60_000);
     store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m } });
@@ -197,10 +197,15 @@ test('the welcome after a day without work asks about today; yesterday stays mis
   again.tracker.ingest({ since: again.clock.now() - 5000, inputs: [again.clock.now()], apps: [], system: [], locked: false }, again.clock.now());
   assert.ok(!again.effects.desired(again.clock.now()).windows.some((x) => x.id === 'review:fresh'));
   assert.ok(again.model('reports').stubs.some((x: { day: string }) => x.day === '2026-10-14'));
-  // Instead of a today report: reporting yesterday answers it too.
-  const y = await setup(thu, { reportsStart: '2026-10-12' });
+  // Instead of a today report: reporting yesterday answers it too. A few minutes of work count as none.
+  const y = await setup(thu, { reportsStart: '2026-10-12', seed: (store, clock) => {
+    const m = local(2026, 10, 14, 10, 0);
+    clock.set(m + 60_000);
+    store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m } });
+  } });
   t.after(y.cleanup);
   y.tracker.tick(thu);
+  assert.equal(y.store.readDay('2026-10-15').find((r) => r.type === 'day.rollover')!.yesterdaySeconds, 5 * 60);
   y.tracker.ingest({ since: thu - 5000, inputs: [thu], apps: [], system: [], locked: false }, thu);
   assert.ok(y.model('review:fresh').welcome.today);
   assert.equal(y.action('review:fresh', 'report-add', { day: '2026-10-14', stage: 'end-of-workday', energy: 1 }).ok, true);
@@ -217,6 +222,19 @@ test('the welcome after a day without work asks about today; yesterday stays mis
   early.tracker.ingest({ since: thu - 5000, inputs: [thu], apps: [], system: [], locked: false }, thu);
   assert.ok(!early.effects.desired(thu).windows.some((x) => x.id === 'review:fresh'));
   assert.equal(early.action('review', 'report-new', { energy: 3 }).error, 'day', 'the floating review takes no today report');
+  // Exactly 30 min of work yesterday counts as work: the welcome asks about yesterday.
+  const half = await setup(thu, { reportsStart: '2026-10-12', seed: (store, clock) => {
+    for (let i = 0; i < 30; i += 5) {
+      const m = local(2026, 10, 14, 10, i);
+      clock.set(m + 60_000);
+      store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m } });
+    }
+  } });
+  t.after(half.cleanup);
+  half.tracker.tick(thu);
+  assert.equal(half.store.readDay('2026-10-15').find((r) => r.type === 'day.rollover')!.yesterdaySeconds, 1800);
+  half.tracker.ingest({ since: thu - 5000, inputs: [thu], apps: [], system: [], locked: false }, thu);
+  assert.equal(half.model('review:fresh').welcome.today, null);
 });
 
 test('the welcome is decided at the rollover: dismissing yesterday\'s report later leaves a stub, not a full-screen welcome', async (t) => {
