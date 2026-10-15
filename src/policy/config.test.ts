@@ -22,7 +22,7 @@ test("the owner's config/policy.ts is valid and matches R-POL-2", () => {
   assert.equal(ownersPolicy.days.sat.inactivityDialog, false);
   assert.equal(ownersPolicy.days.fri.morningReview, false);
   for (const day of ['sun', 'tue', 'thu'] as const) assert.equal(ownersPolicy.days[day].dailyBudgetMin, 510);
-  for (const day of ['mon', 'wed'] as const) assert.deepEqual(ownersPolicy.days[day], { ...ownersPolicy.days.sun, dailyBudgetMin: 480 });
+  for (const day of ['mon', 'wed'] as const) assert.deepEqual(ownersPolicy.days[day], { ...ownersPolicy.days.sun, dailyBudgetMin: 510 });
   for (const day of ['fri', 'sat'] as const) assert.deepEqual(ownersPolicy.days[day], {
     menubar: true, colours: false, dailyBudgetMin: null, referenceMin: null, enforce: false,
     inactivityDialog: false, breakNudge: false, morningReview: false,

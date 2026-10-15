@@ -27,7 +27,7 @@ test('every weekday: office/home budgets enforce; both personal days stay neutra
     return [WEEKDAYS[i], s.enforcing, s.colour, s.limitSeconds];
   });
   assert.deepEqual(got, [
-    ['sun', true, 'orange', 8.5 * H], ['mon', true, 'orange', 8 * H], ['tue', true, 'orange', 8.5 * H], ['wed', true, 'orange', 8 * H],
+    ['sun', true, 'orange', 8.5 * H], ['mon', true, 'orange', 8.5 * H], ['tue', true, 'orange', 8.5 * H], ['wed', true, 'orange', 8.5 * H],
     ['thu', true, 'orange', 8.5 * H], ['fri', false, 'grey', null], ['sat', false, 'grey', null],
   ]);
   // Non-enforcing days never leave 'ok', whatever the worked time.
@@ -35,16 +35,18 @@ test('every weekday: office/home budgets enforce; both personal days stay neutra
 });
 
 test('office and home ladders: every transition exactly at its threshold', () => {
-  for (const [day, budget] of [[SUN, 8.5 * H], ['2026-10-05', 8 * H]] as const) {
+  // The owner's days share 8.5 h (D-79); a shorter Monday keeps a second budget covered.
+  const shortMonday: PolicyConfig = { ...ownersPolicy, days: { ...ownersPolicy.days, mon: { ...ownersPolicy.days.mon, dailyBudgetMin: 8 * 60 } } };
+  for (const [day, budget, config] of [[SUN, 8.5 * H, ownersPolicy], ['2026-10-05', 8.5 * H, ownersPolicy], ['2026-10-05', 8 * H, shortMonday]] as const) {
     const rows: [number, Level][] = [
       [0, 'ok'], [budget * 0.75 - 1, 'ok'], [budget * 0.75, 'orange'], [budget - 30 * M - 1, 'orange'], [budget - 30 * M, 'warn'],
       [budget - 10 * M - 1, 'warn'], [budget - 10 * M, 'countdown'], [budget - 1, 'countdown'], [budget, 'blocked'], [12 * H, 'blocked'],
     ];
-    for (const [worked, level] of rows) assert.equal(evaluate(input({ day, now: at(day, 18), workedTodaySeconds: worked })).level, level, `${day}: worked ${worked}`);
+    for (const [worked, level] of rows) assert.equal(evaluate(input({ config, day, now: at(day, 18), workedTodaySeconds: worked })).level, level, `${day} ${budget}: worked ${worked}`);
     // Every level appears, in order.
     assert.deepEqual([...new Set(rows.map(([, l]) => l))], [...LEVELS]);
-    assert.equal(evaluate(input({ day, now: at(day, 18), workedTodaySeconds: 7 * H })).nextLevelAtSeconds, budget - 30 * M);
-    assert.equal(evaluate(input({ day, now: at(day, 18), workedTodaySeconds: budget })).nextLevelAtSeconds, null);
+    assert.equal(evaluate(input({ config, day, now: at(day, 18), workedTodaySeconds: 7 * H })).nextLevelAtSeconds, budget - 30 * M);
+    assert.equal(evaluate(input({ config, day, now: at(day, 18), workedTodaySeconds: budget })).nextLevelAtSeconds, null);
   }
 });
 

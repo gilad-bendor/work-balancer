@@ -5,7 +5,7 @@
 
 require("hs.ipc") -- the `hs` CLI (scripts/reload-hammerspoon, health checks)
 
-local VERSION = "0.7.1"
+local VERSION = "0.7.2"
 local PROTOCOL = 1
 local HEARTBEAT_EVERY = 5      -- seconds
 local HEARTBEAT_TIMEOUT = 15   -- our watchdog; asyncPost's own timeout is ~60 s and cannot be cancelled
@@ -1053,6 +1053,8 @@ end
 
 --- Opens a page of the DEV daemon in a normal, closable window labelled DEV PREVIEW. Never touches live state.
 --- `full`: sized to the whole screen at the overlay opacity (to judge a full-screen effect; still titled + closable).
+--- PREVIEW_OPACITY mirrors `overlayOpacity` in config/policy.ts (Lua does not read the policy) — keep them in step.
+local PREVIEW_OPACITY = 0.9
 function M.preview(url, full)
   local port = tonumber((url or ""):match("^http://127%.0%.0%.1:(%d+)/") or (url or ""):match("^http://localhost:(%d+)/"))
   if not port then return "preview: only http://127.0.0.1:<port>/… URLs" end
@@ -1068,7 +1070,7 @@ function M.preview(url, full)
     end
   end)
   w = hs.webview.new(full and f or { x = f.x + 80, y = f.y + 60, w = 960, h = 720 }, {}, ucc)
-  if full then w:alpha(0.8) end
+  if full then w:alpha(PREVIEW_OPACITY) end
   w:windowTitle("DEV PREVIEW — " .. url)
   w:windowStyle({ "titled", "closable", "resizable", "miniaturizable" })
   w:closeOnEscape(true)

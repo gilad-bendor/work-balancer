@@ -8,7 +8,7 @@ const officeWorkday = {
   menubar: true, colours: true, dailyBudgetMin: 8.5 * H, referenceMin: null, enforce: true,
   inactivityDialog: true, breakNudge: true, morningReview: true,
 };
-const homeWorkday = { ...officeWorkday, dailyBudgetMin: 8 * H };
+const homeWorkday = { ...officeWorkday, dailyBudgetMin: 8.5 * H };
 // Occasional personal-day laptop use still counts toward the weekly budget, without automatic interruptions.
 const personalDay = {
   menubar: true, colours: false, dailyBudgetMin: null, referenceMin: null, enforce: false,
@@ -41,7 +41,7 @@ export default {
   // false = observe mode again (menubar only) — takes effect on save.
   liveEffects: true,
   // Opacity of full-screen effects (block, overlays, inactivity dialog): 1 = solid; 0.8 still lets you read what is behind.
-  overlayOpacity: 0.8,
+  overlayOpacity: 0.9,
   days: {
     sun: officeWorkday,
     mon: homeWorkday,

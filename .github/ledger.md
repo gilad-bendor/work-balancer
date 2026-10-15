@@ -10,11 +10,11 @@ update at session end. Keep "Current status" correct at a glance.
 
 | | |
 |---|---|
-| **Phase** | M1–M10 **done** (2026-10-05). **Enforcement is LIVE** (`liveEffects: true`, D-62, D-71): office Sun/Tue/Thu **8.5 h**, home Mon/Wed **8 h**; budgets/inactivity/nudges/review on all Sun–Thu. **Notes and reports split** (2026-10-08, D-74): notes = reminders, reports = how he is doing (several per day, stage, skip = empty report, dismiss only); menu *Manage Reports* · *Manage Notes* · summary · *Early End-Of-Day* · Quit; welcome Sun–Thu for yesterday without a report. Fri/Sat remain automatically quiet with a neutral menubar. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (ON). Deployment/verification: see latest session row. |
-| **Next** | **M11 — one week of live use** (Tue 2026-10-06 → Mon 2026-10-12; hardening done 2026-10-05). Then the owner launches **`tbd-06-m11-wrapup`** (on/after Tue 2026-10-13, `scripts/execute-copilot-session --model claude-opus --context long --questions free-to-ask --no-wait …/tbd-06-m11-wrapup.md`, D-66): week summary from `data/`, his feedback, tuning, M11 done. Owner: sanity-check the M5 numbers (`scripts/prompt-history-report`). Open questions: none. Watch: daemon RSS ≈ 150 MB. Backlog after M11: "Feedback & energy" window (§4). |
+| **Phase** | M1–M11 **done** (M11 closed 2026-10-15 after the week of live use). **Enforcement is LIVE** (`liveEffects: true`, D-62, D-71, D-79): every workday Sun–Thu **8.5 h** (home Mon/Wed raised from 8 h, D-79), 44 h/week; budgets/inactivity/nudges/review on all Sun–Thu. **Notes and reports split** (D-74): notes = reminders, reports = how he is doing; menu *Manage Reports* · *Manage Notes* · summary · *Early End-Of-Day* · Quit; morning review every workday (D-75), welcome for yesterday without a report or about today after a day without work (D-78). Fri/Sat remain automatically quiet with a neutral menubar. Escape hatches: panic, debug eject ⌃⌥⌘⇧F12 (**kept ON** by the owner, D-79). |
+| **Next** | Nothing scheduled. Backlog (§4), when the owner wants it: the **"Feedback & energy" window** first (his choice), then the **daily timelines** (D-67, D-73). Watch: daemon RSS ≈ 147 MB (stable). |
 | **Blocked** | Nothing. |
-| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.1 + daemon **0.8.5** — welcome asks about today after a day without work since 2026-10-15, D-78; everyday morning review since 2026-10-12, D-75; notes/reports split and migrated `data/` deployed 2026-10-08, D-74; **data auto-commit + push of settled day files since 2026-10-07, D-72**): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` during a grant), the report menu, budget effects and welcome/catch-up Sun–Thu. Office/home policy hot-reload verified by matching live snapshot (D-71). Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.8`. Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
-| **Active tbd files** | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/tbd-06-m11-wrapup` — **pending**, a top-level successor prompt for the owner to launch on/after Tue 2026-10-13 (M11 wrap-up). `tbd-05-continue-m10` completed 2026-10-05. |
+| **Live on the owner's machine?** | Yes — **enforcing** (Lua 0.7.2 + daemon **0.8.5** — welcome asks about today after a day without work since 2026-10-15, D-78; everyday morning review since 2026-10-12, D-75; notes/reports split and migrated `data/` deployed 2026-10-08, D-74; **data auto-commit + push of settled day files since 2026-10-07, D-72**): tracking into `data/`, menubar `⏱ worked / limit` (`⏳Nm` during a grant), the report menu, budget effects and welcome/catch-up Sun–Thu. Office/home policy hot-reload verified by matching live snapshot (D-71). Turn back to observe mode: `liveEffects: false` in `config/policy.ts` (on save). Debug eject ON — kept by the owner (D-79) (⌃⌥⌘⇧F12 terminates Hammerspoon; relaunch `open -g -a Hammerspoon`); `overlayOpacity: 0.9` (D-79). Check: `hs -c 'return WorkBalancer.health()'`; after `src/` changes `scripts/restart-daemon`; after Lua changes `scripts/reload-hammerspoon`. **Every commit is preceded by an adversarial review subagent (D-37).** |
+| **Active tbd files** | None. `tbd-06-m11-wrapup` completed 2026-10-15 (M11 done). |
 
 ---
 
@@ -68,16 +68,16 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   files are committed automatically; a pure-`data/` HEAD is amended (constant message); every commit/amend is followed by
   `git push --force-with-lease` (of the data commit only).
 
-### 1.5 Policy (current values — tuned by the owner, D-71)
+### 1.5 Policy (current values — tuned by the owner, D-71, D-79)
 - **R-POL-1** Per-weekday policy must be **easy** to edit: one typed file `config/policy.ts`, hot-reloaded.
 - **R-POL-2** Current policy (all numbers configurable):
 
   | Day | Track | Menubar | Daily budget | Inactivity dialog | Break nudge | Warn → countdown → **block** | Morning review at 04:00 |
   |---|---|---|---|---|---|---|---|
   | Sun | ✅ | ✅ | **8.5 h** (office) | ✅ | ✅ | ✅ | ✅ |
-  | Mon | ✅ | ✅ | **8 h** (home) | ✅ | ✅ | ✅ | ✅ |
+  | Mon | ✅ | ✅ | **8.5 h** (home; 8 h until 2026-10-15, D-79) | ✅ | ✅ | ✅ | ✅ |
   | Tue | ✅ | ✅ | **8.5 h** (office) | ✅ | ✅ | ✅ | ✅ |
-  | Wed | ✅ | ✅ | **8 h** (home) | ✅ | ✅ | ✅ | ✅ |
+  | Wed | ✅ | ✅ | **8.5 h** (home; 8 h until 2026-10-15, D-79) | ✅ | ✅ | ✅ | ✅ |
   | Thu | ✅ | ✅ | **8.5 h** (office) | ✅ | ✅ | ✅ | ✅ |
   | Fri | ✅ | ✅ (no colours) | — | ❌ | ❌ | ❌ | ❌ (protects the private day) |
   | Sat | ✅ | ✅ (no colours) | — | ❌ | ❌ | ❌ | ❌ (Shabbat: **no popups at all**) |
@@ -211,7 +211,7 @@ IDs are stable; reference them in code comments only where it clarifies the *why
   PANIC-EJECT"**; pressing that combo **terminates Hammerspoon** (gamma restored first; the detached daemon keeps
   running). Implemented in Lua only (works with the daemon down). **Toggle-able, default on**:
   `hs -c 'return WorkBalancer.debugEject(false)'` (persisted in `var/live/debug-eject.json`); the owner turns it off
-  once he trusts the blockers. While on, the combo ejects on press (it supersedes the hold-1.5 s panic of R-UI-ESC,
+  once he trusts the blockers *(2026-10-15, D-79: he keeps it ON after the week of live use)*. While on, the combo ejects on press (it supersedes the hold-1.5 s panic of R-UI-ESC,
   which returns when eject is off). **Must exist before any real block** (M10 verifies it first, with the escape hatches).
 
 ### 1.7 Dev process
@@ -378,7 +378,7 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   `/api/status` aggregates consistent (worked 165 s, 4 monitored minutes, 0 unmonitored), daemon 0.0 % CPU / 68 MB,
   console clean, no `monitor.gap` across a Hammerspoon reload. Not yet observed live: lock/unlock, sleep/wake records.
 
-### M5 — `prompt-history` provider · `done` (owner's sanity check of the dry-run numbers pending)
+### M5 — `prompt-history` provider · `done` (owner's sanity check: not needed — closed by him 2026-10-15, D-79; the 10-15 dry run matched `data/` exactly: 50 prompts, 1 answer)
 - [x] ⟂ Investigation → [copilot-history-formats.md](./copilot-history-formats.md) (tbd-02, 2026-10-05): three stores
       (CLI `events.jsonl`, agent-host turn index `agentSessionData/*/session.db`, VS Code native op-logs), no
       cross-store double counting, copied sessions deduped by event id; classification C0–C10 / A1–A2 / V1–V5 / VA1;
@@ -508,15 +508,24 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
   (D-60), visible title bars (H-15), a shorter countdown. Adversarial review: 6 findings + 2 on the fixes, all fixed
   (D-59, D-61). **Owner approved live enforcement → `liveEffects: true`** (D-62). Performance ≈ 19 ms per 5 s beat.
 
-### M11 — Hardening & soak · `in-progress — awaiting one week of live use` (from Tue 2026-10-06)
+### M11 — Hardening & soak · `done` (2026-10-15)
 - [x] Sleep/wake across 04:00, lid closed, external monitors hot-plug, DST day, Hammerspoon crash/restart, daemon
       crash loops (backoff + visible warning), disk full / unwritable data dir (fail open + warning), config errors —
       verified 2026-10-05 (table in tbd-05 `report.md` §M11): tests (sleep through 04:00 while blocked, DST 23 h day
       with a token clipped to 04:00, broken policy cold start), live trials with the owner (monitor hot-plug ×2 — found
       and fixed H-16; `kill -9` Hammerspoon under a block — back in ~5 s), live crash loop (⚠︎ after 3 spawns, recovery
       ~25 s), dev unwritable data dir under a block (fail open + warning). Lua 0.6.2. Review: 0 traps, 3 lows fixed.
-- [ ] One week of live use (Tue 2026-10-06 → Mon 2026-10-12, Sun–Thu intrusive since D-71); collect owner feedback; tune
-      defaults (decisions logged). **Not to be compressed or simulated.**
+- [x] One week of live use (Tue 2026-10-06 → Thu 2026-10-15, Sun–Thu intrusive since D-71); owner feedback collected;
+      defaults tuned (D-79).
+- **AC verified (2026-10-15):** read-only summary of `data/` (script `tbd-06-m11-wrapup/week-summary.ts`, run on a
+  copy; counts only — table in `tbd-06-m11-wrapup/report.md`): 7 workdays tracked (Wed 10-14 a day off), worked 4:58–8:31
+  vs 8–8.5 h budgets; the ladder reached `blocked` 5× (2 countdown Saves, 2 Early End-Of-Day, 1 at the limit), 4 tokens
+  of 24 offered, **no bypass, no panic, no Quit under a block**; 39 inactivity dialogs (10-06…10-13: 16 whole / 9 back /
+  1 some / 1 expired; 10-15: 12, all whole); 13 reports (1 dismissed, 0 skips); the morning review every workday. No `monitor.gap` except two reboots (≤ 1 min); no daemon errors; Lua
+  console clean (the `wfilter` warnings are another module's); RSS ≈ 147 MB stable; data auto-commit committed 3× and
+  pushed, except a 10-14 → 10-15 push outage (F-ENV-7). Owner: home days 8 → 8.5 h, `overlayOpacity` 0.8 → 0.9, eject
+  kept; "other than that — nothing is important" (D-79). Live hot-reload verified (`policy loaded c312879c`,
+  last-good snapshot budgets 510 × 5). 240 tests + typecheck.
 
 ---
 
@@ -527,7 +536,7 @@ Natural tbd-file boundaries are marked ⟂ (a sub-task that can be delegated via
 - Meeting awareness (don't throw a block over a screen share; offer auto-postpone during calls).
 - Gentle Friday notice on first activity ("Friday is your private day").
 - Historical backfill script for `prompt-history`; weekly report (markdown) generated into `data/`.
-- Optional auto-commit of `data/` (owner currently commits manually).
+- ~~Optional auto-commit of `data/`~~ — done (D-72).
 - *(2026-10-07, owner, D-73)* **Daily timelines** (not built yet): `work` and `reported-as-work` segments
   (`WorkProvider.segments()`) are drawn as **one** time range — `[work, reported-as-work, work, …]` back to back = a single
   range.
@@ -556,7 +565,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7` | M7 → M11 (top-level handover, D-47) | 2026-10-05 answers-reviews-m5 | Successor top-level session: UI infrastructure and onward | completed: **M7 done** (commit "M7: UI infrastructure …") + debug panic-eject; handed over to tbd-04 (D-51). Report `…/tbd-03-continue-m7/report.md`. |
 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8` | M8 → M11 (top-level handover, D-51) | 2026-10-05 tbd-03-continue-m7 | Successor top-level session: notes, menu, summary, review, and onward | completed: **M8 + M9 done** (commits "M8: …", "M9: …"); handed over to tbd-05 (D-58). Report `…/tbd-04-continue-m8/report.md`. |
 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10` | M10 → M11 (top-level handover, D-58) | 2026-10-05 tbd-04-continue-m8 | Successor top-level session: enforcement and onward | completed 2026-10-05: **M10 done** (live enforcement approved, D-62), **M11 hardening done** (D-63), Q-12…Q-15 closed (D-64); M11 awaits the week of live use. Report `…/tbd-05-continue-m10/report.md`. |
-| `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/tbd-06-m11-wrapup` | M11 wrap-up (top-level, after the week) | 2026-10-05 tbd-05-continue-m10 | Week summary from `data/`, owner feedback, tuning, mark M11 done | pending — the owner launches it on/after Tue 2026-10-13 (D-66). |
+| `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/tbd-06-m11-wrapup` | M11 wrap-up (top-level, after the week) | 2026-10-05 tbd-05-continue-m10 | Week summary from `data/`, owner feedback, tuning, mark M11 done | completed 2026-10-15: **M11 done**, tuning D-79. Report `…/tbd-06-m11-wrapup/report.md`. |
 
 ---
 
@@ -642,6 +651,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | D-76 | 2026-10-12 | **End-of-day report for yesterday in the morning review** (owner: "Yes" to the D-75 follow-up): when yesterday was a workday (policy `enforce`, from `reports.startDay`) and has no non-dismissed `end-of-workday` report, the floating review offers an optional form "How did yesterday end?" (statuses, energy, feedback; no skip — closing is enough). Action `report-end-of-day` (`src/reports/reports.ts`): a past day only, refused if one exists (`exists`) or empty; stage `end-of-workday`, timestamp = the day's `endOfWorkdayAt` (23:59), source `review`; the review allows yesterday only. Other reports (e.g. a morning one) do not count as an end of day; the full-screen welcome (yesterday without any report) keeps its own form, so no second question there. The "day without any report" rule (D-74) is unchanged. Daemon 0.8.2. | An early end (no countdown/block) left the day without its closing reflection; the morning is the natural place to close that loop, optionally. |
 | D-77 | 2026-10-12 | **Half energy levels** (owner): in every report form a click still selects one energy level (radio-like; again = clear); **⌘-click** toggles a level without clearing the other, accepted only if the result is legal — none, one level N (= N), or two consecutive levels N, N + 1 (= **N + 0.5**); an illegal ⌘-click is ignored and the small hint under the buttons ("⌘-click a neighbour too for a half (e.g. 2.5)") blinks. Stored `energy` = 1–5 in half steps (`isEnergy`, also for countdown/block drafts); schema stays v1 (readers of old integer values unchanged). Daemon 0.8.3. | Owner: some days sit between two levels. |
 | D-78 | 2026-10-15 | **Welcome after a day without work asks about today** (owner): when the welcome is due (yesterday had no report at the rollover, Sun–Thu) and yesterday's worked time is **under 30 min** (owner, Q-16; `NO_WORK_BELOW_SECONDS` in `src/daemon/tracker.ts`) (decided at the rollover: `day.rollover.yesterdaySeconds`, so late records cannot flip it mid-day; a rollover without it falls back to `work.daySeconds`), `review:fresh` asks "Good morning. How are you today?" — a `report-new` (timestamp = now, stage by the clock, source `review`); a report created today **for today** answers it (`freshReviewDue` false → Continue). Yesterday still counts as a day without a report (owner: a day off / sick day is still "missing"): a bold note "Yesterday (…) has no report." with an optional **Also report yesterday…** form (stage + skip, as before — also answers the welcome); older days only a bold note (+ the existing catch-up button). Yesterday with work: unchanged (asks about yesterday). Consequence: most Sundays (after a quiet Shabbat) ask about today. Daemon 0.8.4. | Owner, 2026-10-15: he did not work Wed; Thu's welcome asked "how was yesterday?", he answered about this morning (picked "morning" = Wed morning) → saved on Wed. Correction appended on request: Wed's report dismissed, recreated as 2026-10-15 08:27 morning (same fields). |
+| D-79 | 2026-10-15 | **M11 tuning after the week of live use** (owner): home days Mon/Wed **8 h → 8.5 h** (= office days; `homeWorkday` kept as its own const so it can diverge again); `overlayOpacity` **0.8 → 0.9**; the **debug eject stays ON**; the M5 sanity check is not needed; every other number unchanged ("Other than that — nothing is important"). Config (hot-reloaded, new hash `c312879c`; no daemon version bump — no logic changed) + Lua 0.7.2: the full-screen DEV PREVIEW's hard-coded opacity follows (0.9, `PREVIEW_OPACITY`, review finding; saved on a Thursday at `orange`, whose budget did not change). Tests that read his policy updated; the ladder test keeps an 8 h day via its own config. | Owner, M11 wrap-up: the live period 10-06 → 10-15 (8 day files) showed the ladder respected (no bypass/panic) and Mon/Wed regularly reaching their limit. |
 
 ---
 
@@ -687,6 +697,7 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 - **F-ENV-6** `scripts/execute-copilot-session` (vscode harness) originally opened sessions in the storm window
   regardless of cwd; the owner fixed it on 2026-10-04 (it now prints `Repo: <git toplevel of cwd>`). Run it from this
   repo's directory.
+- **F-ENV-7** *(2026-10-15)* From 10-14 04:00 until a reboot on 10-15 08:38, every `git push` from the live daemon failed with `No user exists for uid 502` (ssh could not resolve the user — a macOS directory-services glitch after ~2 days of uptime); the 15-min retries recovered by themselves after the reboot (`kind: pushed`). No code change: D-72's retry + menubar warning is the intended handling.
 
 ### Hammerspoon
 - **F-HS-1** `hs` CLI at `/opt/homebrew/bin/hs`; Hammerspoon 1.1.1. `~/.hammerspoon/init.lua` (as of 2026-10-04, after
@@ -795,3 +806,5 @@ Register every tbd file here when created (path **stem**; the on-disk suffix sho
 | 2026-10-15 | `.github/tmp/2026-10-15--08-57--welcome-asks-today/` | Owner: this morning's report (welcome) was saved on yesterday (no work Wed; he picked "morning" in the yesterday form). **D-78**: after a day with 0 worked time the welcome asks about today, bold notes for yesterday (+ optional "Also report yesterday…") and older days; yesterday still "missing". +1 test (yesterday-mode test now seeds Saturday work), **240 tests + typecheck**; isolated dev daemon (port 47623, scratch var, fake Thu 08:26) browser check: today form → recorded card, yesterday form opens/cancels with drafts kept, Continue. Data correction appended on request (Wed report dismissed, recreated 2026-10-15 08:27). Daemon **0.8.4** restarted live, healthy. No adversarial review yet (not committed). | — |
 | 2026-10-15 | (same tmp-folder) | Adversarial review of D-78: no high; fixed — (1) mode decided at the rollover (`yesterdaySeconds`) so a late record for yesterday cannot bring the full-screen welcome back mid-day; (2) a form refused with `day` reloads the welcome; (3) title/hint reset per mode; (4) cached forms dropped when their day changes; (5) tests: today report alone answers it across a restart with late Wednesday work, yesterday report answers it, a today report written before the welcome, floating review refuses `report-new`. (6) threshold → **Q-16**. Re-check: nothing significant; applied its low (the rollover runs after the minute flush + prompt poll, so yesterday's last minute counts). **240 tests + typecheck**. Committed and pushed on the owner's request (`data/` excluded). | — |
 | 2026-10-15 | (same tmp-folder) | Owner closed **Q-16**: under 30 worked minutes yesterday = no work (`NO_WORK_BELOW_SECONDS`; first 10, then 30 at his request); tests: 5 min → today, exactly 30 min → yesterday. Adversarial review: nothing significant (its low — the boundary test — added). **240 tests + typecheck**; daemon **0.8.5** restarted live. Committed and pushed on request. | — |
+| 2026-10-15 | (no tmp-folder — small change) | Owner asked if `tbd-06-m11-wrapup` is still relevant: yes (M11 still open, never launched). Refreshed it for D-67…D-78: live period 10-06 → last complete day, with mid-period changes marked; per-day budgets 8.5/8 h; `report.*`/`note.*` instead of feedback; Early End-Of-Day, `nudge.break`, welcome/review, auto-commit; numbers are read from `config/policy.ts`; M5 sanity check added. Still pending. | — |
+| 2026-10-15 | `.github/tmp/2026-10-05--08-37--answers-reviews-m5/tbd-03-continue-m7/tbd-04-continue-m8/tbd-05-continue-m10/tbd-06-m11-wrapup/` | **M11 done.** Read-only week summary (`week-summary.ts` on a copy of `data/`; counts only), daemon logs (only warnings: one invalid policy edit 10-08, the 10-14/15 push outage F-ENV-7), Lua console (clean), RSS 147 MB, `scripts/prompt-history-report` (= `data/`: 50/1). Owner: home days 8.5 h, `overlayOpacity` 0.9, eject kept, nothing else (D-79); config hot-reloaded live (`c312879c`). 4 owner-policy tests updated, **240 tests + typecheck**. Adversarial review (D-37; 1st run cancelled by a sleep): 2 findings fixed — DEV PREVIEW opacity follows 0.9 (Lua **0.7.2**, reloaded healthy), D-79 wording. Evening: blocked 17:08, 3 tokens; Hammerspoon down 19:21–19:46 seconds after the block returned (most likely the debug eject; no crash report); the session's reload restarted it → block back (owner told). | — (tbd-06 itself completed) |

@@ -24,7 +24,7 @@ test('enforcing day: limit = min(daily, weekly − earlier); a heavy week shorte
   assert.equal(effectiveLimit(ownersPolicy, 'sun', 0).limitSeconds, 8.5 * H);
   assert.equal(effectiveLimit(ownersPolicy, 'thu', 38 * H).limitSeconds, 6 * H);
   assert.equal(effectiveLimit(ownersPolicy, 'thu', 50 * H).limitSeconds, 0);
-  assert.equal(effectiveLimit(ownersPolicy, 'mon', 10 * H).limitSeconds, 8 * H);
+  assert.equal(effectiveLimit(ownersPolicy, 'mon', 10 * H).limitSeconds, 8.5 * H);
   assert.equal(effectiveLimit(ownersPolicy, 'mon', 10 * H).referenceSeconds, null);
 });
 

@@ -561,7 +561,7 @@ test('summary model: today, the week per day vs budgets, 4 weeks, recent reports
   assert.deepEqual(m.week.days.map((d: any) => d.weekday), ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']);
   assert.equal(m.week.days[0].workedSeconds, 64 * 60, '60 inputs, 1/min, + 5 min grace − 1 = 64 min');
   assert.equal(m.week.days[0].budgetSeconds, 8.5 * 3600);
-  assert.equal(m.week.days[1].budgetSeconds, 8 * 3600);
+  assert.equal(m.week.days[1].budgetSeconds, 8.5 * 3600);
   assert.equal(m.week.days[1].referenceSeconds, null);
   assert.equal(m.week.days[3].workedSeconds, null, 'future day');
   assert.equal(m.week.budgetSeconds, 44 * 3600);
