@@ -69,8 +69,8 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 - Per-screen windows: only the primary instance (`primary=1`) shows inputs; the others show the message only.
 - **Shared page modules:** `report-fields.ts` (status chips with their icons, energy 1–5 + a read-only star preview — `energyStars` (D-83) — click = one level, ⌘-click a neighbour too =
   N + 0.5, an illegal ⌘-click blinks the hint (D-77) —, feedback text), `report-card.ts` (a report card
-with edit / dismiss / bring back; D-83: the one-line `reportRow` / `stubRow` of Manage Reports (columns shared by a subgrid on `.reports.compact`) — icons for parts of the day and
-statuses from `strings.ts` `icon_*`, `energyStars` 5 yellow/grey stars with halves; a stub card for a recent day without a report; the catch-up form with its stage
+with edit / dismiss / bring back; D-83: the one-line `reportRow` / `stubRow` of Manage Reports (columns shared by a subgrid on `.reports.compact`) — part-of-day icons from `day-icons.ts` (inline SVG)
+and status icons from `strings.ts` `icon_status_*`, `energyStars` 5 yellow/grey stars with halves; a stub card for a recent day without a report; the catch-up form with its stage
 picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday report, countdown / block),
 `notes-view.ts`
   (a note card with edit / dismiss / bring back), `format.ts` (`hm`, `dayLabel`, `timeLabel`), `timeline.ts` (D-80: a

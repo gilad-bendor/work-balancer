@@ -4,6 +4,7 @@
 import type { ReportStub, ReportView } from '../../reports/reports.ts';
 import { act, el, fill, submitOnCmdEnter } from './page.ts';
 import { energyStars, reportFields, statusIcon, type ReportValue } from './report-fields.ts';
+import { stageIcon } from './day-icons.ts';
 
 
 type Strings = Record<string, string>;
@@ -126,7 +127,7 @@ const iconButton = (glyph: string, label: string, onClick: () => void): HTMLButt
 };
 
 function rowHead(r: ReportView, s: Strings): HTMLElement {
-  const stage = r.stage ? [' ', icon(s[`icon_stage_${r.stage}`], stageLabel(r.stage, s))] : [];
+  const stage = r.stage ? [' ', stageIcon(r.stage, stageLabel(r.stage, s))] : [];
   const tags = r.status.length ? [el('span', { class: 'r-sep' }, '-'), ...r.status.map((c) => icon(statusIcon(s, c), c))] : [];
   return el('div', { class: 'r-when' }, r.timestamp, ...stage, ...tags);
 }
@@ -243,7 +244,7 @@ export function catchUpForm(stub: ReportStub, s: Strings, statuses: readonly str
 }): HTMLElement {
   let stage = 'end-of-workday';
   const stageButtons = stages.map((x) => {
-    const b = el('button', { type: 'button', class: 'chip', 'aria-pressed': String(x === stage) }, stageLabel(x, s));
+    const b = el('button', { type: 'button', class: 'chip', 'aria-pressed': String(x === stage) }, stageIcon(x, ''), ' ', stageLabel(x, s));
     b.addEventListener('click', () => {
       stage = x;
       stageButtons.forEach((y, i) => y.setAttribute('aria-pressed', String(stages[i] === stage)));

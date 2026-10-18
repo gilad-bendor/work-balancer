@@ -94,12 +94,8 @@ export const pageStrings = {
   stage_afternoon: 'afternoon',
   stage_evening: 'evening',
   'stage_end-of-workday': 'end of workday',
-  // Compact report rows (Manage Reports, D-83): an icon per part of the day and per status (keyed by the status name
-  // in config/policy.ts — a status without an icon here shows its name instead). Hover shows the name.
-  icon_stage_morning: '🌅',
-  icon_stage_afternoon: '☀️',
-  icon_stage_evening: '🌇',
-  'icon_stage_end-of-workday': '🌙',
+  // Compact report rows (Manage Reports, D-83): an icon per status (keyed by the status name in config/policy.ts — a
+  // status without an icon here shows its name instead). Hover shows the name. Part-of-day icons: pages/day-icons.ts.
   'icon_status_Too much work': '🏋️',
   'icon_status_Feeling tired': '😴',
   icon_status_Anxious: '😰',

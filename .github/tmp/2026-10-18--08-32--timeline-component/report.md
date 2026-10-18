@@ -56,3 +56,4 @@
 - Round 4g: stub row shows only the date, on #F0F0F0; the intro line and the Not now button are gone.
 - Round 4h: a darker separator line between days.
 - Round 4i: lighter grey stars. Review: one medium finding, fixed — the star preview in a stub's add form had been hidden. Committed on request (D-83/D-84), not pushed.
+- Round 5: custom SVG part-of-day icons (day-icons.ts) replace the emoji. Review clean; committed and pushed on request.
