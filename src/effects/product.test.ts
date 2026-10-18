@@ -536,7 +536,7 @@ test('morning review: none on Friday or Saturday; the rollover is written on the
   assert.deepEqual(s.beat(), []);
 });
 
-test('summary model: today, the week per day vs budgets, 4 weeks, recent reports', async (t) => {
+test('summary model: today, the week per day vs budgets, 20 weeks, recent reports, timelines', async (t) => {
   const T = local(2026, 10, 13, 12, 0); // Tuesday
   const s = await setup(T, {
     seed: (store, clock) => {
@@ -545,12 +545,16 @@ test('summary model: today, the week per day vs budgets, 4 weeks, recent reports
         for (let i = 0; i < 60; i++) {
           const m = local(2026, 10, d, 10, i);
           clock.set(m + 60_000);
-          store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m } });
+          // The first 10 minutes in WhatsApp, then half a minute of each (an app category, D-67).
+          const categories = i < 10 ? { WhatsApp: 60 } : i === 10 ? { WhatsApp: 30, Work: 30 } : { Work: 60 };
+          store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m, categories } });
         }
       }
       clock.set(local(2026, 10, 12, 9, 0));
       store.append({ ...report('2026-10-12 09:00', 3), stage: 'morning', status: ['Productive'] });
       store.append(report('2026-09-01 21:00', 2)); // older than 4 weeks: not in the summary
+      clock.set(local(2026, 10, 12, 16, 0));
+      store.append({ type: 'policy.transition', from: 'countdown', to: 'blocked', configHash: 'x' });
     },
   });
   t.after(s.cleanup);
@@ -565,10 +569,39 @@ test('summary model: today, the week per day vs budgets, 4 weeks, recent reports
   assert.equal(m.week.days[1].referenceSeconds, null);
   assert.equal(m.week.days[3].workedSeconds, null, 'future day');
   assert.equal(m.week.budgetSeconds, 44 * 3600);
-  assert.deepEqual(m.weeks.map((w: any) => [w.start, w.workedSeconds, w.current]), [
+  assert.equal(m.weeks.length, 20);
+  assert.deepEqual(m.weeks.slice(0, 1).map((w: any) => [w.start, w.workedSeconds]), [['2026-05-31', 0]]);
+  assert.deepEqual(m.weeks.slice(-4).map((w: any) => [w.start, w.workedSeconds, w.current]), [
     ['2026-09-20', 0, false], ['2026-09-27', 0, false], ['2026-10-04', 64 * 60, false], ['2026-10-11', 64 * 60, true],
   ]);
   assert.deepEqual(m.reports.map((f: any) => [f.timestamp, f.stage, f.status, f.energy]), [['2026-10-12 09:00', 'morning', ['Productive'], 3]]);
+  // Timelines (D-80): each covers its 04:00-bounded day without holes; Active time = worked time.
+  const states = (v: any): Record<string, number> => {
+    const out: Record<string, number> = {};
+    v.segments.forEach((g: any, i: number) => {
+      assert.equal(g.from, i ? v.segments[i - 1].to : v.from, 'contiguous');
+      out[g.state] = (out[g.state] ?? 0) + (g.to - g.from) / 60_000;
+    });
+    assert.equal(v.segments.at(-1).to, v.to);
+    return out;
+  };
+  const days = m.week.days.map((d: any) => d.timeline);
+  assert.equal(days[0].from, local(2026, 10, 11, 4, 0));
+  assert.deepEqual(states(days[0]), { Inactive: 24 * 60 - 64, WhatsApp: 10.5, Active: 53.5 });
+  assert.deepEqual(days[0].segments.filter((g: any) => g.state === 'WhatsApp').map((g: any) => [g.from, g.to]),
+    [[local(2026, 10, 11, 10, 0), local(2026, 10, 11, 10, 10, 30)]], 'the shared minute: its WhatsApp half first');
+  assert.equal(days[0].markMs, 8.5 * 3600_000);
+  assert.deepEqual(states(days[1]), { Inactive: 12 * 60, Blocked: 12 * 60 }, 'blocked from 16:00 until 04:00');
+  assert.deepEqual(states(days[2]), { Inactive: 8 * 60, Future: 16 * 60 }, 'Tuesday from noon on is future');
+  assert.deepEqual(states(days[6]), { Future: 24 * 60 });
+  assert.deepEqual(states(m.week.timeline), { WhatsApp: 10.5, Active: 53.5, Inactive: 24 * 60 - 64 + 12 * 60 + 8 * 60, Blocked: 12 * 60, Future: 16 * 60 + 4 * 24 * 60 });
+  assert.equal(m.week.timeline.markMs, 44 * 3600_000);
+  assert.deepEqual(Object.keys(m.week.timeline.styles), ['Active', 'WhatsApp', 'Inactive', 'Blocked', 'Future']);
+  // The trend's weeks: a past week from history, the current one = "Whole week".
+  assert.deepEqual(states(m.weeks.at(-2).timeline), { Inactive: 7 * 24 * 60 - 64, WhatsApp: 10.5, Active: 53.5 });
+  assert.equal(m.weeks.at(-2).timeline.from, local(2026, 10, 4, 4, 0));
+  assert.deepEqual(m.weeks.at(-1).timeline, m.week.timeline);
+  assert.deepEqual(states(m.weeks[0].timeline), { Inactive: 7 * 24 * 60 });
 });
 
 test('review M8#2: a window closed before Lua ever reported it shown is still audited (review done survives a restart)', async (t) => {

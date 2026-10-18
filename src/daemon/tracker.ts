@@ -13,16 +13,20 @@ import { evaluate, type GrantRecord, type Level, type PolicyState } from '../pol
 import { strings } from '../ui/strings.ts';
 import { createNotes } from '../notes/notes.ts';
 import { registerProductEffects } from '../effects/product.ts';
-import { createHistory } from './history.ts';
+import { createHistory, type DayDetail } from './history.ts';
 import { createInactivity } from '../inactivity/inactivity.ts';
 import { canEndEarly, createEnforcement, type WeekInfo } from '../enforcement/enforcement.ts';
 import { createReports, reportView, timestampDay } from '../reports/reports.ts';
 import { reportPeriods, reportWorkSource, withoutReportWork } from '../reports/work.ts';
+import { blockedIntervals, categoryLayers, workTimeline } from '../timeline/timeline.ts';
+import { DEFAULT_CATEGORY, fallbackModule } from '../categories/categories.ts';
 
 /** Coverage holes longer than this (and not explained by sleep) are recorded as `monitor.gap`. */
 export const GAP_MIN_MS = 30_000;
 const DEFAULT_GRACE_MIN = 5;
 const NO_WORK_BELOW_SECONDS = 30 * 60;
+/** Weeks in the summary's trend (owner, 2026-10-18), the current one included. */
+const TREND_WEEKS = 20;
 
 export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   const { store, clock, log, policy } = deps;
@@ -204,7 +208,8 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     return { today, earlier, todaySeconds, weekSeconds: earlier + todaySeconds };
   }
 
-  /** The activity summary (R-UI-MENU-3): today, this week per day vs budgets, the last 4 weeks, recent reports. */
+  /** The activity summary (R-UI-MENU-3): today, this week per day vs budgets, the last 20 weeks, recent reports —
+   * with timelines (D-80). */
   function summary(now: number) {
     const c = policy.state().config;
     const { today, todaySeconds, weekSeconds } = weekNumbers(now);
@@ -217,6 +222,17 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     const weekStart = weekStartKey(today);
     const weekRecords = store.readDays(weekStart, today);
     const count = (type: string, from: DayKey): number => weekRecords.filter((r) => r.type === type && dayKey(r.ts) >= from).length;
+    const style = (state: string) => deps.categories?.style(state) ?? fallbackModule.categoryStyle(state);
+    const timeline = (from: number, to: number, d: Omit<DayDetail, 'seconds'>, markSeconds: number | null) =>
+      workTimeline({ from, to, now, active: d.busy, blocked: d.blocked, categories: d.categories, style, markMs: markSeconds === null ? null : markSeconds * 1000 });
+    // The current week from memory (one pass; each day's timeline clips it).
+    const weekBusy = work.busy(dayStart(weekStart), dayEnd(addDays(weekStart, 6)));
+    const thisWeek = {
+      busy: weekBusy,
+      blocked: blockedIntervals(weekRecords, (ts) => dayEnd(dayKey(ts))),
+      categories: categoryLayers(weekBusy, (m) => interactive.getMinuteInfo(m)?.categories, DEFAULT_CATEGORY),
+    };
+    const weeklyMark = c ? c.weeklyBudgetMin * 60 : null;
     const budgets = (k: DayKey) => {
       const dp = c?.days[weekday(k)];
       return {
@@ -225,12 +241,19 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
         enforced: dp?.enforce === true,
       };
     };
-    const past = dayHistory.daySeconds(addDays(weekStart, -21), addDays(weekStart, -1));
-    const weeks = [3, 2, 1].map((i) => {
+    const past = dayHistory.days(addDays(weekStart, -7 * (TREND_WEEKS - 1)), addDays(weekStart, -1));
+    const weeks = [];
+    for (let i = TREND_WEEKS - 1; i >= 1; i--) {
       const ws = addDays(weekStart, -7 * i);
-      return { start: ws, workedSeconds: dayKeysBetween(ws, addDays(ws, 6)).reduce((sum, k) => sum + (past.get(k) ?? 0), 0), current: false };
-    });
-    weeks.push({ start: weekStart, workedSeconds: weekSeconds, current: true });
+      const ds = dayKeysBetween(ws, addDays(ws, 6)).flatMap((k) => past.get(k) ?? []);
+      weeks.push({
+        start: ws, workedSeconds: ds.reduce((sum, d) => sum + d.seconds, 0), current: false,
+        timeline: timeline(dayStart(ws), dayEnd(addDays(ws, 6)),
+          { busy: ds.flatMap((d) => d.busy), blocked: ds.flatMap((d) => d.blocked), categories: ds.flatMap((d) => d.categories) }, weeklyMark),
+      });
+    }
+    const weekTimeline = timeline(dayStart(weekStart), dayEnd(addDays(weekStart, 6)), thisWeek, weeklyMark);
+    weeks.push({ start: weekStart, workedSeconds: weekSeconds, current: true, timeline: weekTimeline });
     return {
       now,
       today: {
@@ -248,9 +271,14 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       week: {
         start: weekStart, workedSeconds: weekSeconds, budgetSeconds: c ? c.weeklyBudgetMin * 60 : null,
         tokensUsed: count('token.used', weekStart), bypassesUsed: count('bypass.used', weekStart),
-        days: dayKeysBetween(weekStart, addDays(weekStart, 6)).map((k) => ({
-          day: k, weekday: weekday(k), workedSeconds: k <= today ? work.daySeconds(k) : null, isToday: k === today, ...budgets(k),
-        })),
+        timeline: weekTimeline,
+        days: dayKeysBetween(weekStart, addDays(weekStart, 6)).map((k) => {
+          const b = budgets(k);
+          return {
+            day: k, weekday: weekday(k), workedSeconds: k <= today ? work.daySeconds(k) : null, isToday: k === today, ...b,
+            timeline: timeline(dayStart(k), dayEnd(k), thisWeek, b.budgetSeconds ?? b.referenceSeconds),
+          };
+        }),
       },
       weeks,
       reports: reports.list().filter((r) => r.day > addDays(today, -28)).map(reportView),

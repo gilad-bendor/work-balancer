@@ -1,9 +1,11 @@
-// Activity summary (menu → "Show activity summary", R-UI-MENU-3): today, this week per day vs budgets, the last 4
-// weeks, recent reports. Read-only; refreshes itself every minute while open.
-import { api, boot, closeOnEscape, el, topBar, windowId } from './page.ts';
+// Activity summary (menu → "Show activity summary", R-UI-MENU-3): today, this week per day vs budgets, the last 20
+// weeks, recent reports; days and weeks as timelines (D-80). Read-only; refreshes itself every minute while open.
+import { api, boot, closeOnEscape, el, fill, topBar, windowId } from './page.ts';
 import { dayLabel, hm, timeLabel } from './format.ts';
 import type { ReportView } from '../../reports/reports.ts';
+import type { TimelineView } from '../../timeline/timeline.ts';
 import { reportHead } from './report-card.ts';
+import { timeline } from './timeline.ts';
 
 interface DayRow {
   day: string;
@@ -13,6 +15,7 @@ interface DayRow {
   budgetSeconds: number | null;
   referenceSeconds: number | null;
   enforced: boolean;
+  timeline: TimelineView;
 }
 
 interface Summary {
@@ -22,8 +25,8 @@ interface Summary {
     topApps: { name: string; seconds: number }[]; longestStretchSeconds: number; breaks: number; currentStretchSeconds: number | null;
     firstActivityAt: number | null; lastActivityAt: number | null; unmonitoredMinutes: number;
   };
-  week: { start: string; workedSeconds: number; budgetSeconds: number | null; tokensUsed: number; bypassesUsed: number; days: DayRow[] };
-  weeks: { start: string; workedSeconds: number; current: boolean }[];
+  week: { start: string; workedSeconds: number; budgetSeconds: number | null; tokensUsed: number; bypassesUsed: number; timeline: TimelineView; days: DayRow[] };
+  weeks: { start: string; workedSeconds: number; current: boolean; timeline: TimelineView }[];
   reports: ReportView[];
   activeNotes: number;
 }
@@ -36,11 +39,6 @@ void boot<Summary | null>(({ strings: s, model }) => {
   const main = el('main', { class: 'card wide' });
 
   const kv = (k: string, v: string | Node): HTMLElement => el('div', { class: 'kv' }, el('span', { class: 'muted' }, k), el('span', {}, v));
-  const bar = (value: number, max: number, mark: number | null, cls = ''): HTMLElement => {
-    const b = el('div', { class: `bar ${cls}` }, el('div', { class: 'fill', style: `width:${max > 0 ? Math.min(100, (value / max) * 100) : 0}%` }));
-    if (mark !== null && max > 0) b.append(el('div', { class: 'mark', style: `left:${Math.min(100, (mark / max) * 100)}%` }));
-    return b;
-  };
 
   function render(m: Summary): void {
     const t = m.today;
@@ -66,27 +64,29 @@ void boot<Summary | null>(({ strings: s, model }) => {
     );
 
     const w = m.week;
-    const dayMax = Math.max(1, ...w.days.map((d) => Math.max(d.workedSeconds ?? 0, d.budgetSeconds ?? d.referenceSeconds ?? 0)));
     const week = el('section', {},
       el('h2', {}, s.summaryWeek!),
       el('div', { class: 'days' }, ...w.days.map((d) => {
         const target = d.budgetSeconds ?? d.referenceSeconds;
         return el('div', { class: `day${d.isToday ? ' today' : ''}` },
           el('span', { class: 'day-name' }, dayLabel(d.day)),
-          bar(d.workedSeconds ?? 0, dayMax, target, d.enforced ? 'enforced' : ''),
+          timeline(d.timeline, s),
           el('span', { class: 'day-value' }, d.workedSeconds === null ? '' : `${hm(d.workedSeconds)}${target !== null ? ` / ${hm(target)}` : ''}`),
         );
-      })),
-      kv(s.summaryWeekTotal!, `${hm(w.workedSeconds)}${w.budgetSeconds !== null ? ` / ${hm(w.budgetSeconds)}` : ''}`),
+      }),
+      el('div', { class: 'day whole-week' },
+        el('span', { class: 'day-name' }, s.summaryWholeWeek!),
+        timeline(w.timeline, s),
+        el('span', { class: 'day-value' }, `${hm(w.workedSeconds)}${w.budgetSeconds !== null ? ` / ${hm(w.budgetSeconds)}` : ''}`),
+      )),
       kv(s.summaryTokensBypassesWeek!, `${w.tokensUsed} / ${w.bypassesUsed}`),
     );
 
-    const weekMax = Math.max(1, w.budgetSeconds ?? 0, ...m.weeks.map((x) => x.workedSeconds));
     const weeks = el('section', {},
-      el('h2', {}, s.summaryWeeks!),
-      el('div', { class: 'days' }, ...m.weeks.map((x) => el('div', { class: `day${x.current ? ' today' : ''}` },
+      el('h2', {}, fill(s.summaryWeeks, { n: m.weeks.length })),
+      el('div', { class: 'days' }, ...[...m.weeks].reverse().map((x) => el('div', { class: `day${x.current ? ' today' : ''}` },
         el('span', { class: 'day-name' }, `${s.summaryWeekOf} ${dayLabel(x.start, { weekday: false })}`),
-        bar(x.workedSeconds, weekMax, w.budgetSeconds),
+        timeline(x.timeline, s),
         el('span', { class: 'day-value' }, `${hm(x.workedSeconds)}${x.current ? ` ${s.summaryThisWeek}` : ''}`),
       ))),
     );

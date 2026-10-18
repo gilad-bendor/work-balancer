@@ -75,12 +75,21 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .days { display: flex; flex-direction: column; gap: 6px; }
 .day { display: grid; grid-template-columns: 190px 1fr 190px; gap: 12px; align-items: center; }
 .day.today .day-name { font-weight: 600; }
+.day.whole-week { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
 .day-value { text-align: right; font-variant-numeric: tabular-nums; }
-.bar { position: relative; height: 16px; background: var(--border); border-radius: 8px; overflow: visible; }
-.bar .fill { height: 100%; background: var(--accent); border-radius: 8px; opacity: 0.75; }
-.bar.enforced .fill { opacity: 1; }
-.bar .mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); opacity: 0.6; }
 .report-line { display: flex; gap: 14px; padding: 4px 0; border-bottom: 1px dotted var(--border); }
+/* Timelines (D-80, src/ui/pages/timeline.ts): upper half by state (bottom-aligned), lower half by time (top-aligned).
+   The padding widens the hover area of each half. */
+.tl { position: relative; padding: 8px 0; cursor: default; }
+.tl-half { position: relative; overflow-x: clip; overflow-y: visible; }
+.tl-track { position: absolute; inset: 0 auto 0 0; width: 100%; }
+.tl-seg { position: absolute; background: var(--c); }
+.tl-seg.lit { z-index: 2; box-shadow: 0 0 6px 2px var(--c), 0 0 14px 3px color-mix(in srgb, var(--c) 55%, transparent); filter: brightness(1.2) saturate(1.2); }
+.tl-mark { position: absolute; bottom: -3px; height: calc(100% + 9px); width: 2px; margin-left: -1px; background: var(--text); opacity: 0.55; z-index: 1; pointer-events: none; }
+.tl-tip { position: fixed; z-index: 30; display: none; pointer-events: none; background: var(--text); color: var(--bg);
+  padding: 6px 12px; border-radius: 8px; font-size: 17px; line-height: 1.4; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tl-tip.shown { display: block; }
+.tl-tip > :first-child { font-weight: 600; }
 
 /* Large windows (summary, notes): a static top bar with the title and a big close icon; the content scrolls. */
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;

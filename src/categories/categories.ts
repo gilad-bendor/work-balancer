@@ -30,7 +30,7 @@ export interface CategoryStyle {
 
 export const DEFAULT_CATEGORY = 'Work';
 /** Not app categories: states of a timeline segment (the categorizer may not return them). */
-export const BUILTIN_CATEGORIES = ['Inactive', 'Blocked', 'Future'] as const;
+export const BUILTIN_CATEGORIES = ['Active', 'Inactive', 'Blocked', 'Future'] as const;
 export type BuiltinCategory = (typeof BUILTIN_CATEGORIES)[number];
 export const MAX_CATEGORY_LENGTH = 40;
 const LOAD_TIMEOUT_MS = 3000;
@@ -40,7 +40,7 @@ export interface CategoriesModule {
   categoryStyle(category: string): CategoryStyle;
 }
 
-const FALLBACK_STYLE: CategoryStyle = { color: '#8a8780', thickness: 4, label: '' };
+const FALLBACK_STYLE: CategoryStyle = { color: '#8a8780', thickness: 7, label: '' };
 
 /** Used while the owner's file is missing or broken: everything is work, a plain look. */
 export const fallbackModule: CategoriesModule = {

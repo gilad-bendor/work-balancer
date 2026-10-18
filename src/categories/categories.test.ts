@@ -25,7 +25,7 @@ test("the owner's config/categories.ts: WhatsApp by bundle id, everything else W
   assert.equal(c.categorize({ ...WA, bundleId: 'desktop.WhatsApp' }), 'WhatsApp');
   assert.equal(c.categorize(CODE), 'Work');
   assert.equal(c.categorize({ bundleId: 'com.google.Chrome', appName: 'Google Chrome', windowTitle: null }), 'Work');
-  for (const k of ['Work', 'WhatsApp', 'Inactive', 'Blocked', 'Future', 'Something new']) {
+  for (const k of ['Work', 'WhatsApp', 'Active', 'Inactive', 'Blocked', 'Future', 'Something new']) {
     const s = c.style(k);
     assert.equal(typeof s.color, 'string');
     assert.ok(s.thickness > 0);

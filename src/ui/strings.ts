@@ -137,7 +137,7 @@ export const pageStrings = {
   summaryTitle: 'Activity summary',
   summaryToday: 'Today',
   summaryWeek: 'This week',
-  summaryWeeks: 'Last 4 weeks',
+  summaryWeeks: 'Last {n} weeks',
   summaryReports: 'Recent reports',
   summaryWorked: 'Worked',
   summaryBudget: "Today's budget",
@@ -155,7 +155,7 @@ export const pageStrings = {
   summaryOnBreak: 'on a break',
   summaryFirstLast: 'First / last activity',
   summaryUnmonitored: 'Not monitored',
-  summaryWeekTotal: 'Week total',
+  summaryWholeWeek: 'Whole week',
   summaryWeekOf: 'Week of',
   summaryThisWeek: '(this week)',
   summaryTokensBypassesWeek: 'Tokens / bypasses this week',
@@ -167,6 +167,10 @@ export const pageStrings = {
   levelWarn: 'close to the budget',
   levelCountdown: 'last few minutes',
   levelBlocked: "today's budget is used",
+  // Timelines (D-80): tooltip durations
+  timelineSec: 's',
+  timelineMin: 'min',
+  timelineHour: 'h',
   // Inactivity dialog (R-UI-INACT)
   inactTitle: 'Welcome back.',
   inactIntro: 'No keyboard or mouse for a while. If you were working away from the screen — a meeting, a call, thinking on paper — it can count.',
