@@ -43,3 +43,16 @@
   - The window survives the summary's re-render.
 - Verified in a dev browser (see the ledger session log). No adversarial review yet; one is needed before committing.
 - Review (round 3): one high finding, fixed. Detached timelines were kept alive by a module-level set; the per-timeline handles are now in a `WeakMap`. Committed on request (D-80…D-82), not pushed.
+
+## Round 4 (D-83)
+- Summary: the week rows are labelled `YYYY-MM-DD`, and the Recent reports section is gone.
+- Manage Reports uses compact rows: icons for the part of the day and for each status, energy as 5 stars (with half stars), and ✏️ / 🗑️ / ↩️ icon buttons. Stub days are compact rows too. The edit, add-for-day and skip forms are unchanged.
+- Verified in a dev browser; 246 tests pass. Not committed yet; an adversarial review is needed before the commit.
+- Round 4b: rows condensed to one line (`timestamp icon - tags` · text · `stars ✏️ 🗑️`), with columns aligned through a subgrid.
+- Round 4c: report form (all forms): one heading line "How are you doing? (pick any that fit)", icons in the status chips, and a star preview after the energy buttons.
+- Round 4d: stub rows use the same ✏️ (add) / 🗑️ (skip) icon buttons as report rows, in the same column.
+- Round 4e: preview of 10-07 without a report (dev copy only); D-84: stubDays changed from 10 to 100.
+- Round 4f: D-84 reshaped. Manage Reports lists every day without a report since startDay; stubDays (10) still drives the counts.
+- Round 4g: stub row shows only the date, on #F0F0F0; the intro line and the Not now button are gone.
+- Round 4h: a darker separator line between days.
+- Round 4i: lighter grey stars. Review: one medium finding, fixed — the star preview in a stub's add form had been hidden. Committed on request (D-83/D-84), not pushed.

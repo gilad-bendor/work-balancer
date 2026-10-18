@@ -63,6 +63,15 @@ test('missing days: the last stubDays days from startDay; a skip covers a day, a
   const short = setup(local(2026, 10, 11, 9, 0), () => policy('2026-10-01', 2));
   t.after(short.cleanup);
   assert.deepEqual(short.make().missing(short.clock.now()).map((x) => x.day), ['2026-10-11', '2026-10-10']);
+  // Manage Reports lists every day since startDay (D-84), and its add / skip accept those days.
+  const shortR = short.make();
+  assert.deepEqual(shortR.missing(short.clock.now(), { all: true }).map((x) => x.day).slice(-2), ['2026-10-02', '2026-10-01']);
+  assert.equal(shortR.missing(short.clock.now(), { all: true }).length, 11);
+  assert.equal(shortR.action('report-add', { day: '2026-10-02', stage: 'morning', energy: 2 }, short.clock.now(), { source: 'manager' }).ok, true);
+  assert.equal(shortR.action('report-add', { day: '2026-09-30', stage: 'morning', energy: 2 }, short.clock.now(), { source: 'manager' }).ok, false, 'before startDay');
+  assert.equal(shortR.action('report-arm-skip', { day: '2026-10-03' }, short.clock.now(), { source: 'manager' }).ok, true);
+  assert.equal(shortR.action('report-arm-skip', { day: '2026-10-03' }, short.clock.now(), { source: 'review', days: (d) => d === '2026-10-10' }).ok, false, 'the review stays narrowed');
+  assert.deepEqual(shortR.missing(short.clock.now()).map((x) => x.day), ['2026-10-11', '2026-10-10'], 'the counted window is unchanged');
   const off = setup(local(2026, 10, 11, 9, 0), () => policy(null));
   t.after(off.cleanup);
   assert.deepEqual(off.make().missing(off.clock.now()), []);

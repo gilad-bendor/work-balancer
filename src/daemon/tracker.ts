@@ -16,7 +16,7 @@ import { registerProductEffects } from '../effects/product.ts';
 import { createHistory, type DayDetail } from './history.ts';
 import { createInactivity } from '../inactivity/inactivity.ts';
 import { canEndEarly, createEnforcement, type WeekInfo } from '../enforcement/enforcement.ts';
-import { createReports, reportView, timestampDay } from '../reports/reports.ts';
+import { createReports, timestampDay } from '../reports/reports.ts';
 import { reportPeriods, reportWorkSource, withoutReportWork } from '../reports/work.ts';
 import { blockedIntervals, categoryLayers, workTimeline } from '../timeline/timeline.ts';
 import { DEFAULT_CATEGORY, fallbackModule } from '../categories/categories.ts';
@@ -208,8 +208,8 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     return { today, earlier, todaySeconds, weekSeconds: earlier + todaySeconds };
   }
 
-  /** The activity summary (R-UI-MENU-3): today, this week per day vs budgets, the last 20 weeks, recent reports —
-   * with timelines (D-80). */
+  /** The activity summary (R-UI-MENU-3): today, this week per day vs budgets, the last 20 weeks — with timelines
+   * (D-80). Reports are in Manage Reports only (D-83). */
   function summary(now: number) {
     const c = policy.state().config;
     const { today, todaySeconds, weekSeconds } = weekNumbers(now);
@@ -281,7 +281,6 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
         }),
       },
       weeks,
-      reports: reports.list().filter((r) => r.day > addDays(today, -28)).map(reportView),
       activeNotes: notes.active().length,
     };
   }

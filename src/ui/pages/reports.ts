@@ -2,9 +2,9 @@
 // first — edit, dismiss — with a stub for each recent day without one (add one for that day, or skip it). Reports
 // dismissed here stay visible (greyed, "Bring back") until the window closes; reopened, they are gone.
 import type { ReportStub, ReportView } from '../../reports/reports.ts';
-import { act, api, boot, closeOnEscape, closeWindow, el, focusOnInteract, submitOnCmdEnter, topBar, windowId } from './page.ts';
+import { act, api, boot, closeOnEscape, el, focusOnInteract, submitOnCmdEnter, topBar, windowId } from './page.ts';
 import { reportFields, type ReportValue } from './report-fields.ts';
-import { reportCard, stubCard } from './report-card.ts';
+import { reportRow, stubRow } from './report-card.ts';
 
 interface Model {
   today: string;
@@ -19,7 +19,7 @@ void boot<Model>(({ strings: s, model }) => {
   focusOnInteract();
   let current = model;
   const dismissedHere = new Map<number, ReportView>();
-  const list = el('div', { class: 'reports' });
+  const list = el('div', { class: 'reports compact' });
   const msg = el('p', { class: 'msg', role: 'status' });
   const main = el('main', { class: 'card' });
   closeOnEscape(s.escUnsaved!, () => !fields.isEmpty() || !!main.querySelector('.report-editor, .catch-up'));
@@ -61,16 +61,19 @@ void boot<Model>(({ strings: s, model }) => {
     const live = new Set(current.reports.map((r) => r.id));
     const reports = [...current.reports, ...[...dismissedHere.values()].filter((r) => !live.has(r.id))];
     const entries: Entry[] = [
-      ...reports.map((r) => ({ id: `r:${r.id}`, sort: `${r.day} ${r.timestamp} ${String(r.id).padStart(16, '0')}`, el: () => reportCard(r, s, current.statuses, handlers) })),
+      ...reports.map((r) => ({ id: `r:${r.id}`, sort: `${r.day} ${r.timestamp} ${String(r.id).padStart(16, '0')}`, el: () => reportRow(r, s, current.statuses, handlers) })),
       // A stub sorts at the end of its day (above that day's reports — there are none — and below later days).
-      ...current.stubs.map((x) => ({ id: `s:${x.day}`, sort: `${x.day} ~`, el: () => stubCard(x, s, current.statuses, current.stages, () => void refresh(`s:${x.day}`)) })),
+      ...current.stubs.map((x) => ({ id: `s:${x.day}`, sort: `${x.day} ~`, el: () => stubRow(x, s, current.statuses, current.stages, () => void refresh(`s:${x.day}`)) })),
     ].sort((a, b) => (a.sort < b.sort ? 1 : a.sort > b.sort ? -1 : 0));
     const node = (e: Entry): HTMLElement => {
       const n = open.get(e.id) ?? e.el();
       n.dataset.key = e.id;
       return n;
     };
-    list.replaceChildren(...(entries.length ? entries.map(node) : [el('p', { class: 'muted' }, s.reportNone!)]));
+    const nodes = entries.map(node);
+    // A darker line where the day changes (owner, D-83).
+    nodes.forEach((n, i) => n.classList.toggle('day-end', i + 1 < nodes.length && nodes[i + 1]!.dataset.rowDay !== n.dataset.rowDay));
+    list.replaceChildren(...(nodes.length ? nodes : [el('p', { class: 'muted' }, s.reportNone!)]));
   }
 
   const fields = reportFields(s, current.statuses);
@@ -84,16 +87,12 @@ void boot<Model>(({ strings: s, model }) => {
   };
   save.addEventListener('click', () => void submitNew());
   submitOnCmdEnter(fields.feedback, () => void submitNew());
-  const notNow = el('button', {}, s.reportNotNow!);
-  notNow.addEventListener('click', closeWindow);
 
   render();
   main.replaceChildren(
-    el('p', { class: 'muted' }, s.reportsIntro!),
-    el('section', { class: 'report-new' }, el('h2', {}, s.reportNewTitle!), fields.root, el('div', { class: 'row end' }, save)),
+    el('section', { class: 'report-new' }, fields.root, el('div', { class: 'row end' }, save)),
     msg,
     list,
-    ...(current.preferredDay ? [el('div', { class: 'row end' }, notNow)] : []),
   );
   document.body.replaceChildren(topBar(s.reportsTitle!, s.close!), main);
   if (current.preferredDay) list.querySelector(`[data-day="${current.preferredDay}"]`)?.scrollIntoView({ block: 'center' });

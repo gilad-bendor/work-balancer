@@ -24,6 +24,8 @@ export default {
     // stage instead of a time: it is timed at the middle of that range, or at 23:59 for end-of-workday.
     stages: { afternoonFrom: '11:00', eveningFrom: '14:00', endOfWorkdayAt: '23:59' },
     listMax: 1000,
+    // Days without a report counted by the menu, the morning review's catch-up and the automatic catch-up (Manage
+    // Reports itself lists every such day since `startDay`).
     stubDays: 10,
   },
   weeklyBudgetMin: 44 * H,

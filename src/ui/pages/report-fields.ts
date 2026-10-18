@@ -1,6 +1,6 @@
 // The report fields (ledger R-UI-REPORT): "How are you doing?" statuses (multi-select, from the policy), energy 1–5
 // and a free feedback text. Used by Manage Reports, the welcome, the countdown and the block.
-import { el } from './page.ts';
+import { el, fill } from './page.ts';
 
 type Strings = Record<string, string>;
 
@@ -19,6 +19,27 @@ export interface ReportFieldsForm {
   setValue(value: ReportValue): void;
 }
 
+/** Five stars filled to the energy level (3.5 = three full, one half, one empty; D-83). No energy: nothing — or, with
+ * `empty`, five grey stars (the form's preview). Display only. */
+export function energyStars(energy: number | null, s: Strings, opts: { empty?: boolean } = {}): HTMLElement {
+  const box = el('span', { class: 'stars' });
+  if (energy === null && !opts.empty) return box;
+  if (energy !== null) {
+    const label = fill(s.reportEnergyOf, { n: energy });
+    box.setAttribute('title', label);
+    box.setAttribute('role', 'img');
+    box.setAttribute('aria-label', label);
+  } else box.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 5; i++) {
+    const f = Math.min(1, Math.max(0, (energy ?? 0) - i));
+    box.append(el('span', { class: 'star', 'aria-hidden': 'true', style: `--fill:${f * 100}%` }, '★'));
+  }
+  return box;
+}
+
+/** A status chip / tag icon from strings.ts (`icon_status_<name>`), or undefined. */
+export const statusIcon = (s: Strings, status: string): string | undefined => s[`icon_status_${status}`];
+
 /** `onChange`: any status, energy or feedback change (pages use it to keep a draft). */
 export function reportFields(s: Strings, statuses: readonly string[], onChange?: () => void): ReportFieldsForm {
   const picked = new Set<string>();
@@ -30,7 +51,8 @@ export function reportFields(s: Strings, statuses: readonly string[], onChange?:
   const toggle = (b: HTMLButtonElement, on: boolean): void => b.setAttribute('aria-pressed', on ? 'true' : 'false');
 
   const chips = statuses.map((c) => {
-    const b = el('button', { type: 'button', class: 'chip', 'aria-pressed': 'false' }, c);
+    const glyph = statusIcon(s, c);
+    const b = el('button', { type: 'button', class: 'chip', 'aria-pressed': 'false' }, ...(glyph ? [el('span', { class: 'chip-icon', 'aria-hidden': 'true' }, glyph), ' '] : []), c);
     b.addEventListener('click', () => {
       if (picked.has(c)) picked.delete(c);
       else picked.add(c);
@@ -40,7 +62,11 @@ export function reportFields(s: Strings, statuses: readonly string[], onChange?:
     return b;
   });
 
-  const showLevels = (): void => energyButtons.forEach((x, i) => toggle(x, levels.includes(i + 1)));
+  const stars = el('span', { class: 'energy-stars' });
+  const showLevels = (): void => {
+    energyButtons.forEach((x, i) => toggle(x, levels.includes(i + 1)));
+    stars.replaceChildren(energyStars(energyOf(), s, { empty: true }));
+  };
   const halfHint = el('p', { class: 'muted small energy-hint' }, s.energyHalfHint ?? '');
   const energyButtons: HTMLButtonElement[] = [1, 2, 3, 4, 5].map((n) => {
     const b = el('button', { type: 'button', class: 'chip energy', 'aria-pressed': 'false', title: String(n) }, String(n));
@@ -59,18 +85,19 @@ export function reportFields(s: Strings, statuses: readonly string[], onChange?:
     return b;
   });
 
+  showLevels();
   const feedback = el('textarea', { rows: '2', placeholder: s.reportFeedbackPlaceholder ?? '' });
   if (onChange) feedback.addEventListener('input', onChange);
 
   const root = el('section', { class: 'report-fields' },
-    el('h2', {}, s.reportStatusTitle ?? ''),
-    el('p', { class: 'muted' }, s.reportStatusHint ?? ''),
+    el('h2', {}, s.reportStatusTitle ?? '', ' ', el('span', { class: 'muted hint' }, `(${s.reportStatusHint ?? ''})`)),
     el('div', { class: 'chips' }, ...chips),
     el('div', { class: 'row energy-row' },
       el('span', { class: 'muted' }, s.reportEnergyLabel ?? ''),
       el('span', { class: 'muted small' }, s.energyLow ?? ''),
       ...energyButtons,
       el('span', { class: 'muted small' }, s.energyHigh ?? ''),
+      stars,
     ),
     halfHint,
     feedback,
@@ -85,7 +112,8 @@ export function reportFields(s: Strings, statuses: readonly string[], onChange?:
       picked.clear();
       levels = [];
       feedback.value = '';
-      [...chips, ...energyButtons].forEach((b) => toggle(b, false));
+      chips.forEach((b) => toggle(b, false));
+      showLevels();
     },
     setValue(value) {
       picked.clear();

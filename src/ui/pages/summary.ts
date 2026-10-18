@@ -1,10 +1,8 @@
 // Activity summary (menu → "Show activity summary", R-UI-MENU-3): today, this week per day vs budgets, the last 20
-// weeks, recent reports; days and weeks as timelines (D-80). Read-only; refreshes itself every minute while open.
+// weeks; days and weeks as timelines (D-80). Reports live in Manage Reports (D-83). Read-only; refreshes itself every minute while open.
 import { api, boot, closeOnEscape, el, fill, topBar, windowId } from './page.ts';
 import { dayLabel, hm, timeLabel } from './format.ts';
-import type { ReportView } from '../../reports/reports.ts';
 import type { TimelineView } from '../../timeline/timeline.ts';
-import { reportHead } from './report-card.ts';
 import { timeline } from './timeline.ts';
 
 interface DayRow {
@@ -27,7 +25,6 @@ interface Summary {
   };
   week: { start: string; workedSeconds: number; budgetSeconds: number | null; tokensUsed: number; bypassesUsed: number; timeline: TimelineView; days: DayRow[] };
   weeks: { start: string; workedSeconds: number; current: boolean; timeline: TimelineView }[];
-  reports: ReportView[];
   activeNotes: number;
 }
 
@@ -85,20 +82,13 @@ void boot<Summary | null>(({ strings: s, model }) => {
     const weeks = el('section', {},
       el('h2', {}, fill(s.summaryWeeks, { n: m.weeks.length })),
       el('div', { class: 'days' }, ...[...m.weeks].reverse().map((x) => el('div', { class: `day${x.current ? ' today' : ''}` },
-        el('span', { class: 'day-name' }, `${s.summaryWeekOf} ${dayLabel(x.start, { weekday: false })}`),
+        el('span', { class: 'day-name' }, x.start),
         timeline(x.timeline, s),
         el('span', { class: 'day-value' }, `${hm(x.workedSeconds)}${x.current ? ` ${s.summaryThisWeek}` : ''}`),
       ))),
     );
 
-    const reports = el('section', {},
-      el('h2', {}, s.summaryReports!),
-      ...(m.reports.length ? m.reports.map((r) => el('div', { class: 'report-line' },
-        el('span', { class: 'muted' }, reportHead(r, s)),
-        el('span', {}, [...r.status, ...(r.energy !== null ? [`${s.energyShort} ${r.energy}/5`] : []), ...(r.feedback ? [`“${r.feedback}”`] : [])].join(' · ')),
-      )) : [el('p', { class: 'muted' }, s.summaryNoReports!)]),
-    );
-    main.replaceChildren(today, week, weeks, reports);
+    main.replaceChildren(today, week, weeks);
   }
 
   if (model) render(model);

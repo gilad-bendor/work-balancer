@@ -130,7 +130,8 @@ test('reports: Thursday to Sunday; fresh welcome is firm, Manage Reports has eve
   assert.deepEqual(s.model('reports').stubs.map((r: { day: string }) => r.day), ['2026-10-11', '2026-10-09', '2026-10-08']);
   assert.equal(s.action('reports', 'report-new', { energy: 3 }).ok, true, 'today can be reported before leaving a short day');
   assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /^Manage Reports \(2 days without a report\)$/);
-  assert.deepEqual(s.model('summary').reports.map((r: { day: string; energy: number }) => [r.day, r.energy]), [['2026-10-11', 3], ['2026-10-10', 4]]);
+  assert.deepEqual(s.model('reports').reports.map((r: { day: string; energy: number }) => [r.day, r.energy]), [['2026-10-11', 3], ['2026-10-10', 4]]);
+  assert.equal('reports' in s.model('summary'), false, 'reports live in Manage Reports only (D-83)');
   s.action('reports', 'close');
   s.request('reports');
   const reopened = s.beat({ closed: [{ id: 'reports', by: 'page', at: s.clock.now() }] }).find((c) => c.window?.id === 'reports')!;
@@ -536,7 +537,7 @@ test('morning review: none on Friday or Saturday; the rollover is written on the
   assert.deepEqual(s.beat(), []);
 });
 
-test('summary model: today, the week per day vs budgets, 20 weeks, recent reports, timelines', async (t) => {
+test('summary model: today, the week per day vs budgets, 20 weeks, timelines', async (t) => {
   const T = local(2026, 10, 13, 12, 0); // Tuesday
   const s = await setup(T, {
     seed: (store, clock) => {
@@ -574,7 +575,7 @@ test('summary model: today, the week per day vs budgets, 20 weeks, recent report
   assert.deepEqual(m.weeks.slice(-4).map((w: any) => [w.start, w.workedSeconds, w.current]), [
     ['2026-09-20', 0, false], ['2026-09-27', 0, false], ['2026-10-04', 64 * 60, false], ['2026-10-11', 64 * 60, true],
   ]);
-  assert.deepEqual(m.reports.map((f: any) => [f.timestamp, f.stage, f.status, f.energy]), [['2026-10-12 09:00', 'morning', ['Productive'], 3]]);
+  assert.equal(m.reports, undefined, 'reports live in Manage Reports only (D-83)');
   // Timelines (D-80): each covers its 04:00-bounded day without holes; Active time = worked time.
   const states = (v: any): Record<string, number> => {
     const out: Record<string, number> = {};

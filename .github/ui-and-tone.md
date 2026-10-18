@@ -67,9 +67,10 @@ page.ts boot(): GET /api/ui/strings + GET /api/ui/model?win= → render; actions
 - The dev instance adds a `DEV` badge (`body.env-dev`). For a look inside a real `hs.webview` use
   `WorkBalancer.preview('http://127.0.0.1:47622/ui/<page>.html?token=…&win=…')` (it focuses the window so typing works).
 - Per-screen windows: only the primary instance (`primary=1`) shows inputs; the others show the message only.
-- **Shared page modules:** `report-fields.ts` (status chips, energy 1–5 — click = one level, ⌘-click a neighbour too =
+- **Shared page modules:** `report-fields.ts` (status chips with their icons, energy 1–5 + a read-only star preview — `energyStars` (D-83) — click = one level, ⌘-click a neighbour too =
   N + 0.5, an illegal ⌘-click blinks the hint (D-77) —, feedback text), `report-card.ts` (a report card
-with edit / dismiss / bring back; a stub card for a recent day without a report; the catch-up form with its stage
+with edit / dismiss / bring back; D-83: the one-line `reportRow` / `stubRow` of Manage Reports (columns shared by a subgrid on `.reports.compact`) — icons for parts of the day and
+statuses from `strings.ts` `icon_*`, `energyStars` 5 yellow/grey stars with halves; a stub card for a recent day without a report; the catch-up form with its stage
 picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday report, countdown / block),
 `notes-view.ts`
   (a note card with edit / dismiss / bring back), `format.ts` (`hm`, `dayLabel`, `timeLabel`), `timeline.ts` (D-80: a
@@ -93,9 +94,9 @@ picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday re
 
 | Window id | Opened by | Mode / size | Page | Notes |
 |---|---|---|---|---|
-| `reports` | menu *Manage Reports*; otherwise one gentle older catch-up on a Sun–Thu day **without** a morning review (on review days the review's catch-up button replaces it, D-75) | floating, 90 %, closable | `reports` | a new report now (stage by time of day); every report newest first (max `reports.listMax`) with Edit / Dismiss; a stub per recent day without one (`reports.stubDays`), today/yesterday emphasised, with *Add report for this day* (pick a stage) / *Skip this day…*; reports dismissed here show *Bring back* until the window closes |
+| `reports` | menu *Manage Reports*; otherwise one gentle older catch-up on a Sun–Thu day **without** a morning review (on review days the review's catch-up button replaces it, D-75) | floating, 90 %, closable | `reports` | a new report now (stage by time of day); every report newest first (max `reports.listMax`) as a compact row (D-83) with ✏️ Edit / 🗑️ Dismiss; a stub per recent day without one (`reports.stubDays`), today/yesterday emphasised, with *Add report for this day* (pick a stage) / *Skip this day…*; reports dismissed here show *Bring back* until the window closes |
 | `notes` | menu *Manage Notes* | floating, focus, 90 % | `notes` | the new-note box first (focused: parking a thought = open + type); waiting first, then dismissed; add / edit / dismiss / bring back |
-| `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; "This week": a timeline per day (04:00-bounded) + a whole-week timeline (D-80); "Last 20 weeks" as week timelines, newest first, via `src/daemon/history.ts` (D-81, D-82) |
+| `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; "This week": a timeline per day (04:00-bounded) + a whole-week timeline (D-80); "Last 20 weeks" as week timelines, newest first, labelled `YYYY-MM-DD`, via `src/daemon/history.ts` (D-81…D-83); no reports section (D-83) |
 | `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
 | `review` | **every** `morningReview` day (Sun–Thu), from the day's `day.rollover` — whatever yesterday left behind (D-75) | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; yesterday a workday without an end-of-workday report → an optional "How did yesterday end?" form first (action `report-end-of-day`, timed at the day's `endOfWorkdayAt`; once saved it stays shown, editable, D-76); waiting notes (none: "a clean start", no intro); "Let's start this day!" or ✕ = done for today |
 | `review:fresh` | yesterday without a report at the day's rollover, Sun–Thu, fresh active/unlocked sensors | **overlay, full, per screen**, focused, not closable | `review` | a catch-up report for yesterday (stage picker) or a confirmed skip before Continue; budget block has priority; existing notes follow |

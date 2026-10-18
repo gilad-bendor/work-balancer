@@ -110,7 +110,7 @@ export function registerProductEffects(d: ProductDeps): void {
       return {
         today: dayKey(now),
         reports: reports.list().slice(0, c?.listMax ?? 1000).map(reportView),
-        stubs: reports.missing(now),
+        stubs: reports.missing(now, { all: true }),
         statuses: c?.statuses ?? [],
         stages: REPORT_STAGES,
         preferredDay: manual ? null : olderMissing(now)[0]?.day ?? null,

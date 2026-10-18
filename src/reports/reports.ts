@@ -163,8 +163,9 @@ export interface Reports {
   get(id: number): Report | null;
   /** Not dismissed reports of one day, newest first. */
   ofDay(day: DayKey): Report[];
-  /** Recent days (newest first) without a report: the last `stubDays` days, not before `startDay`. */
-  missing(now: number): ReportStub[];
+  /** Recent days (newest first) without a report: the last `stubDays` days — or, with `all`, every day (Manage
+   * Reports, D-84) — never before `startDay`. */
+  missing(now: number, opts?: { all?: boolean }): ReportStub[];
   /** Yesterday has no report (the morning welcome asks for it). */
   freshDue(now: number): boolean;
   /** The day has a (non-dismissed) end-of-workday report, or was deliberately skipped. */
@@ -175,6 +176,9 @@ export interface Reports {
    * `report-end-of-day` requires it). */
   action(action: string, payload: unknown, now: number, opts: { source: ReportSource; days?: (day: DayKey) => boolean }): ActionResult;
 }
+
+/** `missing({ all })` safety bound (≈ 10 years), whatever `startDay` says. */
+const ALL_DAYS_CAP = 3660;
 
 export function createReports(d: { store: Store; config: () => PolicyConfig | null }): Reports {
   const reports = new Map<number, Report>();
@@ -207,13 +211,13 @@ export function createReports(d: { store: Store; config: () => PolicyConfig | nu
   const ofDay = (day: DayKey): Report[] => list().filter((r) => r.day === day);
   const hasEndOfDay = (day: DayKey): boolean => ofDay(day).some((r) => r.stage === 'end-of-workday' || isSkipReport(r));
 
-  function missing(now: number): ReportStub[] {
+  function missing(now: number, opts: { all?: boolean } = {}): ReportStub[] {
     const c = cfg();
     if (!c?.startDay) return [];
     const today = dayKey(now);
     const covered = new Set(list().map((r) => r.day));
     const out: ReportStub[] = [];
-    for (let i = 0; i < c.stubDays; i++) {
+    for (let i = 0; i < (opts.all ? ALL_DAYS_CAP : c.stubDays); i++) {
       const day = addDays(today, -i);
       if (day < c.startDay) break;
       if (!covered.has(day)) out.push({ day, weekday: weekday(day), daysAgo: i });
@@ -239,8 +243,9 @@ export function createReports(d: { store: Store; config: () => PolicyConfig | nu
       const c = cfg();
       if (!c) return { ok: false, error: 'unavailable' };
       const p = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+      // Any day without a report (Manage Reports lists them all, D-84); the welcome / review narrow it with `days`.
       const stub = (): ReportStub | null => {
-        const s = missing(now).find((x) => x.day === p.day) ?? null;
+        const s = missing(now, { all: true }).find((x) => x.day === p.day) ?? null;
         return s && (opts.days?.(s.day) ?? true) ? s : null;
       };
       const existing = (): Report | null => (isId(p.id) ? reports.get(p.id) ?? null : null);

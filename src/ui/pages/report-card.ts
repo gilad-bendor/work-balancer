@@ -1,8 +1,10 @@
-// Report cards (Manage Reports, the welcome, the summary): a report with its timestamp and stage; a "stub" for a recent
-// day without a report (add one for that day — picking a stage, not a time — or skip the day); the skip confirmation.
+// Report cards (the welcome, countdown/block) and compact report rows (Manage Reports, D-83): a report with its
+// timestamp and stage; a "stub" for a recent day without a report (add one for that day — picking a stage, not a time —
+// or skip the day); the skip confirmation.
 import type { ReportStub, ReportView } from '../../reports/reports.ts';
 import { act, el, fill, submitOnCmdEnter } from './page.ts';
-import { reportFields, type ReportValue } from './report-fields.ts';
+import { energyStars, reportFields, statusIcon, type ReportValue } from './report-fields.ts';
+
 
 type Strings = Record<string, string>;
 
@@ -110,6 +112,99 @@ export function reportCard(r: ReportView, s: Strings, statuses: readonly string[
   return card;
 }
 
+// Compact rows (Manage Reports, owner 2026-10-18, D-83): one report per line on an invisible grid —
+//   | timestamp + part-of-day icon - status icons | feedback (wraps) | energy stars · edit · dismiss |
+// Editing / adding opens the same forms as the cards, full width.
+
+const icon = (glyph: string | undefined, name: string): HTMLElement =>
+  glyph ? el('span', { class: 'r-icon', title: name, role: 'img', 'aria-label': name }, glyph) : el('span', { class: 'r-tag' }, name);
+
+const iconButton = (glyph: string, label: string, onClick: () => void): HTMLButtonElement => {
+  const b = el('button', { class: 'icon-btn', title: label, 'aria-label': label }, glyph);
+  b.addEventListener('click', onClick);
+  return b;
+};
+
+function rowHead(r: ReportView, s: Strings): HTMLElement {
+  const stage = r.stage ? [' ', icon(s[`icon_stage_${r.stage}`], stageLabel(r.stage, s))] : [];
+  const tags = r.status.length ? [el('span', { class: 'r-sep' }, '-'), ...r.status.map((c) => icon(statusIcon(s, c), c))] : [];
+  return el('div', { class: 'r-when' }, r.timestamp, ...stage, ...tags);
+}
+
+export function reportRow(r: ReportView, s: Strings, statuses: readonly string[], h: ReportHandlers): HTMLElement {
+  const row = el('article', { class: `report-row${r.dismissed ? ' dismissed' : ''}${r.skip ? ' skip' : ''}`, 'data-row-day': r.day });
+  const view = (): void => {
+    row.classList.remove('editing');
+    const actions: HTMLElement[] = [];
+    if (h.edit && !r.dismissed) actions.push(iconButton('✏️', s.edit!, editMode));
+    if (h.dismiss && !r.dismissed) actions.push(iconButton('🗑️', s.dismiss!, () => h.dismiss!(r.id)));
+    if (h.undismiss && r.dismissed) actions.push(iconButton('↩️', s.undismiss!, () => h.undismiss!(r.id)));
+    row.replaceChildren(
+      rowHead(r, s),
+      el('div', { class: 'r-text' }, ...(r.skip ? [el('span', { class: 'muted' }, s.reportSkipped!)] : r.feedback ? [r.feedback] : [])),
+      el('div', { class: 'r-side' }, energyStars(r.energy, s), el('span', { class: 'r-actions' }, ...actions)),
+    );
+  };
+  const editMode = (): void => {
+    const fields = reportFields(s, statuses);
+    fields.setValue(r);
+    const save = el('button', { class: 'primary' }, s.save!);
+    const cancel = el('button', {}, s.cancel!);
+    const msg = el('p', { class: 'msg', role: 'status' });
+    const editor = el('div', { class: 'report-editor', 'data-draft': '1' }, fields.root, msg);
+    row.classList.add('editing');
+    row.replaceChildren(el('div', { class: 'report-head muted' }, reportHead(r, s)), editor, el('div', { class: 'row end' }, cancel, save));
+    cancel.addEventListener('click', view);
+    editor.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.isComposing) {
+        e.preventDefault();
+        e.stopPropagation();
+        view();
+      }
+    });
+    const submit = (): void => {
+      if (save.disabled) return;
+      if (fields.isEmpty()) { msg.textContent = s.nothingToSave!; return; }
+      save.disabled = true;
+      void h.edit!(r.id, fields.value()).then((ok) => { if (!ok) save.disabled = false; });
+    };
+    save.addEventListener('click', submit);
+    submitOnCmdEnter(fields.feedback, submit);
+    fields.feedback.focus();
+  };
+  view();
+  return row;
+}
+
+/** A recent day without a report, as a compact row; today and yesterday are emphasised. */
+export function stubRow(stub: ReportStub, s: Strings, statuses: readonly string[], stages: readonly string[], onChanged: () => void): HTMLElement {
+  const row = el('article', { class: `report-row stub${stub.daysAgo <= 1 ? ' fresh' : ''}`, 'data-day': stub.day, 'data-row-day': stub.day });
+  const msg = el('span', { class: 'msg', role: 'status' });
+  const view = (): void => {
+    row.classList.remove('editing');
+    // The same icons, in the same column, as a report's edit / dismiss (owner 2026-10-18); names in the tooltips.
+    const add = iconButton('✏️', s.reportStubAdd!, () => {
+      row.classList.add('editing');
+      row.replaceChildren(el('div', { class: 'report-head' }, dayHeading(stub.day, stub.daysAgo, s)),
+        catchUpForm(stub, s, statuses, stages, { onSaved: onChanged, onCancel: view }));
+    });
+    const skip = iconButton('🗑️', s.reportSkip!, () => {
+      skip.disabled = true;
+      confirmSkip(stub, s, row, (skipped) => {
+        if (skipped) onChanged();
+        else { skip.disabled = false; msg.textContent = ''; }
+      });
+    });
+    row.replaceChildren(
+      el('div', { class: 'r-when' }, stub.day),
+      el('div', { class: 'r-text muted' }, msg),
+      el('div', { class: 'r-side' }, energyStars(null, s, { empty: true }), el('span', { class: 'r-actions' }, add, skip)),
+    );
+  };
+  view();
+  return row;
+}
+
 /** Two steps, the confirm enabled after the daemon's delay (0.8 s for today/yesterday): a skip is never a reflex. */
 export function confirmSkip(stub: ReportStub, s: Strings, host: HTMLElement, done: (skipped: boolean) => void): void {
   const fail = (): void => done(false);
@@ -198,28 +293,4 @@ export function catchUpForm(stub: ReportStub, s: Strings, statuses: readonly str
     fields.root, msg, el('div', { class: 'row end' }, ...buttons, save),
   );
   return root;
-}
-
-/** A recent day without a report; today and yesterday are emphasised. */
-export function stubCard(stub: ReportStub, s: Strings, statuses: readonly string[], stages: readonly string[], onChanged: () => void): HTMLElement {
-  const card = el('article', { class: `report stub${stub.daysAgo <= 1 ? ' fresh' : ''}`, 'data-day': stub.day });
-  const head = el('div', { class: 'report-head' }, dayHeading(stub.day, stub.daysAgo, s));
-  const msg = el('p', { class: 'msg', role: 'status' });
-  const view = (): void => {
-    const add = el('button', { class: 'primary' }, s.reportStubAdd!);
-    const skip = el('button', {}, s.reportSkip!);
-    add.addEventListener('click', () => {
-      card.replaceChildren(head, catchUpForm(stub, s, statuses, stages, { onSaved: onChanged, onCancel: view }));
-    });
-    skip.addEventListener('click', () => {
-      skip.disabled = true;
-      confirmSkip(stub, s, card, (skipped) => {
-        if (skipped) onChanged();
-        else { skip.disabled = false; msg.textContent = ''; }
-      });
-    });
-    card.replaceChildren(head, el('p', { class: 'muted' }, s.reportStub!), msg, el('div', { class: 'row' }, add, skip));
-  };
-  view();
-  return card;
 }
