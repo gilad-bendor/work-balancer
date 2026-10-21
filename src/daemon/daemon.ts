@@ -36,7 +36,8 @@ export interface DaemonInfo {
 
 /** What M4+ plug in: ingest sensor samples, tick, and describe the status for the menubar / API. */
 export interface Tracker {
-  ingest(samples: SensorSamples, receivedAt: number): void;
+  /** `panic`: this heartbeat's Lua panic latch (the effects manager learns it only after the ingest). */
+  ingest(samples: SensorSamples, receivedAt: number, opts?: { panic?: boolean }): void;
   tick(now: number): void;
   menubar(now: number): MenubarSpec;
   status(now: number): unknown;
@@ -177,7 +178,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon | null> {
           if (expired) lastLoggedPanicAt = hb.ui.panicAt; // this latch is fully accounted for
           panicLatched = luaPanic;
           try {
-            tracker?.ingest(shiftSamples(hb.samples, clock.offsetMs), now);
+            tracker?.ingest(shiftSamples(hb.samples, clock.offsetMs), now, { panic: luaPanic });
           } catch (e) {
             log.error('ingest failed', { error: e as Error });
           }

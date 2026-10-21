@@ -28,8 +28,9 @@ test('buildSegments: precedence, base fill, merging, clipping', () => {
   assert.deepEqual(buildSegments(10, 10, [], 'X'), []);
 });
 
-test('blockedIntervals: until the next transition out, at most until 04:00, minus grants', () => {
+test('blockedIntervals: until the next transition out, at most until 04:00, minus grants (minutes of work, D-86)', () => {
   const t = local(2026, 10, 18, 15, 0);
+  const busy = [[t, t + 6 * 60 * MIN]] as const; // working non-stop
   const records = [
     rec('policy.transition', t, { from: 'countdown', to: 'blocked' }),
     rec('token.used', t + 30 * MIN, { minutes: 10, until: t + 40 * MIN }),
@@ -38,14 +39,23 @@ test('blockedIntervals: until the next transition out, at most until 04:00, minu
     rec('policy.transition', t + 120 * MIN, { from: 'blocked', to: 'ok' }),
     rec('policy.transition', t + 180 * MIN, { from: 'ok', to: 'blocked' }),
   ];
-  assert.deepEqual(blockedIntervals(records, endOf), [
+  assert.deepEqual(blockedIntervals(records, endOf, busy), [
     [t, t + 30 * MIN], [t + 40 * MIN, t + 120 * MIN], [t + 180 * MIN, local(2026, 10, 19, 4, 0)],
   ]);
+  // Away for 20 min after 2 min of the token: it lasts until 8 more minutes of work are done.
+  const away = [[t, t + 32 * MIN], [t + 52 * MIN, t + 6 * 60 * MIN]] as const;
+  assert.deepEqual(blockedIntervals(records.slice(0, 2), endOf, away), [[t, t + 30 * MIN], [t + 60 * MIN, local(2026, 10, 19, 4, 0)]]);
   // A block without a later record ends at its day's 04:00, not at the next day's records.
   const next = local(2026, 10, 19, 10, 0);
-  assert.deepEqual(blockedIntervals([rec('policy.transition', t, { to: 'blocked' }), rec('policy.transition', next, { from: 'ok', to: 'orange' })], endOf),
+  assert.deepEqual(blockedIntervals([rec('policy.transition', t, { to: 'blocked' }), rec('policy.transition', next, { from: 'ok', to: 'orange' })], endOf, busy),
     [[t, local(2026, 10, 19, 4, 0)]]);
-  assert.deepEqual(blockedIntervals([], endOf), []);
+  assert.deepEqual(blockedIntervals([], endOf, busy), []);
+  // Borrowed time ended early (D-85): blocked again from that moment.
+  assert.deepEqual(blockedIntervals([
+    rec('policy.transition', t, { to: 'blocked' }),
+    rec('bypass.used', t + 10 * MIN, { minutes: 30, until: t + 40 * MIN }),
+    rec('grant.ended', t + 15 * MIN, { until: t + 40 * MIN }),
+  ], endOf, busy), [[t, t + 10 * MIN], [t + 15 * MIN, local(2026, 10, 19, 4, 0)]]);
 });
 
 test('workTimeline: Future > Active > Blocked > Inactive; styles in order; optional mark', () => {

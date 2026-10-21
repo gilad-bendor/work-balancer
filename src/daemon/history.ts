@@ -34,7 +34,7 @@ export interface History {
 
 const RAW_LINE = (line: string): boolean =>
   line.includes('"type":"minute"') || line.includes('"type":"system"') || line.includes('"type":"inactivity.resolved"') || line.includes('"type":"monitor.gap"') || line.includes('"windowId":"review:fresh"')
-  || line.includes('"type":"policy.transition"') || line.includes('"type":"token.used"') || line.includes('"type":"bypass.used"');
+  || line.includes('"type":"policy.transition"') || line.includes('"type":"token.used"') || line.includes('"type":"bypass.used"') || line.includes('"type":"grant.ended"');
 
 export function createHistory(deps: { store: Store; log: Logger; now: () => number; graceMs: () => number }): History {
   const cache = new Map<DayKey, { grace: number; detail: DayDetail }>();
@@ -50,7 +50,11 @@ export function createHistory(deps: { store: Store; log: Logger; now: () => numb
       inputActivity: (a, b) => interactive.workSource.activity!(a, b),
     });
     prompts.load(records);
-    const credits = creditsFromRecords(records, deps.graceMs);
+    const unmonitored = records.filter((r) => r.type === 'monitor.gap' && typeof r.from === 'number' && typeof r.to === 'number').map((r) => [r.from as number, r.to as number] as const);
+    const credits = creditsFromRecords(records, deps.graceMs, {
+      activity: (a, b) => [...interactive.workSource.activity!(a, b), ...prompts.workSource.activity!(a, b)].sort((x, y) => x[0] - y[0] || x[1] - y[1]),
+      unseen: (t) => unmonitored.some(([a, b]) => t >= a && t < b),
+    });
     // Once per pass: the records never change here, and re-scanning them for every input run is quadratic (review).
     const reported = reportPeriods(records, now(), (at) => interactive.coveredUntil(at, 15_000));
     const periods = () => reported;
@@ -59,7 +63,7 @@ export function createHistory(deps: { store: Store; log: Logger; now: () => numb
       sources: () => [withoutReportWork(interactive.workSource, periods, version), withoutReportWork(prompts.workSource, periods, version), withoutReportWork(credits, periods, version), reportWorkSource(periods, version)],
       graceMs: deps.graceMs, now,
     });
-    const blocked = blockedIntervals(records, (ts) => dayEnd(dayKey(ts)));
+    const blocked = blockedIntervals(records, (ts) => dayEnd(dayKey(ts)), work.busy(dayStart(from), dayEnd(to)));
     return new Map(dayKeysBetween(from, to).map((k) => {
       const busy = work.busy(dayStart(k), dayEnd(k));
       return [k, {

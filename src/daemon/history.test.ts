@@ -40,6 +40,10 @@ test('days(): worked intervals, blocked time (minus a token) and app categories 
   store.append({ type: 'policy.transition', from: 'countdown', to: 'blocked' });
   clock.set(b + 60 * 60_000);
   store.append({ type: 'token.used', minutes: 10, until: b + 70 * 60_000 });
+  clock.set(b + 80 * 60_000);
+  store.append({ type: 'bypass.used', minutes: 30, until: b + 110 * 60_000, reason: 'synthetic' });
+  clock.set(b + 85 * 60_000);
+  store.append({ type: 'grant.ended', until: b + 110 * 60_000 }); // D-85: the borrowed time ended early
   clock.set(local(2026, 10, 14, 12, 0));
   const history = createHistory({ store, log: silentLogger, now: clock.now, graceMs: () => 300_000 });
   const d = history.days('2026-10-10', '2026-10-11');
@@ -47,7 +51,8 @@ test('days(): worked intervals, blocked time (minus a token) and app categories 
   const sun = d.get('2026-10-11')!;
   assert.equal(sun.seconds, 14 * 60);
   assert.deepEqual(sun.busy, [[local(2026, 10, 11, 10, 0), local(2026, 10, 11, 10, 14)]]);
-  assert.deepEqual(sun.blocked, [[b, b + 60 * 60_000], [b + 70 * 60_000, local(2026, 10, 12, 4, 0)]]);
+  // No work after 10:14: the token was never used up (minutes of work, D-86) — the borrowed time ran until its end.
+  assert.deepEqual(sun.blocked, [[b, b + 60 * 60_000], [b + 85 * 60_000, local(2026, 10, 12, 4, 0)]]);
   assert.deepEqual(sun.categories, [{ state: 'WhatsApp', intervals: [[local(2026, 10, 11, 10, 0), local(2026, 10, 11, 10, 2)]] }]);
   assert.equal(history.daySeconds('2026-10-11', '2026-10-11').get('2026-10-11'), 14 * 60, 'cached, same answer');
 });

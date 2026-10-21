@@ -4,7 +4,7 @@
 // otherwise it keeps its minutes (and drifts left). The two presets (back / whole) submit at once (D-68); the slider
 // enables Submit once touched. Inputs on the primary screen only.
 import { act, api, boot, el, isPrimary, windowId } from './page.ts';
-import { duration, timeLabel } from './format.ts';
+import { duration, whenLabel } from './format.ts';
 
 interface Gap {
   gapId: string;
@@ -56,7 +56,7 @@ void boot<Model | null>(({ strings: s, model }) => {
 
   function update(): void {
     if (!gap) return;
-    since.textContent = `${s.inactAway} ${timeLabel(gap.from)}${gap.to !== null ? ` – ${timeLabel(gap.to)}` : ''} · `;
+    since.textContent = `${s.inactAway} ${whenLabel(gap.from, now())}${gap.to !== null ? ` – ${whenLabel(gap.to, now())}` : ''} · `;
     since.append(timer);
     timer.textContent = clock(end() - gap.from);
     const max = maxMin();

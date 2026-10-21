@@ -9,7 +9,10 @@ import { parkPanel, type ParkPanel } from './park.ts';
 import type { ReportValue } from './report-fields.ts';
 
 interface Model {
+  now?: number;
   remainingSeconds: number | null;
+  /** Early, during a token / the bypass: worked seconds of borrowed time left (Save ends it now). */
+  grantLeftSeconds?: number | null;
   reportStatuses: string[];
   draft: string;
   reportDraft?: ReportValue | null;
@@ -24,9 +27,14 @@ const minutesLeft = (m: Model | null): number => Math.max(0, Math.ceil((m?.remai
 void boot<Model | null>(({ strings: s, model }) => {
   focusOnInteract();
   const title = el('h1', {});
+  const intro = el('p', { class: 'muted' });
   const show = (m: Model | null): void => {
     const n = minutesLeft(m);
-    title.textContent = early ? s.countdownEarlyTitle! : pill ? fill(s.countdownPill, { n }) : n > 0 ? fill(s.countdownTitle, { n }) : s.countdownDone!;
+    const grant = early && typeof m?.grantLeftSeconds === 'number';
+    const grantMin = grant ? Math.max(0, Math.ceil(m!.grantLeftSeconds! / 60)) : 0;
+    title.textContent = grant ? fill(s.countdownGrantTitle, { n: grantMin })
+      : early ? s.countdownEarlyTitle! : pill ? fill(s.countdownPill, { n }) : n > 0 ? fill(s.countdownTitle, { n }) : s.countdownDone!;
+    intro.textContent = grant ? s.countdownGrantIntro! : early ? s.countdownEarlyIntro! : s.countdownIntro!;
   };
   let park: ParkPanel | null = null;
   const toggle = (action: 'collapse' | 'expand') => async (): Promise<void> => {
@@ -56,7 +64,7 @@ void boot<Model | null>(({ strings: s, model }) => {
     document.body.classList.add('scroll');
     document.body.replaceChildren(el('main', { class: 'card' },
       el('div', { class: 'row between' }, title, ...(early ? [] : [small])),
-      el('p', { class: 'muted' }, early ? s.countdownEarlyIntro! : s.countdownIntro!),
+      intro,
       park.root,
     ));
     if (early) box.focus();

@@ -148,8 +148,10 @@ export interface Enforcement {
   effects: Effect[];
 }
 
-/** Early End-Of-Day is offered on an enforcing day before the countdown (afterwards the countdown / block is there). */
-export const canEndEarly = (st: PolicyState | null): boolean => st?.enforcing === true && st.level !== 'countdown' && st.level !== 'blocked';
+/** Early End-Of-Day is offered on an enforcing day before the countdown (afterwards the countdown / block is there) —
+ * and while a token or the bypass lifts the block: then its Save ends the borrowed time and the block returns. */
+export const canEndEarly = (st: PolicyState | null): boolean =>
+  st?.enforcing === true && (st.level === 'blocked' ? st.grant !== null : st.level !== 'countdown');
 
 export function createEnforcement(d: EnforcementDeps): Enforcement {
   /** Note text and report fields typed in the countdown, kept across its pill ⇄ full rebuilds and carried
@@ -262,7 +264,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
       if (!st) return null;
       return {
         now, remainingSeconds: st.remainingSeconds, workedSeconds: st.workedSeconds, limitSeconds: st.limitSeconds,
-        early: st.level !== 'countdown', collapsed, reportStatuses: d.config()?.reports.statuses ?? [], draft: draftText(now),
+        early: st.level !== 'countdown', grantLeftSeconds: st.grant?.leftSeconds ?? null, collapsed, reportStatuses: d.config()?.reports.statuses ?? [], draft: draftText(now),
         reportDraft: reportDraft(now), recorded: recorded(now),
       };
     },
@@ -284,10 +286,18 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
         // click forfeits nothing. Early End-Of-Day is the same dialog, opened sooner.
         const r = save('countdown', payload, now);
         if (!r.ok || !st?.enforcing || (st.level !== 'countdown' && !isEarly)) return r;
-        const remainingSeconds = Math.round(st.remainingSeconds ?? 0);
-        const by = st.level === 'countdown' ? 'countdown' : 'early';
-        if (!d.store.append({ type: 'budget.forfeited', remainingSeconds, by })) return { ...r, forfeited: false };
-        d.log.info('budget forfeited', { by, remainingSeconds });
+        if (st.level !== 'blocked') {
+          const remainingSeconds = Math.round(st.remainingSeconds ?? 0);
+          const by = st.level === 'countdown' ? 'countdown' : 'early';
+          if (!d.store.append({ type: 'budget.forfeited', remainingSeconds, by })) return { ...r, forfeited: false };
+          d.log.info('budget forfeited', { by, remainingSeconds });
+        }
+        // Borrowed time still running (D-85; also below `blocked` after a config edit released the latch): Save ends
+        // it too, so the screen rests at once as the dialog promises.
+        if (st.grant) {
+          if (!d.store.append({ type: 'grant.ended', until: grantUntil(st.grant.leftSeconds, now, 0) })) return { ...r, forfeited: false };
+          d.log.info('grant ended early', { leftSeconds: Math.round(st.grant.leftSeconds) });
+        }
         early = null;
         return { ...r, forfeited: true };
       }
@@ -321,7 +331,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
       if (action === 'token') {
         const minutes = typeof p.minutes === 'number' ? p.minutes : NaN;
         if (!canUseToken(st, minutes)) return { ok: false, error: 'unavailable' };
-        const until = grantUntil(st.grant?.until ?? null, now, minutes);
+        const until = grantUntil(st.grant?.leftSeconds ?? null, now, minutes);
         if (!d.store.append({ type: 'token.used', minutes, until })) return { ok: false, error: 'write' };
         d.log.info('token used', { minutes, until: new Date(until).toISOString() });
         return { ok: true, close: true, until };
@@ -331,7 +341,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
         if (!phraseMatches(p.phrase, c.bypass.phrase)) return { ok: false, error: 'phrase' };
         const reason = cleanText(p.reason).slice(0, MAX_REASON);
         if (reason.length < MIN_REASON) return { ok: false, error: 'reason' };
-        const until = grantUntil(st.grant?.until ?? null, now, c.bypass.minutes);
+        const until = grantUntil(st.grant?.leftSeconds ?? null, now, c.bypass.minutes);
         if (!d.store.append({ type: 'bypass.used', minutes: c.bypass.minutes, until, reason })) return { ok: false, error: 'write' };
         d.log.info('emergency bypass used', { minutes: c.bypass.minutes, until: new Date(until).toISOString() });
         return { ok: true, close: true, until };

@@ -12,17 +12,18 @@ import { local, makeTmpDir } from '../testing/tmp.ts';
 import { createEffectsManager } from '../effects/manager.ts';
 import { DEFAULT_QUIET } from '../effects/reconcile.ts';
 import type { SensorSamples } from '../bridge/protocol.ts';
-import { creditedMinutesFor, creditOf, PREWARN_WAIT_MS } from './inactivity.ts';
+import { creditedMinutesFor, creditOf, creditsFromRecords, PREWARN_WAIT_MS } from './inactivity.ts';
+import type { Interval } from '../core/intervals.ts';
 import { testPolicy } from '../testing/config.ts';
 
 const S = 1000;
 const MIN = 60_000;
 
-async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string } = {}) {
+async function setup(start: number, opts: { env?: 'dev' | 'live'; dir?: string; reportsStartDay?: string } = {}) {
   const tmp = opts.dir ? { dir: opts.dir, cleanup() {} } : makeTmpDir('inactivity');
   const clock = fixedClock(start);
   const store = createStore({ dataDir: join(tmp.dir, 'data'), clock, log: silentLogger });
-  const policy = createPolicyLoader({ path: testPolicy(tmp.dir), snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
+  const policy = createPolicyLoader({ path: testPolicy(tmp.dir, { reportsStartDay: opts.reportsStartDay ?? null }), snapshotPath: join(tmp.dir, 'snap.json'), log: silentLogger });
   await policy.refresh();
   const env = opts.env ?? 'dev';
   const effects = createEffectsManager({
@@ -345,4 +346,94 @@ test('review M9c: no retro gap for a break behind the live gate / a block; a pro
   tracker.ingest({ inputs: [], apps: [], system: [], locked: false, since: wake + 2 * S }, clock.now());
   tracker.tick(clock.now());
   assert.equal(store.readDay('2026-10-06').filter((r) => r.type === 'inactivity.detected').length, 0);
+});
+
+test('D-87: back from a sensor outage of ≥ 10 min (Hammerspoon quit / ejected), he is asked about it; a shorter one is not', async (t) => {
+  const T = local(2026, 10, 6, 10, 0);
+  const s = await setup(T);
+  t.after(s.cleanup);
+  s.run(T + 2 * MIN, [T + 5 * S, T + MIN]);
+  // Ejected at 10:02, relaunched at 10:20 — Lua's first beat carries the key press that relaunched it.
+  const back = T + 20 * MIN - 2 * S;
+  s.clock.set(T + 20 * MIN);
+  s.feed({ since: s.clock.now() - 5 * S, inputs: [back] });
+  s.tracker.tick(s.clock.now());
+  assert.deepEqual(s.records('monitor.gap').map((r) => r.cause), ['hs-down']);
+  assert.deepEqual(s.records('inactivity.detected').map((r) => r.lastInputAt), [T + MIN]);
+  assert.deepEqual(s.desired().windows.map((w) => w.id), ['inactivity']);
+  const gap = s.model().gaps[0];
+  assert.equal(gap.to, back, 'ended by his return');
+  const before = (s.tracker.status(s.clock.now()) as any).workedSeconds;
+  assert.equal(s.action('resolve', { gapId: gap.gapId, choice: 'whole' }).json.close, true);
+  assert.equal(Math.round((s.tracker.status(s.clock.now()) as any).workedSeconds - before), Math.round((back - (T + 6 * MIN)) / S));
+  // Out for 8 minutes: not asked.
+  s.run(s.clock.now() + MIN, [s.clock.now() + 10 * S]);
+  s.clock.set(s.clock.now() + 8 * MIN);
+  s.feed({ since: s.clock.now() - 5 * S, inputs: [s.clock.now() - 2 * S] });
+  s.tracker.tick(s.clock.now());
+  assert.equal(s.records('monitor.gap').length, 2);
+  assert.equal(s.records('inactivity.detected').length, 1);
+  assert.deepEqual(s.desired().windows, []);
+
+  // Behind a panic (or a block, the closed gate) while the sensors were silent: nothing is dug up.
+  const p = await setup(T);
+  t.after(p.cleanup);
+  p.run(T + 2 * MIN, [T + MIN]);
+  const hb = (panic: boolean) => p.effects.heartbeat({ actual: { windows: {}, dimmed: false, closed: [] }, acks: [], panic, now: p.clock.now() });
+  hb(true);
+  for (let x = p.clock.now(); x < T + 20 * MIN; x += 5 * S) {
+    p.clock.set(x);
+    p.tracker.tick(x); // the daemon keeps ticking; Lua is silent
+  }
+  p.clock.set(T + 20 * MIN);
+  hb(false);
+  p.feed({ since: p.clock.now() - 5 * S, inputs: [p.clock.now() - 2 * S] });
+  p.tracker.tick(p.clock.now());
+  assert.equal(p.records('monitor.gap').length, 1);
+  assert.equal(p.records('inactivity.detected').length, 0);
+});
+
+test('owner 2026-10-21: Hammerspoon off through the night — first asked about yesterday evening, then the morning welcome', async (t) => {
+  const tue = local(2026, 10, 6, 19, 0);
+  const s = await setup(tue, { reportsStartDay: '2026-10-01' });
+  t.after(s.cleanup);
+  const last = tue + 14 * MIN;
+  s.run(tue + 15 * MIN, Array.from({ length: 28 }, (_, i) => tue + (i + 1) * 30 * S));
+  // Ejected at 19:15; relaunched on Wednesday at 10:00 — the key press is in Lua's first beat.
+  const wed = local(2026, 10, 7, 10, 0);
+  s.clock.set(wed);
+  s.feed({ since: wed - 5 * S, inputs: [wed - 2 * S] });
+  const ids = () => s.effects.desired(s.clock.now()).windows.map((w) => w.id);
+  assert.deepEqual(ids(), ['inactivity'], 'before the welcome, already in the reply to that first beat');
+  const gap = s.model().gaps[0];
+  assert.deepEqual([gap.from, gap.to], [last, local(2026, 10, 7, 4, 0)], 'yesterday evening, up to its 04:00');
+  s.tracker.tick(s.clock.now());
+  s.run(wed + MIN);
+  assert.deepEqual(ids(), ['inactivity'], 'not expired by the 04:00 rule: it was detected today');
+  const tuesday = () => (s.tracker.status(s.clock.now()) as any).week.find((d: any) => d.day === '2026-10-06').workedSeconds;
+  const before = tuesday();
+  assert.equal(s.action('resolve', { gapId: gap.gapId, choice: 'some', minutes: 30 }).json.close, true);
+  assert.ok(s.store.readDay('2026-10-06').some((r) => r.type === 'inactivity.resolved' && r.creditedMinutes === 30), 'filed under Tuesday');
+  assert.equal(Math.round(tuesday() - before), 25 * 60, '30 min credited instead of the 5-min grace');
+  assert.deepEqual(ids(), ['review:fresh'], 'then the welcome');
+
+  // Tuesday ended under the block (a reboot since: nothing in memory) — that evening is not dug up.
+  const b = await setup(tue, { reportsStartDay: '2026-10-01' });
+  t.after(b.cleanup);
+  b.store.append({ type: 'policy.transition', ts: tue + MIN, from: 'countdown', to: 'blocked' });
+  b.run(tue + 15 * MIN, Array.from({ length: 28 }, (_, i) => tue + (i + 1) * 30 * S));
+  b.clock.set(wed);
+  b.feed({ since: wed - 5 * S, inputs: [wed - 2 * S] });
+  assert.equal(b.records('inactivity.detected').length, 0);
+  assert.deepEqual(b.effects.desired(b.clock.now()).windows.map((w) => w.id), ['review:fresh']);
+});
+
+test('D-87: activity no sensor saw (a prompt while Hammerspoon was off) is not cut by a gap', () => {
+  const rec = { v: 1, ts: 0, type: 'inactivity.resolved', gapId: 'g-0', from: 0, to: 60 * MIN, choice: 'back', creditedMinutes: 0 } as const;
+  assert.deepEqual(creditsFromRecords([rec], () => 5 * MIN).blocked!(0, 60 * MIN), [[5 * MIN, 60 * MIN]]);
+  const withPrompts = creditsFromRecords([rec], () => 5 * MIN, {
+    activity: (): Interval[] => [[20 * MIN, 20 * MIN], [30 * MIN, 30 * MIN]],
+    unseen: (at) => at < 25 * MIN, // inside a monitor gap; the one at 30 min was seen (e.g. a click on the dialog)
+  });
+  assert.deepEqual(withPrompts.blocked!(0, 60 * MIN), [[5 * MIN, 20 * MIN], [25 * MIN, 60 * MIN]]);
 });

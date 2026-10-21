@@ -20,6 +20,11 @@ export function timeLabel(ms: number): string {
   return timeFmt.format(new Date(ms));
 }
 
+/** A time, preceded by "Tue 20 Oct" when it is not on `now`'s calendar date. */
+export function whenLabel(ms: number, now: number): string {
+  return new Date(ms).toDateString() === new Date(now).toDateString() ? timeLabel(ms) : `${dayFmt.format(new Date(ms))} ${timeLabel(ms)}`;
+}
+
 /** A duration as "18 min" / "1 h 05 min" (floored to minutes). */
 export function duration(ms: number, s: { inactMin?: string; inactHour?: string }): string {
   const m = Math.floor(Math.max(0, ms) / 60_000);

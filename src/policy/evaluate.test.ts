@@ -2,7 +2,7 @@ process.env.TZ = 'Asia/Jerusalem';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import ownersPolicy from '../../config/policy.ts';
-import { canBypass, canUseToken, evaluate, grantUntil, ladderLevel, LEVELS, thresholds, type GrantRecord, type Level, type PolicyInput } from './evaluate.ts';
+import { canBypass, canUseToken, evaluate, grantSpans, grantUntil, ladderLevel, LEVELS, thresholds, type GrantRecord, type Level, type PolicyInput } from './evaluate.ts';
 import type { PolicyConfig } from './config.ts';
 import { dayEnd, dayStart, WEEKDAYS } from '../core/time.ts';
 import { local } from '../testing/tmp.ts';
@@ -75,26 +75,54 @@ test('postpone tokens: 1×10 + 2×5 per day; each slot once; unknown sizes consu
   assert.deepEqual(states, [[10, 5, 5], [5, 5], [5], [], [10, 5, 5]]);
 });
 
-test('grants compose (max(until, now) + minutes), lift the block while active, and the block returns at expiry (R-POL-3a)', () => {
+test('grants are minutes of work: they compose, lift the block while running, and the block returns when used up (R-POL-3a, D-86)', () => {
   const t0 = at(SUN, 18);
-  const u1 = grantUntil(null, t0, 10);
-  const u2 = grantUntil(u1, t0 + 5 * 60_000, 30); // bypass during a token
-  assert.equal(u1, t0 + 10 * 60_000);
-  assert.equal(u2, t0 + 40 * 60_000);
+  const M1 = 60_000;
   const grants: GrantRecord[] = [
-    { type: 'token.used', ts: t0, minutes: 10, until: u1 },
-    { type: 'bypass.used', ts: t0 + 5 * 60_000, minutes: 30, until: u2 },
+    { type: 'token.used', ts: t0, minutes: 10 },
+    { type: 'bypass.used', ts: t0 + 5 * M1, minutes: 30 }, // bypass during a token: 5 left + 30
   ];
-  const during = evaluate(input({ workedTodaySeconds: 9.5 * H, grants, now: t0 + 39 * 60_000 }));
-  assert.deepEqual([during.level, during.blockActive, during.grant?.until, during.bypassesUsed, during.tokensUsed], ['blocked', false, u2, 1, 1]);
-  const after = evaluate(input({ workedTodaySeconds: 9.6 * H, grants, now: u2 }));
+  const busy = [[t0, t0 + 60 * M1]] as const; // working non-stop
+  const during = evaluate(input({ workedTodaySeconds: 9.5 * H, grants, busy, now: t0 + 39 * M1 }));
+  assert.deepEqual([during.level, during.blockActive, during.grant?.leftSeconds, during.bypassesUsed, during.tokensUsed], ['blocked', false, 60, 1, 1]);
+  const after = evaluate(input({ workedTodaySeconds: 9.6 * H, grants, busy, now: t0 + 40 * M1 }));
   assert.deepEqual([after.blockActive, after.grant], [true, null]);
+  // Away from 18:02 to 18:32 (a 5-min grace, then nothing): the token is not used up meanwhile.
+  const away = [[t0, t0 + 2 * M1], [t0 + 32 * M1, t0 + 60 * M1]] as const;
+  const token = [grants[0]!];
+  assert.equal(evaluate(input({ workedTodaySeconds: 9.5 * H, grants: token, busy: away.slice(0, 1), now: t0 + 32 * M1 })).grant?.leftSeconds, 8 * 60);
+  const back = evaluate(input({ workedTodaySeconds: 9.5 * H, grants: token, busy: away, now: t0 + 39 * M1 }));
+  assert.deepEqual([back.blockActive, back.grant?.leftSeconds], [false, 60]);
+  assert.deepEqual(grantSpans(token, [], away, Infinity).spans, [[t0, t0 + 40 * M1]]);
+  assert.equal(evaluate(input({ workedTodaySeconds: 9.5 * H, grants: token, busy: away, now: t0 + 40 * M1 })).blockActive, true);
+  // `until` is informational (the end if he worked non-stop).
+  assert.equal(grantUntil(null, t0, 10), t0 + 10 * M1);
+  assert.equal(grantUntil(5 * 60, t0 + 5 * M1, 30), t0 + 40 * M1);
+});
+
+test('grant.ended cuts every running grant at that moment; a grant taken afterwards is unaffected', () => {
+  const t0 = at(SUN, 18);
+  const M1 = 60_000;
+  const grants: GrantRecord[] = [
+    { type: 'token.used', ts: t0, minutes: 10 },
+    { type: 'bypass.used', ts: t0 + 5 * M1, minutes: 30 },
+  ];
+  const busy = [[t0, t0 + 60 * M1]] as const;
+  const ended = t0 + 12 * M1;
+  const st = evaluate(input({ workedTodaySeconds: 9.5 * H, grants, grantEnds: [ended], busy, now: ended }));
+  assert.deepEqual([st.level, st.blockActive, st.grant, st.bypassesUsed, st.tokensLeft], ['blocked', true, null, 1, [5, 5]]);
+  assert.equal(evaluate(input({ workedTodaySeconds: 9.5 * H, grants, grantEnds: [ended], busy, now: ended - M1 })).grant?.leftSeconds, 29 * 60);
+  const later: GrantRecord = { type: 'token.used', ts: t0 + 20 * M1, minutes: 5 };
+  const again = evaluate(input({ workedTodaySeconds: 9.5 * H, grants: [...grants, later], grantEnds: [ended], busy, now: t0 + 21 * M1 }));
+  assert.deepEqual([again.blockActive, again.grant?.leftSeconds], [false, 4 * 60]);
+  assert.deepEqual(grantSpans(grants, [ended], busy, Infinity).spans, [[t0, ended]]);
 });
 
 test('grants are clipped to the next 04:00 — also on the 25 h fall-back day', () => {
   const sat = '2026-10-24'; // 25 h day (DST ends Sun 02:00)
   const lateNight = dayEnd(sat) - 10 * 60_000;
   assert.equal(grantUntil(null, lateNight, 30), dayEnd(sat));
+  assert.deepEqual(grantSpans([{ ts: lateNight, minutes: 30 }], [], [[lateNight, dayEnd(sat) + 3600_000]], Infinity).spans, [[lateNight, dayEnd(sat)]]);
   assert.equal(dayEnd(sat), local(2026, 10, 25, 4, 0));
   assert.equal(dayEnd(sat) - dayStart(sat), 25 * H * 1000);
 });
@@ -160,7 +188,7 @@ test('review M6#5/#6/#8: budget as reference on a non-enforcing day; corrupt or 
   assert.deepEqual([off.enforcing, off.referenceSeconds, off.colour], [false, 8.5 * H, 'red']);
   const t0 = at(SUN, 18);
   const corrupt = evaluate(input({ workedTodaySeconds: 10 * H, now: t0 + 60_000, grants: [{ type: 'token.used', ts: t0, minutes: 10, until: 9e15 }] }));
-  assert.equal(corrupt.grant?.until, dayEnd(SUN));
+  assert.equal(corrupt.grant?.leftSeconds, 10 * 60, 'a corrupt `until` is ignored');
   const yesterday = evaluate(input({ workedTodaySeconds: 10 * H, now: t0, grants: [{ type: 'bypass.used', ts: t0 - 24 * 3600_000, minutes: 30, until: t0 + 3600_000 }] }));
   assert.deepEqual([yesterday.grant, yesterday.blockActive, yesterday.bypassesUsed], [null, true, 0]);
   const satOn = { ...ownersPolicy, days: { ...ownersPolicy.days, sat: { ...ownersPolicy.days.sun } } } as PolicyConfig;

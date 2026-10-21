@@ -95,8 +95,7 @@ test('end-of-workday report in the block: saved with the note; independent token
   assert.deepEqual(s.model('block').recorded, []);
   assert.deepEqual(s.model('block').reportStatuses.slice(0, 2), ['Too much work', 'Feeling tired']);
   assert.equal(s.action('block', 'token', { minutes: 10 }).close, true, 'a missing report never prevents a token');
-  s.clock.advance(11 * MIN);
-  s.tracker.tick(s.clock.now());
+  s.work(s.clock.now() + 11 * MIN); // 10 min of work use it up (D-86)
   assert.ok(s.ids().includes('block'));
   const saved = s.action('block', 'save', { note: '', report: { status: ['Productive', 'Other'], feedback: '', energy: 3 } });
   assert.deepEqual([saved.ok, saved.note, saved.report], [true, 'none', 'saved']);
@@ -120,6 +119,9 @@ test('Early End-Of-Day: the countdown dialog from the menu — closable, focused
   t.after(dev.cleanup);
   dev.work(now + 30 * S);
   assert.ok(dev.tracker.menubar(dev.clock.now()).menu!.some((m) => m.id === 'countdown'));
+  // Nothing was sampling since 12:00 (a fresh start): he is asked about that hour first (D-87).
+  assert.deepEqual(dev.ids(), ['inactivity']);
+  assert.equal(dev.action('inactivity', 'resolve', { gapId: dev.model('inactivity').gaps[0].gapId, choice: 'back' }).close, true);
   assert.deepEqual(dev.ids(), []);
   // Panic: nothing to end early (its block could not show).
   dev.effects.heartbeat({ actual: { windows: {}, dimmed: false, closed: [] }, acks: [], panic: true, now: dev.clock.now() });
@@ -147,6 +149,76 @@ test('Early End-Of-Day: the countdown dialog from the menu — closable, focused
   assert.ok(!dev.tracker.menubar(dev.clock.now()).menu!.some((m) => m.id === 'countdown'), 'nothing left to end early');
   assert.equal(dev.call('POST', '/bridge/ui-request', { open: 'countdown' }).json.ok, true);
   assert.deepEqual(dev.ids(), ['block'], 'a late request opens nothing');
+});
+
+test('End-Of-Day during a token / the bypass: the same dialog ends the borrowed time; the block returns (D-85)', async (t) => {
+  const now = local(2026, 10, 6, 17, 1); // Tuesday, 9 h worked: blocked
+  const s = await setup(now, { seed: (store) => seedWork(store, local(2026, 10, 6, 8, 0), now) });
+  t.after(s.cleanup);
+  s.tracker.tick(now);
+  s.tracker.ingest({ since: now - 5000, inputs: [now], apps: [], system: [], locked: false }, now);
+  s.beat();
+  const menuItem = () => s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'countdown');
+  assert.deepEqual(s.ids(), ['block']);
+  assert.equal(menuItem(), undefined, 'blocked: the block itself has the report');
+  assert.equal(s.action('block', 'token', { minutes: 10 }).close, true);
+  s.clock.advance(2 * MIN);
+  s.tracker.tick(s.clock.now());
+  assert.deepEqual(s.ids(), []);
+  assert.equal(menuItem()?.title, 'End-Of-Day now — end the borrowed time…');
+  assert.equal(s.call('POST', '/bridge/ui-request', { open: 'countdown' }).json.ok, true);
+  assert.equal(s.win('countdown')!.path, '/ui/countdown.html?early=1');
+  assert.equal(s.model('countdown').grantLeftSeconds, 8 * 60, '2 of its 10 min of work used');
+  // Not now: closing keeps the borrowed time.
+  assert.equal(s.action('countdown', 'close').close, true);
+  assert.deepEqual(s.ids(), []);
+  s.call('POST', '/bridge/ui-request', { open: 'countdown' });
+  const saved = s.action('countdown', 'save', { note: '', report: { energy: 2 } });
+  assert.deepEqual([saved.ok, saved.report, saved.forfeited], [true, 'saved', true]);
+  assert.equal(s.records('grant.ended').length, 1);
+  assert.deepEqual(s.records('budget.forfeited'), []);
+  assert.deepEqual(s.ids(), ['block'], 'the block returns at once');
+  assert.deepEqual(s.model('block').recorded.map((r: any) => r.stage), ['end-of-workday']);
+  assert.equal(menuItem(), undefined);
+  // The remaining tokens still work afterwards.
+  assert.equal(s.action('block', 'token', { minutes: 5 }).close, true);
+  assert.deepEqual(s.ids(), []);
+});
+
+test('D-86: a token is minutes of work — away during it, the inactivity dialog asks; "back" keeps the rest, "whole" uses it up', async (t) => {
+  const now = local(2026, 10, 6, 17, 1); // Tuesday, 9 h worked: blocked
+  const s = await setup(now, { seed: (store) => seedWork(store, local(2026, 10, 6, 8, 0), now) });
+  t.after(s.cleanup);
+  const left = (x: typeof s) => (x.tracker.status(x.clock.now()) as { policy: { grant: { leftSeconds: number } | null } }).policy.grant?.leftSeconds ?? null;
+  s.tracker.tick(now);
+  s.tracker.ingest({ since: now - 5000, inputs: [now], apps: [], system: [], locked: false }, now);
+  assert.deepEqual(s.ids(), ['block']);
+  assert.equal(s.action('block', 'token', { minutes: 10 }).close, true);
+  s.work(now + MIN); // 1 min of work, then away for 40 min
+  s.work(now + 41 * MIN, { idle: true });
+  assert.deepEqual(s.ids(), ['inactivity'], 'asked first — the absence did not use the token up');
+  assert.equal(left(s), 4 * 60, '1 min of work + the 5-min grace');
+  const gap = s.model('inactivity').gaps[0];
+  assert.equal(gap.from, now + MIN);
+  assert.equal(s.action('inactivity', 'resolve', { gapId: gap.gapId, choice: 'back' }).close, true);
+  assert.deepEqual(s.ids(), []);
+  assert.match(s.tracker.menubar(s.clock.now()).title, /⏳4m$/);
+  s.work(now + 44 * MIN);
+  assert.deepEqual(s.ids(), [], '1 min left');
+  s.work(now + 45 * MIN + 30 * S);
+  assert.deepEqual(s.ids(), ['block'], 'used up by work');
+
+  // The same absence answered "I was working the whole time": the token is used up at once.
+  const w = await setup(now, { seed: (store) => seedWork(store, local(2026, 10, 6, 8, 0), now) });
+  t.after(w.cleanup);
+  w.tracker.tick(now);
+  w.tracker.ingest({ since: now - 5000, inputs: [now], apps: [], system: [], locked: false }, now);
+  w.action('block', 'token', { minutes: 10 });
+  w.work(now + MIN);
+  w.work(now + 41 * MIN, { idle: true });
+  assert.equal(w.action('inactivity', 'resolve', { gapId: w.model('inactivity').gaps[0].gapId, choice: 'whole' }).close, true);
+  assert.equal(left(w), null);
+  assert.deepEqual(w.ids(), ['block']);
 });
 
 test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, park) → block → token → bypass → restart → 04:00', async (t) => {
@@ -234,7 +306,7 @@ test('the full ladder on a Tuesday: nudge → warn + dim → countdown (pill, pa
   assert.equal(tk.until, s.clock.now() + 10 * MIN);
   assert.deepEqual(s.ids(), [], 'lifted for 10 min');
   assert.match(s.tracker.menubar(s.clock.now()).title, /⏳10m$/);
-  assert.match(s.tracker.menubar(s.clock.now()).tooltip, /Borrowed time until/);
+  assert.match(s.tracker.menubar(s.clock.now()).tooltip, /Borrowed time: 10 min of work left/);
   assert.equal(s.action('block', 'token', { minutes: 10 }).error, 'unavailable', 'used');
   s.work(tk.until - 30 * S);
   assert.deepEqual(s.ids(), []);
@@ -311,6 +383,9 @@ test('zero limit (week used up): blocked at the first worked second only, with t
   });
   t.after(s.cleanup);
   s.work(local(2026, 10, 8, 9, 10), { idle: true });
+  // Nothing sampled since Wednesday 19:05: that evening is asked about first (owner, 2026-10-21).
+  assert.deepEqual(s.ids(), ['inactivity']);
+  assert.equal(s.action('inactivity', 'resolve', { gapId: s.model('inactivity').gaps[0].gapId, choice: 'back' }).close, true);
   assert.deepEqual(s.ids(), [], 'nobody is blocked while asleep');
   s.work(local(2026, 10, 8, 9, 10, 30));
   assert.deepEqual(s.ids(), [], 'an input at this very instant has not worked a second yet');
@@ -418,7 +493,7 @@ test('review M10: block back at once after a grant (no R-UI-QUIET); dismissals k
     quietInput: true, // the owner is typing all the time
     seed: (st) => {
       seedWork(st, local(2026, 10, 6, 7, 0), local(2026, 10, 6, 16, 10));
-      st.append({ type: 'token.used', minutes: 5, until: local(2026, 10, 6, 17, 20) }); // an expired grant (ts = seeding clock 17:30)
+      st.append({ type: 'token.used', ts: local(2026, 10, 6, 16, 0), minutes: 5, until: local(2026, 10, 6, 16, 5) }); // used up by 16:05 (work until 16:15)
     },
   });
   t.after(s.cleanup);

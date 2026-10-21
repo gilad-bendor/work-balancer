@@ -73,7 +73,12 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   const welcomeAllowed = (now: number): boolean =>
     !store.health().writeError && ownerActivity(dayStart(dayKey(now)), now + 1).length > 0
     && interactive.coverageEnd() !== null && now - interactive.coverageEnd()! <= 15_000
-    && interactive.blocked(now - 1, now + 1).length === 0 && !policyState(now).blockActive;
+    && interactive.blocked(now - 1, now + 1).length === 0 && !policyState(now).blockActive
+    && !inactivity.asking(now); // a sensor outage is asked about first (owner, 2026-10-21)
+  /** Unmonitored time (`monitor.gap`), this week; appended by `recordGap`. */
+  let gaps: Interval[] = normalize(
+    history.filter((r) => r.type === 'monitor.gap' && typeof r.from === 'number' && typeof r.to === 'number').map((r) => [r.from as number, r.to as number] as const),
+  );
   const inactivity = createInactivity({
     store, log, now: () => clock.now(),
     graceMs: () => (policy.state().config?.busyGraceMin ?? DEFAULT_GRACE_MIN) * 60_000,
@@ -87,12 +92,23 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     away: (from, to) => interactive.blocked(from, to),
     coverageEnd: () => interactive.coverageEnd(),
     coveredUntil: (t) => interactive.coveredUntil(t, 15_000),
+    unseen: (t) => gaps.some(([a, b]) => t >= a && t < b) || t > (interactive.coverageEnd() ?? Infinity) + 15_000,
     allowed: (now) => {
       // Not while panicking: nothing would be shown, and a stale gap must not pop up after resume (review M9#3).
       if (!deps.effects?.gateOpen() || deps.effects.suppressed() || !policy.state().config) return false;
-      if (freshReviewDue(now)) return false;
       const st = policyState(now);
-      return st.dayPolicy?.inactivityDialog === true && st.weekday !== 'sat' && st.level !== 'blocked';
+      // During a token / the bypass too (D-86): his answer decides how much of the borrowed time the absence used.
+      return st.dayPolicy?.inactivityDialog === true && st.weekday !== 'sat' && !st.blockActive;
+    },
+    outageOnly: freshReviewDue,
+    askableDay: (day) => weekday(day) !== 'sat' && policy.state().config?.days[weekday(day)].inactivityDialog === true,
+    // From the records (a daemon restarted since knows nothing in memory): under the budget block, or panicking.
+    disallowedAt: (t) => {
+      const k = dayKey(t);
+      const records = store.readDay(k);
+      const latch = records.filter((r) => (r.type === 'panic' || r.type === 'resume') && r.ts <= t).at(-1);
+      if (latch?.type === 'panic') return true;
+      return blockedIntervals(records, (ts) => dayEnd(dayKey(ts)), work.busy(dayStart(k), dayEnd(k))).some(([a, b]) => t >= a && t < b);
     },
   });
   inactivity.load(history);
@@ -130,9 +146,6 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   repo.register('work', { perMinute: work, timeRange: work });
   await repo.startAll({ clock, log, store });
 
-  let gaps: Interval[] = normalize(
-    history.filter((r) => r.type === 'monitor.gap' && typeof r.from === 'number' && typeof r.to === 'number').map((r) => [r.from as number, r.to as number] as const),
-  );
   const lastStop = history.filter((r) => r.type === 'daemon.stopped' || r.type === 'daemon.started').at(-2);
   const previousStopReason = lastStop?.type === 'daemon.stopped' ? String(lastStop.reason ?? '') : null;
   let lastPruneDay: DayKey = today0;
@@ -185,7 +198,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   function policyState(now: number): PolicyState {
     const { today, earlier, todaySeconds } = weekNumbers(now);
     const records = store.readDay(today);
-    const grants = records.filter((r) => (r.type === 'token.used' || r.type === 'bypass.used') && typeof r.until === 'number' && typeof r.minutes === 'number') as unknown as GrantRecord[];
+    const grants = records.filter((r) => (r.type === 'token.used' || r.type === 'bypass.used') && typeof r.minutes === 'number') as unknown as GrantRecord[];
     if (levelDay !== today) {
       levelDay = today;
       const last = records.filter((r) => r.type === 'policy.transition').at(-1);
@@ -194,6 +207,8 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     const lastBlocked = records.filter((r) => r.type === 'policy.transition' && r.to === 'blocked').at(-1);
     return evaluate({
       config: policy.state().config, now, day: today, workedTodaySeconds: todaySeconds, workedEarlierThisWeekSeconds: earlier, grants,
+      grantEnds: records.filter((r) => r.type === 'grant.ended').map((r) => r.ts),
+      busy: grants.length ? work.busy(dayStart(today), now) : [],
       activeToday: (work.getRangeInfo(dayStart(today), now)?.firstActivityAt ?? null) !== null,
       blockedTodayUnderConfig: typeof lastBlocked?.configHash === 'string' ? lastBlocked.configHash : null,
       configHash: latchKey(),
@@ -229,7 +244,7 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
     const weekBusy = work.busy(dayStart(weekStart), dayEnd(addDays(weekStart, 6)));
     const thisWeek = {
       busy: weekBusy,
-      blocked: blockedIntervals(weekRecords, (ts) => dayEnd(dayKey(ts))),
+      blocked: blockedIntervals(weekRecords, (ts) => dayEnd(dayKey(ts)), weekBusy),
       categories: categoryLayers(weekBusy, (m) => interactive.getMinuteInfo(m)?.categories, DEFAULT_CATEGORY),
     };
     const weeklyMark = c ? c.weeklyBudgetMin * 60 : null;
@@ -325,15 +340,24 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
   }
 
   return {
-    ingest(samples, receivedAt) {
+    ingest(samples, receivedAt, opts) {
       const since = samples.since ?? receivedAt;
       const until = receivedAt;
       const end = interactive.coverageEnd();
-      if (end !== null && since - end > GAP_MIN_MS) {
+      const hole = end !== null && since - end > GAP_MIN_MS;
+      if (hole) {
         const cause: GapCause = end < deps.startedAt ? (previousStopReason === 'quit' ? 'quit' : 'daemon-down') : 'hs-down';
         recordGap(end, since, cause);
       }
       interactive.ingest(samples, { since, until }, receivedAt);
+      // Back from a sensor outage: ask before this heartbeat's reply can show anything else (e.g. the welcome).
+      if (hole && !opts?.panic) {
+        try {
+          inactivity.tick(receivedAt);
+        } catch (e) {
+          log.error('inactivity tick failed', { error: e as Error });
+        }
+      }
     },
 
     tick(now) {
@@ -386,13 +410,13 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       const st = policyState(now);
       const base = st.limitSeconds ?? st.referenceSeconds;
       const gate = deps.effects?.gateOpen() ?? false;
-      const grantLeft = st.grant ? Math.max(0, st.grant.until - now) / 1000 : null;
+      const grantLeft = st.grant ? st.grant.leftSeconds : null;
       const lines = [
         wd === 'sat' ? strings.tooltipShabbat : wd === 'fri' ? strings.tooltipFriday : strings.tooltipToday(todaySeconds, st.limitSeconds, st.referenceSeconds),
         ...(wd === 'sat' || wd === 'fri' ? [strings.tooltipToday(todaySeconds, null, null)] : []),
         strings.tooltipWeek(weekSeconds, c.weeklyBudgetMin * 60),
         strings.tooltipStretch(stretch ? stretch.seconds : null),
-        ...(st.grant ? [strings.tooltipGrant(st.grant.until)] : []),
+        ...(st.grant ? [strings.tooltipGrant(st.grant.leftSeconds)] : []),
         ...(st.enforcing && gate ? [strings.tooltipTokens(st.tokensLeft)] : []),
         ...(gate ? [] : [strings.observeMode]),
       ];
@@ -400,7 +424,8 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       const early = earlyAllowed() && canEndEarly(st);
       const menu = (quitAllowed(now) ? strings.menu : strings.menu.filter((m) => m.id !== 'quit' && m.id !== '-'))
         .filter((m) => m.id !== 'countdown' || early)
-        .map((m) => m.id === 'reports' ? { ...m, title: strings.reportsMenu(missingReports) } : { ...m });
+        .map((m) => m.id === 'reports' ? { ...m, title: strings.reportsMenu(missingReports) }
+          : m.id === 'countdown' && st.grant ? { ...m, title: strings.endGrantMenu } : { ...m });
       return {
         title: strings.menubarTitle(todaySeconds, base, grantLeft), colour: st.colour, tooltip: lines.join('\n'), warning: promptHistory.warning(now, todaySeconds),
         menu,

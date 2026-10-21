@@ -2,6 +2,7 @@
 // Recomputed on every tick and on startup from data, so restarts/reloads can neither escape nor lose a block
 // (instructions §4.2). Nothing here touches I/O, the clock or the UI.
 import type { StatusColour } from '../core/effects.ts';
+import { clip, normalize, total, type Interval } from '../core/intervals.ts';
 import { dayEnd, dayKey, dayStart, weekday as weekdayOf, type DayKey, type Weekday } from '../core/time.ts';
 import type { DayPolicy, PolicyConfig } from './config.ts';
 import { effectiveLimit, statusColour } from './observe.ts';
@@ -14,7 +15,8 @@ export interface GrantRecord {
   type: 'token.used' | 'bypass.used';
   ts: number;
   minutes: number;
-  until: number;
+  /** Informational since D-86 (the end if he worked non-stop); the evaluator uses `minutes`. */
+  until?: number;
 }
 
 export interface PolicyInput {
@@ -26,6 +28,10 @@ export interface PolicyInput {
   workedEarlierThisWeekSeconds: number;
   /** Today's grant records, any order. */
   grants: readonly GrantRecord[];
+  /** Timestamps of today's `grant.ended` records (the owner ended the borrowed time himself), any order. */
+  grantEnds?: readonly number[];
+  /** Today's worked intervals up to `now` (`work.busy`): grants are minutes of work (D-86). Absent = none. */
+  busy?: readonly Interval[];
   /** A real input/prompt happened today (not only a grace window carried over from before 04:00). No level above `ok`
    * before that: nobody is warned or blocked at 04:00 while asleep (Q-3). */
   activeToday: boolean;
@@ -53,8 +59,8 @@ export interface PolicyState {
   level: Level;
   /** Worked seconds at which the next level starts (null at the top or when not enforcing). */
   nextLevelAtSeconds: number | null;
-  /** A token/bypass currently lifting the block (wall clock), or null. */
-  grant: { until: number } | null;
+  /** A token/bypass currently lifting the block, with the worked seconds it has left (D-86), or null. */
+  grant: { leftSeconds: number } | null;
   /** Blocked and no active grant: the overlay must be up (subject to the Lua-side panic/quit latches). */
   blockActive: boolean;
   /** Effective limit is 0 (weekly budget used up): the block is preceded by a kind explanation (Q-3). */
@@ -88,9 +94,57 @@ export function ladderLevel(config: PolicyConfig, limitSeconds: number, worked: 
   return { level, next: higher.length ? Math.min(...higher) : null };
 }
 
-/** R-POL-3a: grants compose `until = max(currentUntil, at) + minutes`, clipped to the end of `at`'s day (next 04:00). */
-export function grantUntil(currentUntil: number | null, at: number, minutes: number): number {
-  return Math.min(dayEnd(dayKey(at)), Math.max(currentUntil ?? at, at) + minutes * 60_000);
+/** The end of the borrowed time if he works non-stop from `at` (informational `until` of grant records), clipped to the
+ * end of `at`'s day (next 04:00). */
+export function grantUntil(leftSeconds: number | null, at: number, minutes: number): number {
+  return Math.min(dayEnd(dayKey(at)), at + (leftSeconds ?? 0) * 1000 + minutes * 60_000);
+}
+
+/** Earliest t ≥ `from` with `ms` of `busy` inside [from, t), or Infinity. */
+function reach(busy: readonly Interval[], from: number, ms: number): number {
+  let need = ms;
+  if (need <= 0) return from;
+  for (const [a, b] of busy) {
+    if (b <= from) continue;
+    const s = Math.max(a, from);
+    if (b - s >= need) return s + need;
+    need -= b - s;
+  }
+  return Infinity;
+}
+
+/** R-POL-3a as amended by D-86: a grant lifts the block for `minutes` of WORK — time away, locked or asleep does not use
+ * it up. A grant taken while another runs adds its minutes to what is left; a `grant.ended` ends what runs (a grant
+ * taken at that very moment is not affected); nothing outlives its day (04:00). `busy` = worked intervals (normalized),
+ * known up to `to`. Returns the wall-clock spans that lifted the block and the worked seconds left at `to` (null =
+ * nothing running then). */
+export function grantSpans(
+  grants: readonly { ts: number; minutes: number }[], ends: readonly number[], busy: readonly Interval[], to: number,
+): { spans: Interval[]; leftSeconds: number | null } {
+  busy = normalize(busy);
+  const events = [...ends.map((t) => ({ t, minutes: null as number | null })), ...grants.map((g) => ({ t: g.ts, minutes: g.minutes }))]
+    .filter((e) => e.t <= to)
+    .sort((x, y) => x.t - y.t || (x.minutes === null ? 0 : 1) - (y.minutes === null ? 0 : 1));
+  const spans: Interval[] = [];
+  let run: { start: number; at: number; leftMs: number; dayEnd: number } | null = null;
+  const expiry = (r: NonNullable<typeof run>): number => Math.min(r.dayEnd, reach(busy, r.at, r.leftMs));
+  const close = (t: number): void => {
+    if (run) spans.push([run.start, Math.max(run.start, t)]);
+    run = null;
+  };
+  for (const e of events) {
+    if (run && expiry(run) <= e.t) close(expiry(run));
+    if (e.minutes === null) close(e.t);
+    else if (run) {
+      run.leftMs += e.minutes * 60_000 - total(clip(busy, run.at, e.t));
+      run.at = e.t;
+    } else run = { start: e.t, at: e.t, leftMs: e.minutes * 60_000, dayEnd: dayEnd(dayKey(e.t)) };
+  }
+  if (!run) return { spans, leftSeconds: null };
+  const r: NonNullable<typeof run> = run;
+  const end = expiry(r);
+  spans.push([r.start, Math.min(end, to)]);
+  return { spans, leftSeconds: end > to ? (r.leftMs - total(clip(busy, r.at, to))) / 1000 : null };
 }
 
 export function evaluate(input: PolicyInput): PolicyState {
@@ -99,11 +153,11 @@ export function evaluate(input: PolicyInput): PolicyState {
   const worked = input.workedTodaySeconds;
   const from = dayStart(day);
   const to = dayEnd(day);
-  // Only today's grants, each clipped to [ts, 04:00] — a corrupt `until` can never lift a block beyond the day.
-  const sorted = input.grants.filter((g) => g.ts >= from && g.ts < to).sort((a, b) => a.ts - b.ts);
-  let until: number | null = null;
-  for (const g of sorted) until = Math.max(until ?? 0, Math.min(to, Math.max(g.ts, g.until)));
-  const grant = until !== null && now < until ? { until } : null;
+  // Only today's grants — none can lift a block beyond the day. One stamped after `now` (the clock stepped back) counts
+  // from now.
+  const sorted = input.grants.filter((g) => g.ts >= from && g.ts < to).map((g) => ({ ...g, ts: Math.min(g.ts, now) })).sort((a, b) => a.ts - b.ts);
+  const { leftSeconds } = grantSpans(sorted, input.grantEnds ?? [], input.busy ?? [], now);
+  const grant = leftSeconds !== null ? { leftSeconds } : null;
   const tokensUsed = sorted.filter((g) => g.type === 'token.used');
   const bypassesUsed = sorted.filter((g) => g.type === 'bypass.used').length;
   const base: PolicyState = {

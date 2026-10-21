@@ -2,14 +2,12 @@
 // kind, neutral, never shaming).
 import { formatHM } from '../core/time.ts';
 
-const clockFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-const clockTime = (ms: number): string => clockFmt.format(new Date(ms));
-
 export const strings = {
   /** `grantLeft`: seconds of borrowed time left (a token or the bypass), shown as `⏳7m`. */
   menubarTitle: (worked: number, base: number | null, grantLeft: number | null = null): string =>
     (base === null ? `⏱ ${formatHM(worked)}` : `⏱ ${formatHM(worked)} / ${formatHM(base)}`) + (grantLeft === null ? '' : ` ⏳${Math.ceil(grantLeft / 60)}m`),
-  tooltipGrant: (until: number): string => `Borrowed time until ${clockTime(until)} — then the screen rests until 04:00.`,
+  tooltipGrant: (leftSeconds: number): string =>
+    `Borrowed time: ${Math.max(0, Math.ceil(leftSeconds / 60))} min of work left (time away does not use it) — then the screen rests until 04:00.`,
   tooltipTokens: (left: readonly number[]): string =>
     left.length ? `Postpone tokens left today: ${left.map((m) => `${m} min`).join(', ')}.` : 'No postpone tokens left today.',
 
@@ -33,8 +31,10 @@ export const strings = {
   promptHistoryTurnsDrift: 'Copilot history: agent-host prompts cannot be matched to their turns (format change?) — prompts are not counted.',
   promptHistoryNothingParsed: 'Copilot history: nothing parsed today (format change?) — prompts are not counted.',
   reportsMenu: (missing: number): string => `Manage Reports${missing ? ` (${missing} ${missing === 1 ? 'day' : 'days'} without a report)` : ''}`,
+  /** The `countdown` menu item while a token or the bypass lifts the block. */
+  endGrantMenu: 'End-Of-Day now — end the borrowed time…',
   /** The menubar menu (D-32, R-UI-MENU-3); ids are effect names, `-` is a separator. `countdown` (Early End-Of-Day)
-   * is listed only on an enforcing day before the countdown. */
+   * is listed only on an enforcing day before the countdown, or during a token / the bypass (D-85). */
   menu: [
     { id: 'reports', title: 'Manage Reports' },
     { id: 'notes', title: 'Manage Notes' },
@@ -213,6 +213,8 @@ export const pageStrings = {
   countdownPill: '≈ {n} min left',
   countdownEarlyTitle: 'Ending the day early.',
   countdownEarlyIntro: 'Park where you are and say how you are doing. Saving ends the day: the screen rests until 04:00. Not ready yet? Just close this window.',
+  countdownGrantTitle: 'Ending the borrowed time — ≈ {n} min of it left.',
+  countdownGrantIntro: 'Park where you are and say how you are doing. Saving ends the borrowed time now: the screen rests until 04:00. Not ready yet? Just close this window.',
   savedForTomorrow: 'Saved. It will be waiting for you tomorrow.',
   // Block (R-UI-BLOCK)
   blockTitle: "That's today's budget.",
@@ -226,7 +228,7 @@ export const pageStrings = {
   blockLifts: 'The screen is yours again at',
   blockPark: 'Park the thought',
   blockMoreTitle: 'Need a few more minutes?',
-  blockMoreHint: 'A postpone token lifts the screen for a few minutes. Tokens do not carry over to tomorrow.',
+  blockMoreHint: 'A postpone token lifts the screen for a few minutes of work (time away does not use them). Tokens do not carry over to tomorrow.',
   blockToken: '{m} min',
   blockTokenLeft: '{k} left',
   blockNoTokens: 'No postpone tokens left today.',
@@ -234,7 +236,7 @@ export const pageStrings = {
   blockTokenYes: 'Yes, use it',
   blockNotNow: 'Not now',
   blockBypass: 'Emergency bypass…',
-  blockBypassIntro: 'For a real emergency: type the sentence below (pasting is off), and say why. It lifts the screen for {m} minutes.',
+  blockBypassIntro: 'For a real emergency: type the sentence below (pasting is off), and say why. It lifts the screen for {m} minutes of work.',
   blockBypassType: 'Type it here',
   blockBypassReason: 'Why now? (a few words)',
   blockBypassContinue: 'Continue',

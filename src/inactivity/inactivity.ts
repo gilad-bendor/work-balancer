@@ -13,8 +13,8 @@
 import type { DimSpec, Effect, WindowInput } from '../core/effects.ts';
 import type { Logger } from '../core/log.ts';
 import type { Interval } from '../core/intervals.ts';
-import { normalize } from '../core/intervals.ts';
-import { dayEnd, dayKey, dayStart } from '../core/time.ts';
+import { normalize, subtract } from '../core/intervals.ts';
+import { addDays, dayEnd, dayKey, dayStart } from '../core/time.ts';
 import type { AnyRecord } from '../store/records.ts';
 import type { Store } from '../store/store.ts';
 import type { WorkSource } from '../providers/work/index.ts';
@@ -37,6 +37,9 @@ export const SENSORS_FRESH_MS = 15_000;
 /** A return this recent after an absence nobody saw (the Mac slept; the wake heartbeat already carried his key press)
  * is still asked about (review M9b#1). */
 export const RETRO_RECENT_MS = 2 * 60_000;
+/** Sensors silent at least this long (Hammerspoon quit / ejected / crashed, the Mac restarted): on their return the
+ * owner is asked about the time since his last activity before the silence (owner, 2026-10-20, D-87). */
+export const OUTAGE_ASK_MS = 10 * 60_000;
 
 export interface Resolution {
   gapId: string;
@@ -79,8 +82,17 @@ export interface InactivityDeps {
   coverageEnd: () => number | null;
   /** End of the continuous sensor coverage that contains `t` (Lua sampling without a hole), or null. */
   coveredUntil: (t: number) => number | null;
+  /** No sensor was sampling at `t` (inside a `monitor.gap`, or after the sensors went silent) — from persisted
+   * records, so live, a restart and history agree (D-87). */
+  unseen: (t: number) => boolean;
   /** The dialog may run now: live gate open, the day's `inactivityDialog`, not blocked (R-UI-INACT, D-35). */
   allowed: (now: number) => boolean;
+  /** The morning welcome is due: only a sensor outage is asked about now — before it (owner, 2026-10-21). */
+  outageOnly?: (now: number) => boolean;
+  /** A past day may be asked about (its `inactivityDialog`; never Saturday). */
+  askableDay?: (day: string) => boolean;
+  /** At `t` the dialog was not allowed, as far as the records tell (the budget block, a panic). */
+  disallowedAt?: (t: number) => boolean;
 }
 
 export interface Inactivity {
@@ -90,10 +102,18 @@ export interface Inactivity {
   tick(now: number): void;
   /** Unresolved gaps (diagnostics / tests). */
   open(): { gapId: string; from: number }[];
+  /** The dialog is wanted on screen now. */
+  asking(now: number): boolean;
+}
+
+interface Detected {
+  from: number;
+  /** When it was detected: a gap lives until the end of that day (an outage through 04:00 is asked about after it). */
+  at: number;
 }
 
 export function createInactivity(deps: InactivityDeps): Inactivity {
-  const detected = new Map<string, number>(); // gapId → lastInputAt
+  const detected = new Map<string, Detected>(); // gapId → lastInputAt, detection time
   const resolved = new Map<string, Resolution>(); // last wins
   let credits: Interval[] = [];
   let version = 0;
@@ -102,6 +122,8 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
   let unsaved: Resolution[] = [];
   /** Last tick at which the dialog was not allowed (gate, day, block, panic); a restart counts (unknown before). */
   let lastDisallowedAt = deps.now();
+  /** The same, only from ticks actually seen (the daemon ticks through a Hammerspoon outage, not through a reboot). */
+  let lastDisallowedTickAt = -Infinity;
   const sensorsFresh = (now: number): boolean => {
     const end = deps.coverageEnd();
     return end !== null && now - end <= SENSORS_FRESH_MS;
@@ -109,7 +131,7 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
 
   function apply(r: AnyRecord): void {
     if (r.type === 'inactivity.detected' && typeof r.gapId === 'string' && typeof r.lastInputAt === 'number') {
-      detected.set(r.gapId, r.lastInputAt);
+      detected.set(r.gapId, { from: r.lastInputAt, at: Math.max(r.lastInputAt, r.ts) });
     } else if (
       r.type === 'inactivity.resolved' && typeof r.gapId === 'string' && typeof r.from === 'number' && typeof r.to === 'number'
       && CHOICES.includes(r.choice as Choice) && typeof r.creditedMinutes === 'number'
@@ -120,8 +142,11 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
     }
   }
 
-  const unresolved = (): { gapId: string; from: number }[] =>
-    [...detected].filter(([id]) => !resolved.has(id)).map(([gapId, from]) => ({ gapId, from })).sort((a, b) => a.from - b.from);
+  const unresolved = (): { gapId: string; from: number; at: number }[] =>
+    [...detected].filter(([id]) => !resolved.has(id)).map(([gapId, g]) => ({ gapId, ...g })).sort((a, b) => a.from - b.from);
+  /** Unresolved gaps still to be asked about today (older ones expire at 04:00; a gap is never asked about more than a
+   * day after it began, even if its detection was stamped later). */
+  const current = (now: number) => unresolved().filter((g) => dayKey(g.at) === dayKey(now) && dayKey(g.from) >= addDays(dayKey(now), -1));
 
   /** While the dialog is (was) on screen, input does not end the gap: [first report − one heartbeat, close) from the
    * `effect.shown` / `effect.closed` audit of the `inactivity` window (a reload re-shows it: not an end). */
@@ -146,10 +171,13 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
     return out;
   }
 
+  /** Activity no sensor saw (a prompt while Hammerspoon was off): it neither ends a gap nor is cut by it (D-87). */
+  const unseen = (a: number): boolean => deps.unseen(a);
+
   /** The first input that ends the gap (not while the dialog is up), or null. */
   function returnedAt(from: number, now: number): number | null {
     const ignore = dialogIntervals(from, now);
-    return deps.inputStartsAfter(from, now).find((a) => !ignore.some(([x, y]) => a >= x && a < y)) ?? null;
+    return deps.inputStartsAfter(from, now).find((a) => !ignore.some(([x, y]) => a >= x && a < y) && !unseen(a)) ?? null;
   }
 
   /** The gap's end: the owner's return, clipped to its day (R-UI-INACT); `now` if he has not returned (or is
@@ -192,9 +220,9 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
       if (a >= now - RETRO_RECENT_MS && prevEnd > -Infinity && a - prevEnd >= grace + PREWARN_WINDOW_MS) {
         const covered = deps.coveredUntil(prevEnd);
         const id = gapIdFor(prevEnd);
-        const knownGap = [...detected].some(([gid, from]) => {
+        const knownGap = [...detected].some(([gid, g]) => {
           const end = resolved.get(gid)?.to ?? now;
-          return from < a && end > prevEnd;
+          return g.from < a && end > prevEnd;
         });
         // Only an absence nobody could see: the Mac asleep/locked, Lua sampling throughout (not an outage), and the
         // dialog allowed for the whole time (never dig up a break from behind the live gate, a block or a panic).
@@ -212,13 +240,39 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
     return false;
   }
 
+  /** The sensors are back after a long silence (D-87): nobody saw him meanwhile, so he is asked about the time since
+   * his last activity before it — like a return from sleep, without needing lock/sleep evidence. A silence through
+   * 04:00 is asked about from yesterday's last activity (the answer is filed under yesterday). */
+  function detectOutage(today: string, now: number): boolean {
+    const holes = (k: string) => deps.store.readDay(k).filter((r) => r.type === 'monitor.gap' && typeof r.from === 'number' && typeof r.to === 'number');
+    const hole = holes(today).at(-1);
+    if (!hole || now - (hole.to as number) > RETRO_RECENT_MS) return false;
+    const start = hole.from === dayStart(today) ? (holes(addDays(today, -1)).find((r) => r.to === hole.from)?.from as number | undefined) ?? dayStart(today) : hole.from as number;
+    if ((hole.to as number) - start < OUTAGE_ASK_MS) return false;
+    if (dayKey(start) !== today && !deps.askableDay?.(dayKey(start))) return false;
+    const from = deps.lastInputAt(dayStart(dayKey(start)), start);
+    if (from === null) return false; // nothing that day before it: nobody is asked about the night
+    // Never dig up time from behind a block, a panic or the closed live gate.
+    if (lastDisallowedTickAt >= from || deps.disallowedAt?.(from) || deps.disallowedAt?.(start)) return false;
+    const id = gapIdFor(from);
+    if (detected.has(id) || [...detected].some(([gid, g]) => g.from < now && (resolved.get(gid)?.to ?? now) > from)) return false;
+    const r = deps.store.append({ type: 'inactivity.detected', gapId: id, lastInputAt: from });
+    if (r) {
+      apply(r);
+      deps.log.info('inactivity detected (after a sensor outage)', { gapId: id });
+    }
+    return true;
+  }
+
   function tick(now: number): void {
     const today = dayKey(now);
     if (unsaved.length) unsaved = unsaved.filter((res) => deps.store.append({ type: 'inactivity.resolved', ...res }) === null);
-    // 04:00: yesterday's unanswered gaps take the default rule.
-    for (const g of unresolved()) if (dayKey(g.from) < today) resolve(g.gapId, g.from, 'expired');
+    // 04:00: the unanswered gaps of an earlier day take the default rule.
+    const live = new Set(current(now).map((g) => g.gapId));
+    for (const g of unresolved()) if (!live.has(g.gapId)) resolve(g.gapId, g.from, 'expired');
     if (!deps.allowed(now)) {
       lastDisallowedAt = now;
+      lastDisallowedTickAt = now;
       prewarn = null;
       return;
     }
@@ -227,7 +281,13 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
       return;
     }
     // One gap at a time: while one is unanswered, nothing new is detected (its dialog is up, or it was suppressed).
-    if (unresolved().some((g) => dayKey(g.from) === today)) {
+    if (current(now).length) {
+      prewarn = null;
+      return;
+    }
+    if (detectOutage(today, now)) return;
+    if (deps.outageOnly?.(now)) {
+      lastDisallowedAt = now;
       prewarn = null;
       return;
     }
@@ -261,8 +321,7 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
     audit: true,
     desired(now) {
       const dims: DimSpec[] = prewarn && now - prewarn.at < PREWARN_WAIT_MS ? [{ pulseId: `inact-${prewarn.lastInputAt}`, ...PREWARN_DIM }] : [];
-      const today = dayKey(now);
-      const gaps = unresolved().filter((g) => dayKey(g.from) === today);
+      const gaps = current(now);
       // Fail open: no un-escapable dialog while the data cannot be written (its answer could not be kept).
       if (!gaps.length || !deps.allowed(now) || deps.store.health().writeError) return { windows: [], dims: deps.store.health().writeError ? [] : dims };
       const w: WindowInput = {
@@ -272,10 +331,9 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
       return { windows: [w], dims };
     },
     model(_id, now) {
-      const today = dayKey(now);
       return {
         now,
-        gaps: unresolved().filter((g) => dayKey(g.from) === today).slice(0, 1).map((g) => {
+        gaps: current(now).slice(0, 1).map((g) => {
           const back = returnedAt(g.from, now);
           const to = gapEnd(g.from, now);
           return { gapId: g.gapId, from: g.from, to: back === null ? null : to, maxMinutes: Math.floor(Math.max(0, to - g.from) / 60_000) };
@@ -294,7 +352,7 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
         // No `close`: the dialog ends only by answering (D-56).
         return { ok: false, error: `unknown action ${action}` };
       }
-      const left = unresolved().filter((g) => dayKey(g.from) === dayKey(deps.now())).length;
+      const left = current(deps.now()).length;
       return { ok: true, close: left === 0, left };
     },
   };
@@ -305,7 +363,9 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
     const now = deps.now();
     const spans: Interval[] = [...resolved.values()].map((r) => [r.from + grace, r.to] as const);
     for (const g of unresolved()) spans.push([g.from + grace, gapEnd(g.from, now)]);
-    return normalize(spans.filter(([a, b]) => b > a && b > from && a < to));
+    const cut = normalize(spans.filter(([a, b]) => b > a && b > from && a < to));
+    const kept = cut.flatMap(([a, b]) => deps.activity(a, b).filter(([x]) => unseen(x)).map(([x, y]): Interval => [x, y + grace]));
+    return kept.length ? subtract(cut, kept) : cut;
   }
 
   return {
@@ -322,14 +382,19 @@ export function createInactivity(deps: InactivityDeps): Inactivity {
     },
     tick,
     open: unresolved,
+    asking: (now) => effect.desired(now).windows.length > 0,
   };
 }
 
-/** Credits + gap overrides from raw records (history of older days; their gaps are all resolved). */
-export function creditsFromRecords(records: readonly AnyRecord[], graceMs: () => number): WorkSource {
+/** Credits + gap overrides from raw records (history of older days; their gaps are all resolved). `activity` and
+ * `unseen` as in `InactivityDeps` (activity no sensor saw is not cut by a gap). */
+export function creditsFromRecords(
+  records: readonly AnyRecord[], graceMs: () => number,
+  seen: Pick<InactivityDeps, 'activity' | 'unseen'> = { activity: () => [], unseen: () => false },
+): WorkSource {
   const inst = createInactivity({
     store: { readDays: () => [] } as unknown as Store, log: null as unknown as Logger, now: () => 0, graceMs,
-    lastInputAt: () => null, inputStartsAfter: () => [], activity: () => [], away: () => [], coverageEnd: () => null, coveredUntil: () => null, allowed: () => false,
+    lastInputAt: () => null, inputStartsAfter: () => [], away: () => [], coverageEnd: () => null, coveredUntil: () => null, allowed: () => false, ...seen,
   });
   inst.load(records);
   return inst.workSource;

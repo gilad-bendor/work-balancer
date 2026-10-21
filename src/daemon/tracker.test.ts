@@ -138,16 +138,17 @@ test('M6: grants are read from the day file; a block survives a restart even if 
   });
   t.after(s.cleanup);
   s.tracker.tick(s.clock.now());
-  type St = { policy: { level: string; blockActive: boolean; grant: { until: number } | null } };
+  type St = { policy: { level: string; blockActive: boolean; grant: { leftSeconds: number } | null } };
   const status = (tr = s.tracker) => (tr.status(s.clock.now()) as St).policy;
   assert.deepEqual([status().level, status().blockActive], ['blocked', true]);
   s.store.append({ type: 'token.used', minutes: 10, until: s.clock.now() + 10 * MIN });
-  assert.deepEqual([status().blockActive, status().grant?.until], [false, s.clock.now() + 10 * MIN]);
+  assert.deepEqual([status().blockActive, status().grant?.leftSeconds], [false, 10 * 60]);
   // Restart after a late lock event that cuts worked time to ~7.5 h (same config): the block is latched for the day.
   const policy = createPolicyLoader({ path: join(REPO_ROOT, 'config', 'policy.ts'), snapshotPath: join(s.dir, 'snap3.json'), log: silentLogger });
   await policy.refresh();
   s.store.append({ type: 'system', ts: local(2026, 10, 4, 12, 0), event: 'lock' });
   const again = await createTracker({ store: s.store, clock: s.clock, log: silentLogger, policy, startedAt: s.clock.now(), copilotHome: join(s.dir, 'empty-home') });
-  s.clock.advance(11 * MIN); // the token expired
+  s.clock.advance(MIN);
+  s.store.append({ type: 'grant.ended', until: s.clock.now() }); // the token is over (it lasts 10 min of work, D-86)
   assert.deepEqual([status(again).level, status(again).blockActive], ['blocked', true]);
 });

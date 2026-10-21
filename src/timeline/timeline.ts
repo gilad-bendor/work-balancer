@@ -3,6 +3,7 @@
 // `src/ui/pages/timeline.ts` draws the result. A new state = one more layer here + a style in `config/categories.ts`.
 import { clip, normalize, subtract, type Interval } from '../core/intervals.ts';
 import { MINUTE_MS } from '../core/time.ts';
+import { grantSpans } from '../policy/evaluate.ts';
 import type { AnyRecord } from '../store/records.ts';
 import type { CategoryStyle } from '../categories/categories.ts';
 
@@ -59,8 +60,8 @@ export function buildSegments(from: number, to: number, layers: readonly Timelin
 }
 
 /** Time under a budget block: from each `policy.transition` into `blocked` until the next one out of it (at the
- * latest `dayEndOf(ts)` — a block lasts until 04:00), minus the grants of tokens and bypasses. */
-export function blockedIntervals(records: readonly AnyRecord[], dayEndOf: (ts: number) => number): Interval[] {
+ * latest `dayEndOf(ts)` — a block lasts until 04:00), minus the grants of tokens and bypasses (minutes of `busy`, D-86). */
+export function blockedIntervals(records: readonly AnyRecord[], dayEndOf: (ts: number) => number, busy: readonly Interval[]): Interval[] {
   const blocked: Interval[] = [];
   let since: number | null = null;
   let until = 0;
@@ -76,9 +77,12 @@ export function blockedIntervals(records: readonly AnyRecord[], dayEndOf: (ts: n
     } else close(r.ts);
   }
   close(until);
-  const grants = records
-    .filter((r) => (r.type === 'token.used' || r.type === 'bypass.used') && typeof r.until === 'number')
-    .map((r): Interval => [r.ts, r.until as number]);
+  const grants = grantSpans(
+    records.filter((r) => (r.type === 'token.used' || r.type === 'bypass.used') && typeof r.minutes === 'number') as unknown as { ts: number; minutes: number }[],
+    records.filter((r) => r.type === 'grant.ended').map((r) => r.ts),
+    busy,
+    Infinity,
+  ).spans;
   return subtract(blocked, grants);
 }
 
