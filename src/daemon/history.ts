@@ -1,4 +1,4 @@
-// Days the tracker does not keep in memory (it loads only the current week): the summary's 20-week trend — worked
+// Days the tracker does not keep in memory (it loads only the current week): the summary's past weeks (D-90) — worked
 // time and what its timelines need (D-80). Each request builds throwaway providers from an uncached scan of the days'
 // raw records, exactly like the tracker does at startup, so history follows the same `work` arithmetic (R-INFO-3).
 // Settled days are cached.

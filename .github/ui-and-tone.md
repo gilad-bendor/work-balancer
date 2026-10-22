@@ -79,7 +79,10 @@ picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday re
   (`src/timeline/timeline.ts` + the owner's `config/categories.ts` built-ins Active / Inactive / Blocked / Future, plus
   one state per app category — e.g. WhatsApp — split out of Active, D-81), so a new state needs no page change;
   optional budget tick on the upper half; D-82: Cmd+scroll zooms / Shift+scroll moves every timeline of the page
-  alike, double-click a timeline = full range). `page.ts` helpers added in
+  alike, double-click a timeline = full range). D-89: `timelineRow(entry)` = name · timeline · value, expandable by
+  its name (▸) — the daily timelines inside it (`days`, built on expand; a trend week's are `clipView`s of the week),
+  then the reports of its range as read-only `reportRow`s; the expanded keys live in the module (survive re-renders).
+  `page.ts` helpers added in
   M8: `topBar(title)` (static top bar + big ✕, for the large windows), `closeOnEscape()` (every dismissible page — never
   the countdown / block), `submitOnCmdEnter(box, fn)` (every text box), `focusOnInteract()` (windows opened without
   focus get it on the owner's click), `closeWindow()`.
@@ -96,7 +99,7 @@ picker; the two-step skip confirmation), `park.ts` (note box + end-of-workday re
 |---|---|---|---|---|
 | `reports` | menu *Manage Reports*; otherwise one gentle older catch-up on a Sun–Thu day **without** a morning review (on review days the review's catch-up button replaces it, D-75) | floating, 90 %, closable | `reports` | a new report now (stage by time of day); every report newest first (max `reports.listMax`) as a compact row (D-83) with ✏️ Edit / 🗑️ Dismiss; a stub per recent day without one (`reports.stubDays`), today/yesterday emphasised, with *Add report for this day* (pick a stage) / *Skip this day…*; reports dismissed here show *Bring back* until the window closes |
 | `notes` | menu *Manage Notes* | floating, focus, 90 % | `notes` | the new-note box first (focused: parking a thought = open + type); waiting first, then dismissed; add / edit / dismiss / bring back |
-| `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; "This week": a timeline per day (04:00-bounded) + a whole-week timeline (D-80); "Last 20 weeks" as week timelines, newest first, labelled `YYYY-MM-DD`, via `src/daemon/history.ts` (D-81…D-83); no reports section (D-83) |
+| `summary` | menu *Show activity summary* | floating, focus, 90 % | `summary` | refreshes every minute; "This week": a timeline per day (04:00-bounded) + a whole-week timeline (D-80); "Past weeks (N weeks)" — every week since the first data/report (D-90) — as week timelines, newest first, labelled `YYYY-MM-DD`, via `src/daemon/history.ts` (D-81…D-83); every timeline expands to its days (weeks) and its reports, read-only (D-89) |
 | `quit` | menu *Quit work-balancer…* | floating, focus | `quit` | confirm → page tells Lua `quit` (only honoured from window `quit`) |
 | `review` | **every** `morningReview` day (Sun–Thu), from the day's `day.rollover` — whatever yesterday left behind (D-75) | floating, **no focus**, intrusive | `review` | gated live until `liveEffects`; yesterday a workday without an end-of-workday report → an optional "How did yesterday end?" form first (action `report-end-of-day`, timed at the day's `endOfWorkdayAt`; once saved it stays shown, editable, D-76); waiting notes (none: "a clean start", no intro); "Let's start this day!" or ✕ = done for today |
 | `review:fresh` | yesterday without a report at the day's rollover, Sun–Thu, fresh active/unlocked sensors | **overlay, full, per screen**, focused, not closable | `review` | a catch-up report for yesterday (stage picker) or a confirmed skip before Continue; budget block has priority; existing notes follow |

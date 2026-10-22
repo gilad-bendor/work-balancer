@@ -143,7 +143,8 @@ export const pageStrings = {
   summaryTitle: 'Activity summary',
   summaryToday: 'Today',
   summaryWeek: 'This week',
-  summaryWeeks: 'Last {n} weeks',
+  summaryWeeks: 'Past weeks ({n} weeks)',
+  summaryWeeksOne: 'Past weeks (1 week)',
   summaryWorked: 'Worked',
   summaryBudget: "Today's budget",
   summaryLeft: 'Left',
@@ -174,6 +175,7 @@ export const pageStrings = {
   timelineSec: 's',
   timelineMin: 'min',
   timelineHour: 'h',
+  timelineNoReports: 'No reports.',
   // Inactivity dialog (R-UI-INACT)
   inactTitle: 'Welcome back.',
   inactIntro: 'No keyboard or mouse for a while. If you were working away from the screen — a meeting, a call, thinking on paper — it can count.',

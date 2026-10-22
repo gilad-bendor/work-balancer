@@ -1,6 +1,7 @@
 process.env.TZ = 'Asia/Jerusalem';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTracker } from '../daemon/tracker.ts';
 import { createStore, type Store } from '../store/store.ts';
@@ -131,7 +132,7 @@ test('reports: Thursday to Sunday; fresh welcome is firm, Manage Reports has eve
   assert.equal(s.action('reports', 'report-new', { energy: 3 }).ok, true, 'today can be reported before leaving a short day');
   assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /^Manage Reports \(2 days without a report\)$/);
   assert.deepEqual(s.model('reports').reports.map((r: { day: string; energy: number }) => [r.day, r.energy]), [['2026-10-11', 3], ['2026-10-10', 4]]);
-  assert.equal('reports' in s.model('summary'), false, 'reports live in Manage Reports only (D-83)');
+  assert.deepEqual(s.model('summary').reports.map((r: { day: string }) => r.day), ['2026-10-10', '2026-10-11'], 'expanded timelines show the reports of their range, oldest first (D-89)');
   s.action('reports', 'close');
   s.request('reports');
   const reopened = s.beat({ closed: [{ id: 'reports', by: 'page', at: s.clock.now() }] }).find((c) => c.window?.id === 'reports')!;
@@ -537,7 +538,7 @@ test('morning review: none on Friday or Saturday; the rollover is written on the
   assert.deepEqual(s.beat(), []);
 });
 
-test('summary model: today, the week per day vs budgets, 20 weeks, timelines', async (t) => {
+test('summary model: today, the week per day vs budgets, every week since the first data or report, timelines', async (t) => {
   const T = local(2026, 10, 13, 12, 0); // Tuesday
   const s = await setup(T, {
     seed: (store, clock) => {
@@ -553,7 +554,7 @@ test('summary model: today, the week per day vs budgets, 20 weeks, timelines', a
       }
       clock.set(local(2026, 10, 12, 9, 0));
       store.append({ ...report('2026-10-12 09:00', 3), stage: 'morning', status: ['Productive'] });
-      store.append(report('2026-09-01 21:00', 2)); // older than 4 weeks: not in the summary
+      store.append(report('2026-09-01 21:00', 2)); // the oldest report: the weeks start with its week (D-90)
       clock.set(local(2026, 10, 12, 16, 0));
       store.append({ type: 'policy.transition', from: 'countdown', to: 'blocked', configHash: 'x' });
     },
@@ -570,12 +571,21 @@ test('summary model: today, the week per day vs budgets, 20 weeks, timelines', a
   assert.equal(m.week.days[1].referenceSeconds, null);
   assert.equal(m.week.days[3].workedSeconds, null, 'future day');
   assert.equal(m.week.budgetSeconds, 44 * 3600);
-  assert.equal(m.weeks.length, 20);
-  assert.deepEqual(m.weeks.slice(0, 1).map((w: any) => [w.start, w.workedSeconds]), [['2026-05-31', 0]]);
+  assert.equal(m.weeks.length, 7, '30 Aug … 11 Oct');
+  assert.deepEqual(m.weeks.slice(0, 1).map((w: any) => [w.start, w.workedSeconds]), [['2026-08-30', 0]]);
   assert.deepEqual(m.weeks.slice(-4).map((w: any) => [w.start, w.workedSeconds, w.current]), [
     ['2026-09-20', 0, false], ['2026-09-27', 0, false], ['2026-10-04', 64 * 60, false], ['2026-10-11', 64 * 60, true],
   ]);
-  assert.equal(m.reports, undefined, 'reports live in Manage Reports only (D-83)');
+  assert.deepEqual(m.reports.map((r: any) => [r.timestamp, r.stage, r.status]), [
+    ['2026-09-01 21:00', 'evening', []], ['2026-10-12 09:00', 'morning', ['Productive']],
+  ], 'the trend range, oldest first (D-89)');
+  // Every week lists its days' bounds and numbers (the page cuts their timelines out of the week's).
+  assert.deepEqual(m.weeks.at(-2).days.map((d: any) => [d.day, d.workedSeconds, d.budgetSeconds]), [
+    ['2026-10-04', 64 * 60, 8.5 * 3600], ['2026-10-05', 0, 8.5 * 3600], ['2026-10-06', 0, 8.5 * 3600], ['2026-10-07', 0, 8.5 * 3600],
+    ['2026-10-08', 0, 8.5 * 3600], ['2026-10-09', 0, null], ['2026-10-10', 0, null],
+  ]);
+  assert.deepEqual([m.weeks.at(-2).days[0].from, m.weeks.at(-2).days[0].to], [local(2026, 10, 4, 4, 0), local(2026, 10, 5, 4, 0)]);
+  assert.deepEqual(m.weeks.at(-1).days.map((d: any) => d.workedSeconds), m.week.days.map((d: any) => d.workedSeconds));
   // Timelines (D-80): each covers its 04:00-bounded day without holes; Active time = worked time.
   const states = (v: any): Record<string, number> => {
     const out: Record<string, number> = {};
@@ -603,6 +613,26 @@ test('summary model: today, the week per day vs budgets, 20 weeks, timelines', a
   assert.equal(m.weeks.at(-2).timeline.from, local(2026, 10, 4, 4, 0));
   assert.deepEqual(m.weeks.at(-1).timeline, m.week.timeline);
   assert.deepEqual(states(m.weeks[0].timeline), { Inactive: 7 * 24 * 60 });
+});
+
+test('summary model: past weeks start with the first day file; nothing earlier = this week only; stray files ignored', async (t) => {
+  const T = local(2026, 10, 13, 12, 0);
+  const s = await setup(T, {
+    seed: (store, clock) => {
+      const m = local(2026, 10, 6, 10, 0);
+      clock.set(m + 60_000);
+      store.append({ type: 'minute', provider: 'interactive', minute: m, data: { inputs: [[0, 0]], activeSeconds: 1, lastInputAt: m } });
+    },
+  });
+  t.after(s.cleanup);
+  for (const [month, day] of [['1970-01', '1970-01-01'], ['0999-01', '0999-01-01'], ['2026-02', '2026-02-31']]) {
+    mkdirSync(join(s.dir, 'data', month!), { recursive: true });
+    writeFileSync(join(s.dir, 'data', month!, `${day}.jsonl`), '');
+  }
+  assert.deepEqual(s.model('summary').weeks.map((w: any) => [w.start, w.workedSeconds]), [['2026-10-04', 300], ['2026-10-11', 0]]);
+  const empty = await setup(T);
+  t.after(empty.cleanup);
+  assert.deepEqual(empty.model('summary').weeks.map((w: any) => w.start), ['2026-10-11']);
 });
 
 test('review M8#2: a window closed before Lua ever reported it shown is still audited (review done survives a restart)', async (t) => {

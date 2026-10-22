@@ -1,18 +1,25 @@
-// Activity summary (menu → "Show activity summary", R-UI-MENU-3): today, this week per day vs budgets, the last 20
-// weeks; days and weeks as timelines (D-80). Reports live in Manage Reports (D-83). Read-only; refreshes itself every minute while open.
+// Activity summary (menu → "Show activity summary", R-UI-MENU-3): today, this week per day vs budgets, every past
+// week (D-90); days and weeks as timelines (D-80). Every timeline expands to its days (a week) and its reports (D-89).
+// Read-only; refreshes itself every minute while open.
 import { api, boot, closeOnEscape, el, fill, topBar, windowId } from './page.ts';
 import { dayLabel, hm, timeLabel } from './format.ts';
 import type { TimelineView } from '../../timeline/timeline.ts';
-import { timeline } from './timeline.ts';
+import type { ReportView } from '../../reports/reports.ts';
+import { clipView, timelineRow, type TimelineEntry } from './timeline.ts';
 
-interface DayRow {
+interface DayInfo {
   day: string;
   weekday: string;
   workedSeconds: number | null;
   isToday: boolean;
+  from: number;
+  to: number;
   budgetSeconds: number | null;
   referenceSeconds: number | null;
   enforced: boolean;
+}
+
+interface DayRow extends DayInfo {
   timeline: TimelineView;
 }
 
@@ -24,7 +31,9 @@ interface Summary {
     firstActivityAt: number | null; lastActivityAt: number | null; unmonitoredMinutes: number;
   };
   week: { start: string; workedSeconds: number; budgetSeconds: number | null; tokensUsed: number; bypassesUsed: number; timeline: TimelineView; days: DayRow[] };
-  weeks: { start: string; workedSeconds: number; current: boolean; timeline: TimelineView }[];
+  weeks: { start: string; workedSeconds: number; current: boolean; timeline: TimelineView; days: DayInfo[] }[];
+  /** Not dismissed, oldest first, from the first week on. */
+  reports: ReportView[];
   activeNotes: number;
 }
 
@@ -60,32 +69,46 @@ void boot<Summary | null>(({ strings: s, model }) => {
         el('span', {}, t.topApps.length ? t.topApps.map((a) => `${a.name} ${hm(a.seconds)}`).join(' · ') : none)),
     );
 
+    const between = (from: string, to: string): ReportView[] => m.reports.filter((r) => r.day >= from && r.day <= to);
+    const target = (d: DayInfo): number | null => d.budgetSeconds ?? d.referenceSeconds;
+    const dayEntry = (key: string, d: DayInfo, view: TimelineView): TimelineEntry => {
+      const t = target(d);
+      return {
+        key, label: dayLabel(d.day), view, reports: between(d.day, d.day), ...(d.isToday ? { className: 'today' } : {}),
+        value: d.workedSeconds === null ? '' : `${hm(d.workedSeconds)}${t !== null ? ` / ${hm(t)}` : ''}`,
+      };
+    };
+    const lastDay = (days: DayInfo[], start: string): string => days.at(-1)?.day ?? start;
+
     const w = m.week;
     const week = el('section', {},
       el('h2', {}, s.summaryWeek!),
-      el('div', { class: 'days' }, ...w.days.map((d) => {
-        const target = d.budgetSeconds ?? d.referenceSeconds;
-        return el('div', { class: `day${d.isToday ? ' today' : ''}` },
-          el('span', { class: 'day-name' }, dayLabel(d.day)),
-          timeline(d.timeline, s),
-          el('span', { class: 'day-value' }, d.workedSeconds === null ? '' : `${hm(d.workedSeconds)}${target !== null ? ` / ${hm(target)}` : ''}`),
-        );
-      }),
-      el('div', { class: 'day whole-week' },
-        el('span', { class: 'day-name' }, s.summaryWholeWeek!),
-        timeline(w.timeline, s),
-        el('span', { class: 'day-value' }, `${hm(w.workedSeconds)}${w.budgetSeconds !== null ? ` / ${hm(w.budgetSeconds)}` : ''}`),
-      )),
+      el('div', { class: 'days' },
+        ...w.days.map((d) => timelineRow(dayEntry(`week/${d.day}`, d, d.timeline), s)),
+        timelineRow({
+          key: 'week/whole', label: s.summaryWholeWeek!, view: w.timeline, className: 'whole-week',
+          value: `${hm(w.workedSeconds)}${w.budgetSeconds !== null ? ` / ${hm(w.budgetSeconds)}` : ''}`,
+          days: () => w.days.map((d) => dayEntry(`week/whole/${d.day}`, d, d.timeline)),
+          reports: between(w.start, lastDay(w.days, w.start)),
+        }, s),
+      ),
       kv(s.summaryTokensBypassesWeek!, `${w.tokensUsed} / ${w.bypassesUsed}`),
     );
 
     const weeks = el('section', {},
-      el('h2', {}, fill(s.summaryWeeks, { n: m.weeks.length })),
-      el('div', { class: 'days' }, ...[...m.weeks].reverse().map((x) => el('div', { class: `day${x.current ? ' today' : ''}` },
-        el('span', { class: 'day-name' }, x.start),
-        timeline(x.timeline, s),
-        el('span', { class: 'day-value' }, `${hm(x.workedSeconds)}${x.current ? ` ${s.summaryThisWeek}` : ''}`),
-      ))),
+      el('h2', {}, m.weeks.length === 1 ? s.summaryWeeksOne! : fill(s.summaryWeeks, { n: m.weeks.length })),
+      el('div', { class: 'days' }, ...[...m.weeks].reverse().map((x) => {
+        const key = `weeks/${x.start}`;
+        return timelineRow({
+          key, label: x.start, view: x.timeline, ...(x.current ? { className: 'today' } : {}),
+          value: `${hm(x.workedSeconds)}${x.current ? ` ${s.summaryThisWeek}` : ''}`,
+          days: () => x.days.map((d) => {
+            const t = target(d);
+            return dayEntry(`${key}/${d.day}`, d, clipView(x.timeline, d.from, d.to, t === null ? null : t * 1000));
+          }),
+          reports: between(x.start, lastDay(x.days, x.start)),
+        }, s);
+      })),
     );
 
     main.replaceChildren(today, week, weeks);

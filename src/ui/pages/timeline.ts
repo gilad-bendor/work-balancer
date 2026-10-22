@@ -6,9 +6,13 @@
 // Zoom (D-82, owner): one view window — fractions [f0, f1] of each timeline's own range — is shared by every timeline
 // on the page, both halves alike. Cmd+scroll zooms around the pointer, Shift+scroll moves, wherever the pointer is;
 // double-click a timeline = the full range again. The window lives in this module, so it survives a page re-render.
+// Rows (owner, D-89): `timelineRow` = name · timeline · value, expandable — expanded, the daily timelines inside it
+// (none for a day), then the reports of its range as Manage Reports' rows. Expanded rows survive a re-render too.
 import { el } from './page.ts';
 import { duration } from './format.ts';
+import { reportRow } from './report-card.ts';
 import type { TimelineSegment, TimelineView } from '../../timeline/timeline.ts';
+import type { ReportView } from '../../reports/reports.ts';
 
 type Strings = Record<string, string>;
 
@@ -184,4 +188,61 @@ export function timeline(v: TimelineView, s: Strings): HTMLElement {
   });
   box.addEventListener('mouseleave', hideTip);
   return box;
+}
+
+/** The part [from, to) of a timeline, e.g. one day of a week. */
+export function clipView(v: TimelineView, from: number, to: number, markMs: number | null): TimelineView {
+  const segments = v.segments.filter((g) => g.to > from && g.from < to)
+    .map((g) => ({ state: g.state, from: Math.max(g.from, from), to: Math.min(g.to, to) }));
+  return { from, to, segments, order: v.order, styles: v.styles, ...(markMs != null ? { markMs } : {}) };
+}
+
+export interface TimelineEntry {
+  /** Stable across re-renders: the expanded state is kept by it. */
+  key: string;
+  label: string;
+  value: string;
+  view: TimelineView;
+  /** Extra classes of the row (`today`, `whole-week`). */
+  className?: string;
+  /** The daily timelines inside this one (none for a day); built only when expanded. */
+  days?: () => TimelineEntry[];
+  /** The reports inside its range, in the order shown. */
+  reports: ReportView[];
+}
+
+const expanded = new Set<string>();
+
+function details(e: TimelineEntry, s: Strings): HTMLElement {
+  const days = e.days?.() ?? [];
+  const rows = e.reports.map((r) => reportRow(r, s, [], {}));
+  rows.forEach((n, i) => n.classList.toggle('day-end', i + 1 < rows.length && rows[i + 1]!.dataset.rowDay !== n.dataset.rowDay));
+  return el('div', { class: 'tl-details' },
+    ...(days.length ? [el('div', { class: 'days' }, ...days.map((d) => timelineRow(d, s)))] : []),
+    rows.length ? el('div', { class: 'reports compact' }, ...rows) : el('p', { class: 'muted small' }, s.timelineNoReports ?? ''),
+  );
+}
+
+export function timelineRow(e: TimelineEntry, s: Strings): HTMLElement {
+  const toggle = el('button', { class: 'tl-toggle', 'aria-expanded': 'false' }, el('span', { class: 'tl-chev', 'aria-hidden': 'true' }, '▸'), e.label);
+  const wrap = el('div', { class: 'tl-row' },
+    el('div', { class: `day${e.className ? ` ${e.className}` : ''}` },
+      el('span', { class: 'day-name' }, toggle),
+      timeline(e.view, s),
+      el('span', { class: 'day-value' }, e.value),
+    ));
+  let open: HTMLElement | null = null;
+  const sync = (): void => {
+    const on = expanded.has(e.key);
+    toggle.setAttribute('aria-expanded', String(on));
+    wrap.classList.toggle('open', on);
+    if (on && !open) wrap.append(open = details(e, s));
+    else if (!on && open) { open.remove(); open = null; }
+  };
+  toggle.addEventListener('click', () => {
+    if (!expanded.delete(e.key)) expanded.add(e.key);
+    sync();
+  });
+  sync();
+  return wrap;
 }
