@@ -85,7 +85,7 @@ test('menu windows: a request opens a floating, focused, non-intrusive window �
   const day = s.store.readDay('2026-10-05').filter((r) => r.type.startsWith('effect.'));
   assert.deepEqual(day.map((r) => [r.type, r.windowId, r.by]), [['effect.shown', 'reports', undefined], ['effect.closed', 'reports', 'user']]);
   // Every menu item has a window.
-  for (const id of ['summary', 'notes', 'quit']) {
+  for (const id of ['summary', 'energy', 'notes', 'quit']) {
     s.request(id);
     assert.ok(s.beat().some((c) => c.op === 'window.open' && c.window.id === id), id);
   }
@@ -133,6 +133,8 @@ test('reports: Thursday to Sunday; fresh welcome is firm, Manage Reports has eve
   assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /^Manage Reports \(2 days without a report\)$/);
   assert.deepEqual(s.model('reports').reports.map((r: { day: string; energy: number }) => [r.day, r.energy]), [['2026-10-11', 3], ['2026-10-10', 4]]);
   assert.deepEqual(s.model('summary').reports.map((r: { day: string }) => r.day), ['2026-10-10', '2026-10-11'], 'expanded timelines show the reports of their range, oldest first (D-89)');
+  assert.deepEqual(s.model('energy').days.map((d: { day: string; min: number | null; max: number | null }) => [d.day, d.min, d.max]),
+    [['2026-10-10', 4, 4], ['2026-10-11', 3, 3]], 'Energy Graph: from the first report to today');
   s.action('reports', 'close');
   s.request('reports');
   const reopened = s.beat({ closed: [{ id: 'reports', by: 'page', at: s.clock.now() }] }).find((c) => c.window?.id === 'reports')!;
@@ -364,7 +366,7 @@ test('menu: Manage Reports, Manage Notes, summary, Early End-Of-Day (enforcing d
   s.tracker.ingest({ since: s.clock.now() - 5000, inputs: [s.clock.now()], apps: [], system: [], locked: false }, s.clock.now());
   const menu = s.tracker.menubar(s.clock.now()).menu!;
   assert.deepEqual(menu.map((m) => [m.id, m.title]), [
-    ['reports', 'Manage Reports'], ['notes', 'Manage Notes'], ['summary', 'Show activity summary'], ['countdown', 'Early End-Of-Day…'],
+    ['reports', 'Manage Reports'], ['notes', 'Manage Notes'], ['summary', 'Show activity summary'], ['energy', 'Energy Graph'], ['countdown', 'Early End-Of-Day…'],
     ['-', ''], ['quit', 'Quit work-balancer…'],
   ]);
   const fri = await setup(local(2026, 10, 9, 10, 0));

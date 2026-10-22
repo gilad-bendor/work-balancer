@@ -39,6 +39,7 @@ export const strings = {
     { id: 'reports', title: 'Manage Reports' },
     { id: 'notes', title: 'Manage Notes' },
     { id: 'summary', title: 'Show activity summary' },
+    { id: 'energy', title: 'Energy Graph' },
     { id: 'countdown', title: 'Early End-Of-Day…' },
     { id: '-', title: '' },
     { id: 'quit', title: 'Quit work-balancer…' },
@@ -176,6 +177,9 @@ export const pageStrings = {
   timelineMin: 'min',
   timelineHour: 'h',
   timelineNoReports: 'No reports.',
+  // Energy Graph (menu)
+  energyTitle: 'Energy Graph',
+  energyEmpty: 'No reports yet. The graph starts with your first one.',
   // Inactivity dialog (R-UI-INACT)
   inactTitle: 'Welcome back.',
   inactIntro: 'No keyboard or mouse for a while. If you were working away from the screen — a meeting, a call, thinking on paper — it can count.',

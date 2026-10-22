@@ -192,7 +192,7 @@ test('M8: every heartbeat reply carries the menu; a quit shutdown logs app.quit 
   const { beat, call, daemon } = await start(t);
   const r = await beat();
   // `countdown` (Early End-Of-Day) depends on the real weekday here.
-  assert.deepEqual(r.menubar.menu.map((m: any) => m.id).filter((id: string) => id !== 'countdown'), ['reports', 'notes', 'summary', '-', 'quit']);
+  assert.deepEqual(r.menubar.menu.map((m: any) => m.id).filter((id: string) => id !== 'countdown'), ['reports', 'notes', 'summary', 'energy', '-', 'quit']);
   assert.equal(r.menubar.menu[0].title.startsWith('Manage Reports'), true);
   assert.equal((await call('/bridge/ui-request', { open: 'nope' })).status, 404);
   assert.equal((await call('/bridge/shutdown', { reason: 'quit', by: 'menu' })).json.ok, true);

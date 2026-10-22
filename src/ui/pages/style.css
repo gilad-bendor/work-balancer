@@ -132,6 +132,31 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .tl-tip.shown { display: block; }
 .tl-tip > :first-child { font-weight: 600; }
 
+/* Energy Graph (src/ui/pages/energy.ts): rotated — days run up the window (today on top), energy 1 … 5 left to right.
+   Each value owns a 100 px cell centred on its marker: pad = half a cell, so 5 cells fill the 500 px plot. */
+body.page-energy > main.card { display: flex; flex-direction: column; overflow: hidden; --eg-pad: 50px; }
+.eg-head, .eg-graph { display: grid; grid-template-columns: 130px 500px; column-gap: 16px; width: fit-content; }
+.eg-head { flex: none; margin-bottom: 8px; }
+.eg-scale { position: relative; height: 58px; }
+.eg-num { position: absolute; top: 0; transform: translateX(-50%); font-weight: 600; }
+.eg-word { position: absolute; bottom: 0; transform: translateX(-50%); white-space: nowrap; }
+.eg-graph { flex: 1; min-height: 0; position: relative; cursor: default; user-select: none; }
+.eg-labels, .eg-plot { position: relative; overflow: hidden; }
+.eg-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.eg-none { position: absolute; left: 0; right: 0; background: color-mix(in srgb, var(--text) 7%, transparent); }
+.eg-bar { position: absolute; background: var(--accent); border-radius: 3px; }
+.eg-week { position: absolute; left: 0; right: 0; height: 1px; margin-top: -0.5px; background: color-mix(in srgb, var(--text) 22%, transparent); pointer-events: none; }
+.eg-date { position: absolute; right: 0; transform: translateY(-50%); font-size: 16px; line-height: 1; white-space: nowrap;
+  font-variant-numeric: tabular-nums; color: var(--muted); }
+.eg-date.today { color: var(--text); font-weight: 600; }
+.eg-band { position: absolute; left: 0; right: 0; display: none; pointer-events: none; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.eg-band.shown { display: block; }
+.eg-tip { position: fixed; z-index: 30; display: none; pointer-events: none; background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 10px 16px;
+  left: 16px; width: calc(100vw - 32px); max-height: calc(100vh - 16px); overflow: hidden; }
+.eg-tip.shown { display: block; }
+.eg-tip-head { font-weight: 600; margin-bottom: 4px; }
+
 /* Large windows (summary, notes): a static top bar with the title and a big close icon; the content scrolls. */
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
   gap: 16px; padding: 14px 28px; background: var(--bg); border-bottom: 1px solid var(--border); }

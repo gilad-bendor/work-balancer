@@ -1,4 +1,4 @@
-// The product windows: the menu's Manage Reports / Manage Notes / activity summary / quit (user-initiated), and the
+// The product windows: the menu's Manage Reports / Manage Notes / activity summary / Energy Graph / quit (user-initiated), and the
 // morning review + welcome (system-initiated, R-UI-REVIEW, R-UI-REPORT). Wording lives in src/ui/strings.ts; pages in
 // src/ui/pages/.
 import type { ActionResult, Effect } from '../core/effects.ts';
@@ -9,6 +9,7 @@ import type { Note, NoteResult, Notes, NoteSource } from '../notes/notes.ts';
 import { windowRev, type EffectsManager } from './manager.ts';
 import { userWindowEffect } from './user-window.ts';
 import { REPORT_STAGES, reportView, type Reports, type ReportSource } from '../reports/reports.ts';
+import { energyDays } from '../reports/energy.ts';
 
 export interface ProductDeps {
   effects: EffectsManager;
@@ -90,6 +91,12 @@ export function registerProductEffects(d: ProductDeps): void {
     name: 'summary',
     look: { path: '/ui/summary.html', title: 'work-balancer — activity summary', w: 0.9, h: 0.9 },
     model: (now) => d.summary(now),
+  }));
+
+  d.effects.register(userWindowEffect({
+    name: 'energy',
+    look: { path: '/ui/energy.html', title: 'work-balancer — energy graph', w: 0.9, h: 0.9 },
+    model: (now) => ({ today: dayKey(now), days: energyDays(reports.list(), dayKey(now)) }),
   }));
 
   d.effects.register(userWindowEffect({
