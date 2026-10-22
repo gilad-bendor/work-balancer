@@ -2,6 +2,24 @@
 // kind, neutral, never shaming).
 import { formatHM } from '../core/time.ts';
 
+/** One icon per window: it prefixes the menu item, the page's title and the native window title alike. */
+export const icons = {
+  reports: '📝',
+  notes: '📌',
+  summary: '📊',
+  energy: '🔋',
+  endOfDay: '🌇',
+  quit: '🚪',
+  warn: '🔔',
+  countdown: '⏳',
+  block: '🌙',
+  nudge: '☕',
+  welcomeBack: '👋',
+  morning: '☀️',
+  skip: '⏭️',
+  test: '🧪',
+} as const;
+
 export const strings = {
   /** `grantLeft`: seconds of borrowed time left (a token or the bypass), shown as `⏳7m`. */
   menubarTitle: (worked: number, base: number | null, grantLeft: number | null = null): string =>
@@ -30,19 +48,19 @@ export const strings = {
   observeMode: 'Observe mode: nothing is enforced yet.',
   promptHistoryTurnsDrift: 'Copilot history: agent-host prompts cannot be matched to their turns (format change?) — prompts are not counted.',
   promptHistoryNothingParsed: 'Copilot history: nothing parsed today (format change?) — prompts are not counted.',
-  reportsMenu: (missing: number): string => `Manage Reports${missing ? ` (${missing} ${missing === 1 ? 'day' : 'days'} without a report)` : ''}`,
+  reportsMenu: (missing: number): string => `${icons.reports} Manage Reports${missing ? ` (${missing} ${missing === 1 ? 'day' : 'days'} without a report)` : ''}`,
   /** The `countdown` menu item while a token or the bypass lifts the block. */
-  endGrantMenu: 'End-Of-Day now — end the borrowed time…',
+  endGrantMenu: `${icons.endOfDay} End-Of-Day now — end the borrowed time…`,
   /** The menubar menu (D-32, R-UI-MENU-3); ids are effect names, `-` is a separator. `countdown` (Early End-Of-Day)
    * is listed only on an enforcing day before the countdown, or during a token / the bypass (D-85). */
   menu: [
-    { id: 'reports', title: 'Manage Reports' },
-    { id: 'notes', title: 'Manage Notes' },
-    { id: 'summary', title: 'Show activity summary' },
-    { id: 'energy', title: 'Energy Graph' },
-    { id: 'countdown', title: 'Early End-Of-Day…' },
+    { id: 'reports', title: `${icons.reports} Manage Reports` },
+    { id: 'notes', title: `${icons.notes} Manage Notes` },
+    { id: 'summary', title: `${icons.summary} Show activity summary` },
+    { id: 'energy', title: `${icons.energy} Energy Graph` },
+    { id: 'countdown', title: `${icons.endOfDay} Early End-Of-Day…` },
     { id: '-', title: '' },
-    { id: 'quit', title: 'Quit work-balancer…' },
+    { id: 'quit', title: `${icons.quit} Quit work-balancer…` },
   ],
 } as const;
 
@@ -52,7 +70,7 @@ export const pageStrings = {
   loading: 'One moment…',
   loadFailed: "This window couldn't load its content. It will close by itself in a minute — nothing is blocked.",
   close: 'Close',
-  fixtureTitle: 'work-balancer — test window',
+  fixtureTitle: `${icons.test} work-balancer — test window`,
   fixtureBody: 'A harmless test window. It closes by itself.',
   fixtureMode: 'Mode',
   fixtureSecondsLeft: 'Closes by itself in',
@@ -76,7 +94,7 @@ export const pageStrings = {
   // Notes (R-UI-NOTE): reminders you leave for yourself
   noteLabel: "What's the next thing you'd do? It will be waiting for you tomorrow.",
   notePlaceholder: 'e.g. finish the retry logic in the uploader, then run its tests',
-  notesTitle: 'Manage Notes',
+  notesTitle: `${icons.notes} Manage Notes`,
   notesIntro: 'Reminders you left for yourself. Dismiss what is done; dismissed notes stay below, in case you want one back.',
   notesAddPlaceholder: 'A new note…',
   notesWaiting: 'Waiting for you',
@@ -105,7 +123,7 @@ export const pageStrings = {
   icon_status_Productive: '🚀',
   'icon_status_Good day': '😊',
   reportEnergyOf: 'Energy {n}/5',
-  reportsTitle: 'Manage Reports',
+  reportsTitle: `${icons.reports} Manage Reports`,
   reportSave: 'Save report',
   reportSaved: 'Saved.',
   reportNone: 'No reports yet.',
@@ -116,15 +134,15 @@ export const pageStrings = {
   reportStubAdd: 'Add report for this day',
   reportSkip: 'Skip this day…',
   reportSkipped: 'Skipped',
-  reportSkipTitle: 'Skip the report for {date}?',
+  reportSkipTitle: `${icons.skip} Skip the report for {date}?`,
   reportSkipFresh: 'The day gets a skip report — no status, energy or feedback — and stays a gap in your work-and-energy history. You will not be asked again automatically, but you can edit it later and say how the day was.',
   reportSkipOlder: 'The day gets a skip report, with no status, energy or feedback. You can edit it later.',
   reportReturn: 'Return to the report',
   reportConfirmSkip: 'Confirm skip for this day',
-  reportWelcome: 'Before we start: how was yesterday?',
+  reportWelcome: `${icons.morning} Before we start: how was yesterday?`,
   reportWelcomeHint: 'Add a report for yesterday, or deliberately skip it, before continuing.',
   reportWelcomeDone: 'Recorded for yesterday:',
-  reportWelcomeToday: 'Good morning. How are you today?',
+  reportWelcomeToday: `${icons.morning} Good morning. How are you today?`,
   reportWelcomeTodayHint: 'Add a report for this morning before continuing.',
   reportYesterdayMissing: 'Yesterday ({date}) has no report.',
   reportYesterdayAlso: 'Also report yesterday…',
@@ -134,14 +152,14 @@ export const pageStrings = {
   reportRecordedToday: 'Recorded for today:',
   reportAddAnother: 'Add another report',
   // Morning review (R-UI-REVIEW)
-  reviewTitle: 'Good morning.',
+  reviewTitle: `${icons.morning} Good morning.`,
   reviewIntro: "Here's what you left for yourself. Edit what changed, dismiss what's done — closing keeps the rest.",
   reviewDone: "Let's start this day!",
   reviewEmpty: 'Nothing waiting — a clean start.',
   reviewEndOfDayTitle: 'How did yesterday end?',
   reviewEndOfDayHint: 'Yesterday has no end-of-day report. If you like, add one now — or just start the day.',
   // Activity summary (R-UI-MENU-3)
-  summaryTitle: 'Activity summary',
+  summaryTitle: `${icons.summary} Activity summary`,
   summaryToday: 'Today',
   summaryWeek: 'This week',
   summaryWeeks: 'Past weeks ({n} weeks)',
@@ -178,10 +196,10 @@ export const pageStrings = {
   timelineHour: 'h',
   timelineNoReports: 'No reports.',
   // Energy Graph (menu)
-  energyTitle: 'Energy Graph',
+  energyTitle: `${icons.energy} Energy Graph`,
   energyEmpty: 'No reports yet. The graph starts with your first one.',
   // Inactivity dialog (R-UI-INACT)
-  inactTitle: 'Welcome back.',
+  inactTitle: `${icons.welcomeBack} Welcome back.`,
   inactIntro: 'No keyboard or mouse for a while. If you were working away from the screen — a meeting, a call, thinking on paper — it can count.',
   inactLastAt: 'Last activity at',
   inactAgo: 'ago',
@@ -195,7 +213,7 @@ export const pageStrings = {
   inactMin: 'min',
   inactHour: 'h',
   // Quit (R-UI-MENU-3)
-  quitTitle: 'Stop work-balancer?',
+  quitTitle: `${icons.quit} Stop work-balancer?`,
   quitBody: 'Tracking and the menubar stop until the next login or Hammerspoon reload. The time until then is recorded as not monitored.',
   quitConfirm: 'Stop it',
   quitCancel: 'Keep it running',
@@ -203,12 +221,12 @@ export const pageStrings = {
   quitRefused: "Not now — today's budget is used up, so stopping is off until 04:00.",
   // Placeholders: {n} {m} {k} {t} are filled in by the page (page.ts `fill`).
   // Warn (R-UI-WARN)
-  warnTitle: 'About {n} minutes of work left today.',
+  warnTitle: `${icons.warn} About {n} minutes of work left today.`,
   warnBody: 'A good moment to start landing what you are on. When {m} minutes are left, a small countdown appears; at the end of the budget the screen rests until 04:00.',
   warnOk: 'Got it',
   // Countdown (R-UI-COUNTDOWN)
-  countdownTitle: '≈ {n} min of work left today.',
-  countdownDone: 'That is about it for today.',
+  countdownTitle: `${icons.countdown} ≈ {n} min of work left today.`,
+  countdownDone: `${icons.countdown} That is about it for today.`,
   countdownIntro: 'Time to park where you are. Write down the next step — it will be waiting for you tomorrow. Saving ends the day: the screen rests until 04:00.',
   countdownSave: 'Save — done for today',
   countdownSaved: 'Saved. That is today — well done.',
@@ -216,16 +234,16 @@ export const pageStrings = {
   countdownCmdEnter: 'Saving ends the day — press the button when you are ready.',
   countdownCollapse: 'Make it small',
   countdownExpand: 'Open',
-  countdownPill: '≈ {n} min left',
-  countdownEarlyTitle: 'Ending the day early.',
+  countdownPill: `${icons.countdown} ≈ {n} min left`,
+  countdownEarlyTitle: `${icons.endOfDay} Ending the day early.`,
   countdownEarlyIntro: 'Park where you are and say how you are doing. Saving ends the day: the screen rests until 04:00. Not ready yet? Just close this window.',
-  countdownGrantTitle: 'Ending the borrowed time — ≈ {n} min of it left.',
+  countdownGrantTitle: `${icons.endOfDay} Ending the borrowed time — ≈ {n} min of it left.`,
   countdownGrantIntro: 'Park where you are and say how you are doing. Saving ends the borrowed time now: the screen rests until 04:00. Not ready yet? Just close this window.',
   savedForTomorrow: 'Saved. It will be waiting for you tomorrow.',
   // Block (R-UI-BLOCK)
-  blockTitle: "That's today's budget.",
+  blockTitle: `${icons.block} That's today's budget.`,
   blockBody: 'Friday-you will thank you. The screen rests until 04:00.',
-  blockZeroTitle: "This week's budget is already used.",
+  blockZeroTitle: `${icons.block} This week's budget is already used.`,
   blockZeroBody: 'So today has no budget of its own — that is how Friday and Shabbat stay yours. The screen rests until 04:00. If something truly cannot wait, a postpone token or the emergency bypass is on the next screen.',
   blockZeroContinue: 'I understand',
   blockToday: 'Today',
@@ -253,7 +271,7 @@ export const pageStrings = {
   blockFailed: "That didn't go through — try again in a moment.",
   blockOtherScreen: 'Notes and options are on the main screen.',
   // Break nudge (R-POL-5)
-  nudgeTitle: '{t} of work without a real break.',
+  nudgeTitle: `${icons.nudge} {t} of work without a real break.`,
   nudgeBody: 'A few minutes away from the screen helps — stand up, drink some water, look out of a window.',
   nudgeBreak: 'Taking a break now',
   nudgeSnooze: 'Remind me in {m} min',

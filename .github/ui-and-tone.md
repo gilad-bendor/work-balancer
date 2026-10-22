@@ -19,6 +19,8 @@ behaviours, verified API facts) are in [hammerspoon.md](./hammerspoon.md).
 - Every user-facing string lives in [`src/ui/strings.ts`](../src/ui/strings.ts): `strings` (daemon side: menubar,
   tooltips, warnings) and `pageStrings` (served to pages by `GET /api/ui/strings`). Pages never hard-code text, so
   the tone can be reviewed in one file.
+- Each window has one icon (`icons` in `strings.ts`, D-92) prefixing its menu item, its page title and its native title
+  bar; a new window gets one too. Section headings (h2) stay plain.
 - Shabbat: nothing intrusive, ever (enforced by config validation + evaluator, and by the live gate's `intrusive` flag).
 
 ## 2. How a window comes to exist

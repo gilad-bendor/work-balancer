@@ -165,7 +165,7 @@ test('End-Of-Day during a token / the bypass: the same dialog ends the borrowed 
   s.clock.advance(2 * MIN);
   s.tracker.tick(s.clock.now());
   assert.deepEqual(s.ids(), []);
-  assert.equal(menuItem()?.title, 'End-Of-Day now — end the borrowed time…');
+  assert.equal(menuItem()?.title, '🌇 End-Of-Day now — end the borrowed time…');
   assert.equal(s.call('POST', '/bridge/ui-request', { open: 'countdown' }).json.ok, true);
   assert.equal(s.win('countdown')!.path, '/ui/countdown.html?early=1');
   assert.equal(s.model('countdown').grantLeftSeconds, 8 * 60, '2 of its 10 min of work used');

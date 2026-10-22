@@ -10,6 +10,7 @@ import { windowRev, type EffectsManager } from './manager.ts';
 import { userWindowEffect } from './user-window.ts';
 import { REPORT_STAGES, reportView, type Reports, type ReportSource } from '../reports/reports.ts';
 import { energyDays } from '../reports/energy.ts';
+import { icons } from '../ui/strings.ts';
 
 export interface ProductDeps {
   effects: EffectsManager;
@@ -82,26 +83,26 @@ export function registerProductEffects(d: ProductDeps): void {
   const notesView = () => ({ notes: d.notes.list().map(noteView) });
   d.effects.register(userWindowEffect({
     name: 'notes',
-    look: { path: '/ui/notes.html', title: 'work-balancer — manage notes', w: 0.9, h: 0.9 },
+    look: { path: '/ui/notes.html', title: `${icons.notes} work-balancer — manage notes`, w: 0.9, h: 0.9 },
     model: notesView,
     actions: noteActions(d.notes, 'manager', notesView),
   }));
 
   d.effects.register(userWindowEffect({
     name: 'summary',
-    look: { path: '/ui/summary.html', title: 'work-balancer — activity summary', w: 0.9, h: 0.9 },
+    look: { path: '/ui/summary.html', title: `${icons.summary} work-balancer — activity summary`, w: 0.9, h: 0.9 },
     model: (now) => d.summary(now),
   }));
 
   d.effects.register(userWindowEffect({
     name: 'energy',
-    look: { path: '/ui/energy.html', title: 'work-balancer — energy graph', w: 0.9, h: 0.9 },
+    look: { path: '/ui/energy.html', title: `${icons.energy} work-balancer — energy graph`, w: 0.9, h: 0.9 },
     model: (now) => ({ today: dayKey(now), days: energyDays(reports.list(), dayKey(now)) }),
   }));
 
   d.effects.register(userWindowEffect({
     name: 'quit',
-    look: { path: '/ui/quit.html', title: 'work-balancer — quit', w: 760, h: 420 },
+    look: { path: '/ui/quit.html', title: `${icons.quit} work-balancer — quit`, w: 760, h: 420 },
     model: (now) => ({ allowed: d.quitAllowed?.(now) ?? true }),
     // The page then tells Lua to quit (R-UI-MENU-3); the daemon logs `app.quit` when Lua's shutdown request arrives.
     actions: { confirm: (_p, now) => ((d.quitAllowed?.(now) ?? true) ? { ok: true, quit: true } : { ok: false, error: 'enforcing' }) },
@@ -111,7 +112,7 @@ export function registerProductEffects(d: ProductDeps): void {
   const olderMissing = (now: number) => reports.missing(now).filter((s) => s.daysAgo >= 2);
   const window = userWindowEffect({
     name: 'reports',
-    look: { path: '/ui/reports.html', title: 'work-balancer — manage reports', w: 0.9, h: 0.9 },
+    look: { path: '/ui/reports.html', title: `${icons.reports} work-balancer — manage reports`, w: 0.9, h: 0.9 },
     model: (now) => {
       const c = d.config()?.reports;
       return {
@@ -243,7 +244,7 @@ export function createReviewEffect(d: Pick<ProductDeps, 'notes' | 'reports' | 's
       if (d.store.health().writeError) return { windows: [], dims: [] };
       return {
         windows: [{
-          id: 'review', path: '/ui/review.html', title: 'work-balancer — good morning', mode: 'floating', placement: 'center',
+          id: 'review', path: '/ui/review.html', title: `${icons.morning} work-balancer — good morning`, mode: 'floating', placement: 'center',
           w: 1000, h: 860, focus: false, closable: true, intrusive: true,
         }],
         dims: [],

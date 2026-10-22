@@ -1024,7 +1024,7 @@ local function quitConfirmLocal()
   S.quitAlert = hs.dialog.alert(f.x + f.w / 2 - 200, f.y + f.h / 3, function(choice)
     S.quitAlert = nil
     if choice == "Stop it" then M.quit("menu") end
-  end, "Stop work-balancer?", "Tracking and the menubar stop until the next login or Hammerspoon reload.",
+  end, "🚪 Stop work-balancer?", "Tracking and the menubar stop until the next login or Hammerspoon reload.",
     "Stop it", "Keep it running")
 end
 
@@ -1033,7 +1033,7 @@ buildMenu = function()
     return {
       { title = "work-balancer isn't running right now — restarting it…", disabled = true },
       { title = "-" },
-      { title = "Quit work-balancer…", fn = function() quitConfirmLocal() end },
+      { title = "🚪 Quit work-balancer…", fn = function() quitConfirmLocal() end },
     }
   end
   local items = {}
@@ -1045,7 +1045,7 @@ buildMenu = function()
       items[#items + 1] = { title = m.title, fn = function() uiRequest(id) end }
     end
   end
-  if #items == 0 then items = { { title = "Quit work-balancer…", fn = function() quitConfirmLocal() end } } end
+  if #items == 0 then items = { { title = "🚪 Quit work-balancer…", fn = function() quitConfirmLocal() end } } end
   return items
 end
 

@@ -130,7 +130,7 @@ test('reports: Thursday to Sunday; fresh welcome is firm, Manage Reports has eve
   assert.equal(s.model('reports').preferredDay, null);
   assert.deepEqual(s.model('reports').stubs.map((r: { day: string }) => r.day), ['2026-10-11', '2026-10-09', '2026-10-08']);
   assert.equal(s.action('reports', 'report-new', { energy: 3 }).ok, true, 'today can be reported before leaving a short day');
-  assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /^Manage Reports \(2 days without a report\)$/);
+  assert.match(s.tracker.menubar(s.clock.now()).menu!.find((m) => m.id === 'reports')!.title, /^📝 Manage Reports \(2 days without a report\)$/);
   assert.deepEqual(s.model('reports').reports.map((r: { day: string; energy: number }) => [r.day, r.energy]), [['2026-10-11', 3], ['2026-10-10', 4]]);
   assert.deepEqual(s.model('summary').reports.map((r: { day: string }) => r.day), ['2026-10-10', '2026-10-11'], 'expanded timelines show the reports of their range, oldest first (D-89)');
   assert.deepEqual(s.model('energy').days.map((d: { day: string; min: number | null; max: number | null }) => [d.day, d.min, d.max]),
@@ -366,8 +366,8 @@ test('menu: Manage Reports, Manage Notes, summary, Early End-Of-Day (enforcing d
   s.tracker.ingest({ since: s.clock.now() - 5000, inputs: [s.clock.now()], apps: [], system: [], locked: false }, s.clock.now());
   const menu = s.tracker.menubar(s.clock.now()).menu!;
   assert.deepEqual(menu.map((m) => [m.id, m.title]), [
-    ['reports', 'Manage Reports'], ['notes', 'Manage Notes'], ['summary', 'Show activity summary'], ['energy', 'Energy Graph'], ['countdown', 'Early End-Of-Day…'],
-    ['-', ''], ['quit', 'Quit work-balancer…'],
+    ['reports', '📝 Manage Reports'], ['notes', '📌 Manage Notes'], ['summary', '📊 Show activity summary'], ['energy', '🔋 Energy Graph'], ['countdown', '🌇 Early End-Of-Day…'],
+    ['-', ''], ['quit', '🚪 Quit work-balancer…'],
   ]);
   const fri = await setup(local(2026, 10, 9, 10, 0));
   t.after(fri.cleanup);

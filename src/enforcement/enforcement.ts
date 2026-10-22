@@ -15,6 +15,7 @@ import type { Notes } from '../notes/notes.ts';
 import { cleanText } from '../notes/notes.ts';
 import { saveNoteAndReport } from '../effects/product.ts';
 import { isEnergy, reportView, type Reports, type ReportView } from '../reports/reports.ts';
+import { icons } from '../ui/strings.ts';
 
 /** The warn dim pulse (R-UI-WARN): a few seconds, gentle; Lua caps and always restores. */
 export const WARN_DIM: Omit<DimSpec, 'pulseId'> = { level: 0.6, seconds: 3 };
@@ -121,15 +122,15 @@ export function blockModel(c: PolicyConfig, st: Pick<PolicyState, 'zeroLimit' | 
 
 export const WINDOWS = {
   warn: (): WindowInput => ({
-    id: 'warn', path: '/ui/warn.html', title: 'work-balancer — heads-up', mode: 'floating', placement: 'center', w: 860, h: 400,
+    id: 'warn', path: '/ui/warn.html', title: `${icons.warn} work-balancer — heads-up`, mode: 'floating', placement: 'center', w: 860, h: 400,
     focus: false, closable: true, intrusive: true,
   }),
   countdown: (collapsed: boolean): WindowInput => collapsed
-    ? { id: 'countdown', path: '/ui/countdown.html?pill=1', title: 'work-balancer', mode: 'floating', placement: 'top-right', w: 420, h: 150, focus: false, closable: false, intrusive: true }
-    : { id: 'countdown', path: '/ui/countdown.html', title: 'work-balancer — last few minutes', mode: 'floating', placement: 'center', w: 960, h: 820, focus: false, closable: false, intrusive: true },
+    ? { id: 'countdown', path: '/ui/countdown.html?pill=1', title: `${icons.countdown} work-balancer`, mode: 'floating', placement: 'top-right', w: 420, h: 150, focus: false, closable: false, intrusive: true }
+    : { id: 'countdown', path: '/ui/countdown.html', title: `${icons.countdown} work-balancer — last few minutes`, mode: 'floating', placement: 'center', w: 960, h: 820, focus: false, closable: false, intrusive: true },
   /** Early End-Of-Day (menu): the same dialog, opened by the owner — so focused, closable and never intrusive. */
   countdownEarly: (): WindowInput => ({
-    id: 'countdown', path: '/ui/countdown.html?early=1', title: 'work-balancer — end the day early', mode: 'floating', placement: 'center', w: 960, h: 820,
+    id: 'countdown', path: '/ui/countdown.html?early=1', title: `${icons.endOfDay} work-balancer — end the day early`, mode: 'floating', placement: 'center', w: 960, h: 820,
     focus: true, closable: true, intrusive: false,
   }),
   /** `immediate`: a token or the bypass was used today — the block returns the moment the grant ends (R-POL-3a),
@@ -139,7 +140,7 @@ export const WINDOWS = {
     focus: true, closable: false, intrusive: true, ...(immediate ? { immediate: true } : {}),
   }),
   nudge: (): WindowInput => ({
-    id: 'nudge', path: '/ui/nudge.html', title: 'work-balancer — a short break?', mode: 'floating', placement: 'top-right', w: 640, h: 330,
+    id: 'nudge', path: '/ui/nudge.html', title: `${icons.nudge} work-balancer — a short break?`, mode: 'floating', placement: 'top-right', w: 640, h: 330,
     focus: false, closable: true, intrusive: true,
   }),
 };
