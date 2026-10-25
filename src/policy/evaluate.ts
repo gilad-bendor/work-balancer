@@ -100,6 +100,14 @@ export function grantUntil(leftSeconds: number | null, at: number, minutes: numb
   return Math.min(dayEnd(dayKey(at)), at + (leftSeconds ?? 0) * 1000 + minutes * 60_000);
 }
 
+/** Minutes of a grant: `null` (the bypass with `minutes: null`) = the rest of `at`'s day, until 04:00. */
+export const grantMinutes = (minutes: number | null, at: number): number =>
+  minutes ?? Math.ceil((dayEnd(dayKey(at)) - at) / 60_000);
+
+/** The running grant lasts until 04:00 whatever he does (worked time can never outrun the wall clock). */
+export const grantToDayEnd = (st: Pick<PolicyState, 'grant' | 'day'>, now: number): boolean =>
+  st.grant !== null && st.grant.leftSeconds * 1000 >= dayEnd(st.day) - now;
+
 /** Earliest t ≥ `from` with `ms` of `busy` inside [from, t), or Infinity. */
 function reach(busy: readonly Interval[], from: number, ms: number): number {
   let need = ms;

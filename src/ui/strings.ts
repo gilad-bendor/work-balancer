@@ -21,11 +21,13 @@ export const icons = {
 } as const;
 
 export const strings = {
-  /** `grantLeft`: seconds of borrowed time left (a token or the bypass), shown as `⏳7m`. */
-  menubarTitle: (worked: number, base: number | null, grantLeft: number | null = null): string =>
-    (base === null ? `⏱ ${formatHM(worked)}` : `⏱ ${formatHM(worked)} / ${formatHM(base)}`) + (grantLeft === null ? '' : ` ⏳${Math.ceil(grantLeft / 60)}m`),
+  /** `grantLeft`: seconds of borrowed time left (a token or the bypass), shown as `⏳7m`; `'day'` = until 04:00. */
+  menubarTitle: (worked: number, base: number | null, grantLeft: number | 'day' | null = null): string =>
+    (base === null ? `⏱ ${formatHM(worked)}` : `⏱ ${formatHM(worked)} / ${formatHM(base)}`)
+    + (grantLeft === null ? '' : grantLeft === 'day' ? ' ⏳04:00' : ` ⏳${Math.ceil(grantLeft / 60)}m`),
   tooltipGrant: (leftSeconds: number): string =>
     `Borrowed time: ${Math.max(0, Math.ceil(leftSeconds / 60))} min of work left (time away does not use it) — then the screen rests until 04:00.`,
+  tooltipGrantDay: 'Borrowed time: the rest of today, until 04:00.',
   tooltipTokens: (left: readonly number[]): string =>
     left.length ? `Postpone tokens left today: ${left.map((m) => `${m} min`).join(', ')}.` : 'No postpone tokens left today.',
 
@@ -238,6 +240,7 @@ export const pageStrings = {
   countdownEarlyTitle: `${icons.endOfDay} Ending the day early.`,
   countdownEarlyIntro: 'Park where you are and say how you are doing. Saving ends the day: the screen rests until 04:00. Not ready yet? Just close this window.',
   countdownGrantTitle: `${icons.endOfDay} Ending the borrowed time — ≈ {n} min of it left.`,
+  countdownGrantTitleDay: `${icons.endOfDay} Ending the borrowed time — it runs until 04:00.`,
   countdownGrantIntro: 'Park where you are and say how you are doing. Saving ends the borrowed time now: the screen rests until 04:00. Not ready yet? Just close this window.',
   savedForTomorrow: 'Saved. It will be waiting for you tomorrow.',
   // Block (R-UI-BLOCK)
@@ -261,12 +264,15 @@ export const pageStrings = {
   blockNotNow: 'Not now',
   blockBypass: 'Emergency bypass…',
   blockBypassIntro: 'For a real emergency: type the sentence below (pasting is off), and say why. It lifts the screen for {m} minutes of work.',
+  blockBypassIntroDay: 'For a real emergency: type the sentence below (pasting is off), and say why. It lifts the screen for the rest of today, until 04:00.',
   blockBypassType: 'Type it here',
   blockBypassReason: 'Why now? (a few words)',
   blockBypassContinue: 'Continue',
   blockBypassMismatch: 'Not quite the same sentence yet.',
   blockBypassConfirm: 'Borrow {m} minutes from Friday?',
+  blockBypassConfirmDay: 'Borrow the rest of today from Friday?',
   blockBypassYes: 'Yes, borrow {m} minutes',
+  blockBypassYesDay: 'Yes, borrow the rest of today',
   blockBypassUsed: 'Emergency bypasses used today: {k}',
   blockFailed: "That didn't go through — try again in a moment.",
   blockOtherScreen: 'Notes and options are on the main screen.',

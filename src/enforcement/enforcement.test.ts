@@ -185,6 +185,29 @@ test('End-Of-Day during a token / the bypass: the same dialog ends the borrowed 
   assert.deepEqual(s.ids(), []);
 });
 
+test('bypass with `minutes: null`: free for the rest of the day, the block is gone until 04:00', async (t) => {
+  const dir = makeTmpDir('bypass-day');
+  t.after(dir.cleanup);
+  const now = local(2026, 10, 6, 17, 1); // Tuesday, 9 h worked: blocked
+  const s = await setup(now, { dir: dir.dir, configPath: testPolicy(dir.dir, { bypassMinutes: null }), seed: (store) => seedWork(store, local(2026, 10, 6, 8, 0), now) });
+  s.tracker.tick(now);
+  s.tracker.ingest({ since: now - 5000, inputs: [now], apps: [], system: [], locked: false }, now);
+  assert.deepEqual(s.ids(), ['block']);
+  assert.equal(s.model('block').bypass.minutes, null);
+  const bp = s.action('block', 'bypass', { phrase: PHRASE, reason: 'prod is down' });
+  assert.equal(bp.ok, true);
+  assert.equal(bp.until, local(2026, 10, 7, 4, 0));
+  assert.deepEqual(s.records('bypass.used').map((r) => r.minutes), [Math.ceil((local(2026, 10, 7, 4, 0) - now) / MIN)]);
+  assert.match(s.tracker.menubar(s.clock.now()).title, /⏳04:00$/);
+  assert.match(s.tracker.menubar(s.clock.now()).tooltip, /the rest of today, until 04:00/);
+  s.work(local(2026, 10, 7, 3, 59));
+  assert.ok(!s.ids().includes('block'), 'worked non-stop until 03:59: still free');
+  s.call('POST', '/bridge/ui-request', { open: 'countdown' });
+  assert.equal(s.model('countdown').grantToDayEnd, true);
+  s.work(local(2026, 10, 7, 4, 0, 30));
+  assert.deepEqual(s.ids().filter((id) => id === 'block'), [], 'a new day');
+});
+
 test('D-86: a token is minutes of work — away during it, the inactivity dialog asks; "back" keeps the rest, "whole" uses it up', async (t) => {
   const now = local(2026, 10, 6, 17, 1); // Tuesday, 9 h worked: blocked
   const s = await setup(now, { seed: (store) => seedWork(store, local(2026, 10, 6, 8, 0), now) });

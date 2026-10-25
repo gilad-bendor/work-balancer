@@ -10,13 +10,13 @@ export function gateClosedPolicy(dir: string): string {
 
 /** Keep unrelated policy tests independent of the owner's report start day (default: no days are asked for).
  * `morningReview: false` turns the morning review off on every day (the older-days catch-up then pops up itself). */
-export function testPolicy(dir: string, overrides: { liveEffects?: boolean; reportsStartDay?: string | null; morningReview?: false } = {}): string {
+export function testPolicy(dir: string, overrides: { liveEffects?: boolean; reportsStartDay?: string | null; morningReview?: false; bypassMinutes?: number | null } = {}): string {
   const path = join(dir, 'policy-gate-closed.ts');
   const owner = pathToFileURL(join(REPO_ROOT, 'config', 'policy.ts')).href;
-  const { reportsStartDay = null, morningReview, ...rest } = overrides;
+  const { reportsStartDay = null, morningReview, bypassMinutes = 30, ...rest } = overrides;
   const days = morningReview === false
     ? ', days: Object.fromEntries(Object.entries(owner.days).map(([k, v]) => [k, { ...v, morningReview: false }]))'
     : '';
-  writeFileSync(path, `import owner from '${owner}';\nexport default { ...owner, ...${JSON.stringify(rest)}, reports: { ...owner.reports, startDay: ${JSON.stringify(reportsStartDay)} }${days} };\n`);
+  writeFileSync(path, `import owner from '${owner}';\nexport default { ...owner, ...${JSON.stringify(rest)}, reports: { ...owner.reports, startDay: ${JSON.stringify(reportsStartDay)} }, bypass: { ...owner.bypass, minutes: ${JSON.stringify(bypassMinutes)} }${days} };\n`);
   return path;
 }

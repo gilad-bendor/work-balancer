@@ -56,7 +56,8 @@ export interface PolicyConfig {
   };
   /** Postpone tokens per enforcing day, wall-clock minutes each. */
   tokensMin: number[];
-  bypass: { minutes: number; phrase: string };
+  /** `minutes: null` = the bypass lifts the block for the rest of the day (until 04:00). */
+  bypass: { minutes: number | null; phrase: string };
   breakNudge: { afterMin: number; snoozeMin: number };
   days: Record<Weekday, DayPolicy>;
   /**
@@ -124,7 +125,7 @@ export function validatePolicy(x: unknown): ValidationResult {
   else for (let i = 0; i < x.tokensMin.length; i++) num(x.tokensMin[i], `tokensMin[${i}]`, 1, 240); // also catches holes
   if (!isObj(x.bypass)) errors.push('bypass must be an object');
   else {
-    num(x.bypass.minutes, 'bypass.minutes', 1, 240);
+    if (x.bypass.minutes !== null) num(x.bypass.minutes, 'bypass.minutes', 1, 240);
     if (typeof x.bypass.phrase !== 'string' || x.bypass.phrase.trim().length < 20) errors.push('bypass.phrase must be a string of at least 20 characters');
   }
   if (!isObj(x.breakNudge)) errors.push('breakNudge must be an object');

@@ -8,7 +8,7 @@ import type { ActionResult, DimSpec, Effect, WindowInput } from '../core/effects
 import type { Logger } from '../core/log.ts';
 import { dayEnd, dayKey, type DayKey, type Weekday } from '../core/time.ts';
 import type { PolicyConfig } from '../policy/config.ts';
-import { canBypass, canUseToken, grantUntil, type Level, type PolicyState } from '../policy/evaluate.ts';
+import { canBypass, canUseToken, grantMinutes, grantToDayEnd, grantUntil, type Level, type PolicyState } from '../policy/evaluate.ts';
 import type { AnyRecord } from '../store/records.ts';
 import type { Store } from '../store/store.ts';
 import type { Notes } from '../notes/notes.ts';
@@ -87,7 +87,7 @@ export interface BlockModel {
   week: WeekInfo;
   liftsAt: number;
   tokens: { minutes: number; left: number }[];
-  bypass: { minutes: number; phrase: string; usedToday: number };
+  bypass: { minutes: number | null; phrase: string; usedToday: number };
   reportStatuses: string[];
   draft: string;
   reportDraft: ReportDraft | null;
@@ -265,7 +265,7 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
       if (!st) return null;
       return {
         now, remainingSeconds: st.remainingSeconds, workedSeconds: st.workedSeconds, limitSeconds: st.limitSeconds,
-        early: st.level !== 'countdown', grantLeftSeconds: st.grant?.leftSeconds ?? null, collapsed, reportStatuses: d.config()?.reports.statuses ?? [], draft: draftText(now),
+        early: st.level !== 'countdown', grantLeftSeconds: st.grant?.leftSeconds ?? null, grantToDayEnd: grantToDayEnd(st, now), collapsed, reportStatuses: d.config()?.reports.statuses ?? [], draft: draftText(now),
         reportDraft: reportDraft(now), recorded: recorded(now),
       };
     },
@@ -342,9 +342,10 @@ export function createEnforcement(d: EnforcementDeps): Enforcement {
         if (!phraseMatches(p.phrase, c.bypass.phrase)) return { ok: false, error: 'phrase' };
         const reason = cleanText(p.reason).slice(0, MAX_REASON);
         if (reason.length < MIN_REASON) return { ok: false, error: 'reason' };
-        const until = grantUntil(st.grant?.leftSeconds ?? null, now, c.bypass.minutes);
-        if (!d.store.append({ type: 'bypass.used', minutes: c.bypass.minutes, until, reason })) return { ok: false, error: 'write' };
-        d.log.info('emergency bypass used', { minutes: c.bypass.minutes, until: new Date(until).toISOString() });
+        const minutes = grantMinutes(c.bypass.minutes, now);
+        const until = grantUntil(st.grant?.leftSeconds ?? null, now, minutes);
+        if (!d.store.append({ type: 'bypass.used', minutes, until, reason })) return { ok: false, error: 'write' };
+        d.log.info('emergency bypass used', { minutes, until: new Date(until).toISOString() });
         return { ok: true, close: true, until };
       }
       // Not dismissible (R-UI-BLOCK): no close — only a token, the bypass, 04:00 or the escape hatches end it.

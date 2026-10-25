@@ -9,7 +9,7 @@ import type { AnyRecord, GapCause } from '../store/records.ts';
 import { createInteractiveProvider } from '../providers/interactive/index.ts';
 import { createWorkProvider } from '../providers/work/index.ts';
 import { createPromptHistoryProvider } from '../providers/prompt-history/index.ts';
-import { evaluate, type GrantRecord, type Level, type PolicyState } from '../policy/evaluate.ts';
+import { evaluate, grantToDayEnd, type GrantRecord, type Level, type PolicyState } from '../policy/evaluate.ts';
 import { strings } from '../ui/strings.ts';
 import { createNotes } from '../notes/notes.ts';
 import { registerProductEffects } from '../effects/product.ts';
@@ -418,13 +418,13 @@ export async function createTracker(deps: TrackerDeps): Promise<Tracker> {
       const st = policyState(now);
       const base = st.limitSeconds ?? st.referenceSeconds;
       const gate = deps.effects?.gateOpen() ?? false;
-      const grantLeft = st.grant ? st.grant.leftSeconds : null;
+      const grantLeft = !st.grant ? null : grantToDayEnd(st, now) ? 'day' as const : st.grant.leftSeconds;
       const lines = [
         wd === 'sat' ? strings.tooltipShabbat : wd === 'fri' ? strings.tooltipFriday : strings.tooltipToday(todaySeconds, st.limitSeconds, st.referenceSeconds),
         ...(wd === 'sat' || wd === 'fri' ? [strings.tooltipToday(todaySeconds, null, null)] : []),
         strings.tooltipWeek(weekSeconds, c.weeklyBudgetMin * 60),
         strings.tooltipStretch(stretch ? stretch.seconds : null),
-        ...(st.grant ? [strings.tooltipGrant(st.grant.leftSeconds)] : []),
+        ...(st.grant ? [grantLeft === 'day' ? strings.tooltipGrantDay : strings.tooltipGrant(st.grant.leftSeconds)] : []),
         ...(st.enforcing && gate ? [strings.tooltipTokens(st.tokensLeft)] : []),
         ...(gate ? [] : [strings.observeMode]),
       ];

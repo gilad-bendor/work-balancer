@@ -24,7 +24,7 @@ interface Model {
   week: { workedSeconds: number; budgetSeconds: number | null; days: Day[] };
   liftsAt: number;
   tokens: { minutes: number; left: number }[];
-  bypass: { minutes: number; phrase: string; usedToday: number };
+  bypass: { minutes: number | null; phrase: string; usedToday: number };
   reportStatuses: string[];
   draft: string;
   reportDraft?: ReportValue | null;
@@ -132,7 +132,7 @@ void boot<Model | null>(({ strings: s, model: first }) => {
       bypassConfirm(typed.value, reason.value);
     });
     bypassBox.replaceChildren(
-      el('p', {}, fill(s.blockBypassIntro, { m: model.bypass.minutes })),
+      el('p', {}, model.bypass.minutes === null ? s.blockBypassIntroDay! : fill(s.blockBypassIntro, { m: model.bypass.minutes })),
       el('blockquote', { class: 'phrase' }, model.bypass.phrase),
       typed, reason, hint,
       el('div', { class: 'row end' }, cancel, cont),
@@ -140,7 +140,8 @@ void boot<Model | null>(({ strings: s, model: first }) => {
     typed.focus();
   }
   function bypassConfirm(phrase: string, reason: string): void {
-    const yes = el('button', { class: 'primary' }, fill(s.blockBypassYes, { m: model.bypass.minutes }));
+    const minutes = model.bypass.minutes;
+    const yes = el('button', { class: 'primary' }, minutes === null ? s.blockBypassYesDay! : fill(s.blockBypassYes, { m: minutes }));
     const no = el('button', {}, s.blockNotNow!);
     yes.disabled = true;
     setTimeout(() => { yes.disabled = false; }, CONFIRM_DELAY_MS);
@@ -157,7 +158,7 @@ void boot<Model | null>(({ strings: s, model: first }) => {
       }
       yes.disabled = false;
     });
-    bypassBox.replaceChildren(el('div', { class: 'confirm' }, el('p', {}, fill(s.blockBypassConfirm, { m: model.bypass.minutes })), hint, el('div', { class: 'row end' }, no, yes)));
+    bypassBox.replaceChildren(el('div', { class: 'confirm' }, el('p', {}, minutes === null ? s.blockBypassConfirmDay! : fill(s.blockBypassConfirm, { m: minutes })), hint, el('div', { class: 'row end' }, no, yes)));
   }
 
   function renderMain(): void {

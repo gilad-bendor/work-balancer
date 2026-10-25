@@ -13,6 +13,8 @@ interface Model {
   remainingSeconds: number | null;
   /** Early, during a token / the bypass: worked seconds of borrowed time left (Save ends it now). */
   grantLeftSeconds?: number | null;
+  /** The borrowed time runs until 04:00 (the rest-of-day bypass). */
+  grantToDayEnd?: boolean;
   reportStatuses: string[];
   draft: string;
   reportDraft?: ReportValue | null;
@@ -32,7 +34,7 @@ void boot<Model | null>(({ strings: s, model }) => {
     const n = minutesLeft(m);
     const grant = early && typeof m?.grantLeftSeconds === 'number';
     const grantMin = grant ? Math.max(0, Math.ceil(m!.grantLeftSeconds! / 60)) : 0;
-    title.textContent = grant ? fill(s.countdownGrantTitle, { n: grantMin })
+    title.textContent = grant ? (m!.grantToDayEnd ? s.countdownGrantTitleDay! : fill(s.countdownGrantTitle, { n: grantMin }))
       : early ? s.countdownEarlyTitle! : pill ? fill(s.countdownPill, { n }) : n > 0 ? fill(s.countdownTitle, { n }) : s.countdownDone!;
     intro.textContent = grant ? s.countdownGrantIntro! : early ? s.countdownEarlyIntro! : s.countdownIntro!;
   };

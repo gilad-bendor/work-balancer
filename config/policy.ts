@@ -33,7 +33,8 @@ export default {
   ladder: { orangeAtFraction: 0.75, warnBeforeMin: 30, countdownBeforeMin: 10 },
   tokensMin: [10, 5, 5],
   bypass: {
-    minutes: 30,
+    // null = free for the rest of the day (until 04:00); a number = that many minutes of work.
+    minutes: null,
     phrase: 'I am choosing to borrow this time from my Friday and my family. I accept the cost, and I will stop as soon as I can.',
   },
   breakNudge: { afterMin: 90, snoozeMin: 15 },
